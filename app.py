@@ -25,7 +25,7 @@ def save_db(df, file): df.to_csv(file, index=False)
 if 'user' not in st.session_state:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
     st.title("🛡️ 業務システム・ログイン")
-    st.warning("### ログインしてくれなきゃ泣いちゃうから🥺")
+    st.warning("### 名前を選んでログインしてください💻")
     
     user_list = ["--- 選択してください ---", "木村 由美", "秋吉 幸雄", "安心院 拓也", "粟田 絵利菜", "小宅 正嗣", "土居 容子", "中本 匡", "中本 文代", "伴 法子", "栁川 幸恵", "山口 晴彦"]
     user = st.selectbox("担当者を選択してください", user_list)
