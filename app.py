@@ -1,56 +1,185 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
+import os
 
-st.set_page_config(page_title="精鋭チーム作戦本部", layout="wide")
+# --- ページ基本設定 ---
+st.set_page_config(page_title="作業管理システム", layout="wide")
 
-# スプレッドシート接続（Secrets設定を参照する設定ある）
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- データベースファイルのセットアップ ---
+# データの永続化（保存）のためにCSVファイルを使用します
+TASK_DB = "tasks_v2.csv"
+CHAT_DB = "chat_log.csv"
 
-# データ取得関数
-def load_tasks(): return conn.read(worksheet="tasks", ttl=0)
-def load_chat(): return conn.read(worksheet="chat", ttl=0)
+for db, cols in [(TASK_DB, ["id", "task", "status", "user", "limit", "priority", "updated_at"]), 
+                 (CHAT_DB, ["date", "time", "user", "message"])]:
+    if not os.path.exists(db):
+        pd.DataFrame(columns=cols).to_csv(db, index=False)
 
-# --- ログイン判定 ---
+def load_db(file): return pd.read_csv(file)
+def save_db(df, file): df.to_csv(file, index=False)
+
+# ==========================================
+# 🔑 ユーザー認証（ログイン管理）
+# ==========================================
 if 'user' not in st.session_state:
-    st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
-    st.title("🛡️ 基地の入り口")
-    st.warning("### ログインしてくれなきゃ泣いちゃうから🥺")
-    user = st.selectbox("君は誰だ！", ["--- 選択してね ---", "ゆー", "Aさん", "Bさん", "Cさん"])
-    if user != "--- 選択してね ---" and st.button("🚀 出撃するある！"):
-        st.session_state.user = user
-        st.rerun()
-    st.stop()
-
-# --- メイン画面 ---
-st.sidebar.title(f"👤 {st.session_state.user} 隊員")
-page = st.sidebar.radio("移動先", ["① 未着手の任務", "② チャットルーム"])
-
-if page == "① 未着手の任務":
-    st.title("📋 タスク一覧")
-    df = load_tasks()
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    # ログイン前はサイドバーを非表示にする設定です
+    st.markdown("""
+        <style>
+            [data-testid="stSidebarNav"] {display: none;}
+        </style>
+    """, unsafe_allow_html=True)
     
-    with st.expander("➕ 新しい任務を追加"):
-        with st.form("add_form"):
-            new_task = st.text_input("任務名")
-            if st.form_submit_button("登録"):
-                new_data = pd.DataFrame([{"id": len(df)+1, "task": new_task, "status": "未着手", "updated_at": datetime.now().strftime('%Y-%m-%d %H:%M')}])
-                updated_df = pd.concat([df, new_data], ignore_index=True)
-                conn.update(worksheet="tasks", data=updated_df)
-                st.success("登録したある！")
-                st.rerun()
-
-elif page == "② チャットルーム":
-    st.title("💬 会議室")
-    chat_df = load_chat()
-    with st.form("chat_form", clear_on_submit=True):
-        msg = st.text_input("メッセージ")
-        if st.form_submit_button("送信"):
-            new_msg = pd.DataFrame([{"date": datetime.now().strftime('%Y-%m-%d'), "time": datetime.now().strftime('%H:%M'), "user": st.session_state.user, "message": msg}])
-            updated_chat = pd.concat([chat_df, new_msg], ignore_index=True)
-            conn.update(worksheet="chat", data=updated_chat)
+    st.title("🛡️ 業務システム・ログイン")
+    # ゆー（you）さんこだわりのメッセージです(笑)
+    st.warning("### ログインしてくれなきゃ泣いちゃうから🥺")
+    
+    user_list = ["--- 選択してください ---", "ゆー", "Aさん", "Bさん", "Cさん", "Dさん"]
+    user = st.selectbox("担当者を選択してください", user_list)
+    
+    if user != "--- 選択してください ---":
+        if st.button("システムへログイン", use_container_width=True):
+            st.session_state.user = user
             st.rerun()
-    for _, row in chat_df.sort_index(ascending=False).iterrows():
-        st.write(f"**{row['user']}** ({row['time']}): {row['message']}")
+    st.stop() 
+
+# ==========================================
+# 🏠 メインメニュー（ログイン後）
+# ==========================================
+
+# サイドバーによるナビゲーション
+st.sidebar.title(f"👤 ログイン中: {st.session_state.user}")
+page = st.sidebar.radio("メニューを選択してください", 
+                        ["① 未着手の任務（掲示板）", "② タスクの引き受け・報告", "③ 稼働状況・完了履歴", "④ チームチャット"])
+
+if st.sidebar.button("ログアウト"):
+    del st.session_state.user
+    st.rerun()
+
+st.sidebar.divider()
+st.sidebar.caption("System Version 2.0")
+
+# ==========================================
+# ① 未着手の任務（掲示板）
+# ==========================================
+if page == "① 未着手の任務（掲示板）":
+    st.title("📋 未着手タスク一覧")
+    st.write("現在、依頼されている業務の一覧です。新しいタスクを登録することも可能です。")
+
+    with st.expander("➕ 新規タスクを登録する"):
+        with st.form("task_form"):
+            t_name = st.text_input("タスク名")
+            t_prio = st.select_slider("緊急度", options=["通常", "重要", "至急"])
+            t_limit = st.date_input("完了期限", datetime.now())
+            if st.form_submit_button("タスクを登録"):
+                if t_name:
+                    df = load_db(TASK_DB)
+                    new_task = pd.DataFrame([{"id": len(df)+1, "task": t_name, "status": "未着手", 
+                                              "user": "", "limit": t_limit, "priority": t_prio, 
+                                              "updated_at": datetime.now().strftime('%Y-%m-%d %H:%M')}])
+                    save_db(pd.concat([df, new_task]), TASK_DB)
+                    st.success("タスクを登録しました。")
+                    st.rerun()
+                else:
+                    st.error("タスク名を入力してください。")
+
+    df = load_db(TASK_DB)
+    todo = df[df["status"] == "未着手"].copy()
+    if not todo.empty:
+        # 緊急度順にソート表示
+        prio_map = {"至急": 0, "重要": 1, "通常": 2}
+        todo["p_val"] = todo["priority"].map(prio_map)
+        st.dataframe(todo.sort_values("p_val")[["priority", "limit", "task"]], use_container_width=True, hide_index=True)
+    else:
+        st.info("現在、未着手のタスクはありません。")
+
+# ==========================================
+# ② タスクの引き受け・報告
+# ==========================================
+elif page == "② タスクの引き受け・報告":
+    st.title("🎯 タスク管理")
+    df = load_db(TASK_DB)
+    
+    # 1. 未着手から引き受ける
+    st.subheader("📦 新しくタスクを引き受ける")
+    todo = df[df["status"] == "未着手"]
+    if todo.empty:
+        st.write("引き受け可能なタスクはありません。")
+    for _, row in todo.iterrows():
+        p_symbol = "🔴 [至急]" if row['priority'] == "至急" else "🟡 [重要]" if row['priority'] == "重要" else "⚪ [通常]"
+        if st.button(f"{p_symbol} {row['task']} (期限:{row['limit']}) を開始する", key=f"get_{row['id']}"):
+            df.loc[df["id"] == row["id"], ["status", "user", "updated_at"]] = ["作業中", st.session_state.user, datetime.now().strftime('%Y-%m-%d %H:%M')]
+            save_db(df, TASK_DB)
+            st.rerun()
+
+    st.divider()
+    
+    # 2. 自分の作業中タスク
+    st.subheader("⚡ 現在対応中のタスク")
+    my_tasks = df[(df["status"] == "作業中") & (df["user"] == st.session_state.user)]
+    if my_tasks.empty:
+        st.write("現在、対応中のタスクはありません。")
+    for _, row in my_tasks.iterrows():
+        if st.button(f"✅ {row['task']} の完了を報告する", key=f"done_{row['id']}", type="primary"):
+            df.loc[df["id"] == row["id"], ["status", "updated_at"]] = ["完了", datetime.now().strftime('%Y-%m-%d %H:%M')]
+            save_db(df, TASK_DB)
+            st.rerun()
+
+# ==========================================
+# ③ 稼働状況・完了履歴
+# ==========================================
+elif page == "③ 稼働状況・完了履歴":
+    st.title("📊 チーム稼働状況")
+    df = load_db(TASK_DB)
+    
+    st.subheader("🏃 現在稼働中のメンバー")
+    active = df[df["status"] == "作業中"]
+    if active.empty:
+        st.write("現在稼働中のメンバーはいません。")
+    else:
+        for _, row in active.iterrows():
+            st.info(f"👤 **{row['user']}**： {row['task']} （着手時刻：{row['updated_at']}）")
+
+    st.divider()
+    
+    st.subheader("✅ 完了済みのタスク（過去7日間）")
+    one_week_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+    done = df[(df["status"] == "完了") & (df["updated_at"] >= one_week_ago)]
+    if not done.empty:
+        st.table(done.sort_values("updated_at", ascending=False)[["updated_at", "user", "task"]])
+    else:
+        st.write("直近1週間以内の完了履歴はありません。")
+
+# ==========================================
+# ④ チームチャット
+# ==========================================
+elif page == "④ チームチャット":
+    st.title("💬 業務連絡チャット")
+    chat_df = load_db(CHAT_DB)
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    mode = st.radio("表示切り替え", ["本日の連絡", "ログ倉庫（過去分）"], horizontal=True)
+
+    if mode == "本日の連絡":
+        with st.form("chat_form", clear_on_submit=True):
+            msg = st.text_input("業務連絡を入力してください")
+            if st.form_submit_button("送信"):
+                if msg:
+                    new_msg = pd.DataFrame([{"date": today, "time": datetime.now().strftime('%H:%M'), 
+                                             "user": st.session_state.user, "message": msg}])
+                    save_db(pd.concat([chat_df, new_msg]), CHAT_DB)
+                    st.rerun()
+        
+        st.divider()
+        display_df = chat_df[chat_df["date"] == today]
+        if display_df.empty:
+            st.write("本日の連絡事項はありません。")
+        for _, row in display_df.sort_values("time", ascending=False).iterrows():
+            st.markdown(f"**{row['user']}** ({row['time']}):  \n{row['message']}")
+    
+    else:
+        st.subheader("📚 過去の連絡ログ")
+        dates = chat_df["date"].unique()
+        target_date = st.selectbox("参照する日付を選択してください", sorted(dates, reverse=True))
+        if target_date:
+            st.table(chat_df[chat_df["date"] == target_date][["time", "user", "message"]])
