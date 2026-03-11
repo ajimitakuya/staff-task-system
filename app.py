@@ -11,15 +11,11 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_db(file):
     s_name = "task" if "task" in file else "chat"
-    # SecretsからURLを直接取ってきて読み込む、一番最初の安定版ある！
-    url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-    return conn.read(spreadsheet=url, worksheet=s_name, ttl="0s")
+    return conn.read(worksheet=s_name, ttl=0)
 
 def save_db(df, file):
     s_name = "task" if "task" in file else "chat"
-    # 書き込みもURL指定の形に戻したある！
-    url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-    conn.update(spreadsheet=url, worksheet=s_name, data=df)
+    conn.update(worksheet=s_name, data=df)
 
 # ==========================================
 # 🔑 ユーザー認証
