@@ -8,22 +8,16 @@ st.set_page_config(page_title="作業管理システム", layout="wide")
 
 # --- データベースファイルのセットアップ ---
 # 注：ネット版ならここをスプレッドシート接続に変える必要があるある！
-# --- データベース設定（スプレッドシート版） ---
-import gspread
-from google.oauth2.service_account import Credentials
+TASK_DB = "tasks_v2.csv"
+CHAT_DB = "chat_log.csv"
 
-# スプレッドシートID（さっきコピーした 1UZ0...taQ を入れるある！）
-SPREADSHEET_ID = "1UZ0O6Rtfu127YCIYRaOu3us8aneudnO-gFVkjndtaQ"
+for db, cols in [(TASK_DB, ["id", "task", "status", "user", "limit", "priority", "updated_at"]), 
+                 (CHAT_DB, ["date", "time", "user", "message"])]:
+    if not os.path.exists(db):
+        pd.DataFrame(columns=cols).to_csv(db, index=False)
 
-# 接続設定
-scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
-client = gspread.authorize(creds)
-sh = client.open_by_key(SPREADSHEET_ID)
-
-# 各シートの取得
-task_sheet = sh.worksheet("tasks")
-chat_sheet = sh.worksheet("chat")
+def load_db(file): return pd.read_csv(file)
+def save_db(df, file): df.to_csv(file, index=False)
 
 # ==========================================
 # 🔑 ユーザー認証
@@ -187,5 +181,4 @@ elif page == "④ チームチャット":
             target_date = st.selectbox("参照する日付を選択してください", sorted(dates, reverse=True))
             if target_date:
                 st.table(chat_df[chat_df["date"] == target_date][["time", "user", "message"]])
-
     show_chat_page()
