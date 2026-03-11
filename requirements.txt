@@ -1,3 +1,3 @@
 streamlit
 pandas
-stgsheets
+st-gsheets-connection
