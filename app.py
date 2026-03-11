@@ -6,18 +6,19 @@ from streamlit_gsheets import GSheetsConnection
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
 
-# --- 🔌 スプレッドシート接続設定 ---
-# ⚠️ ここを完全に修正したある！
+
+# --- 🔌 スプレッドシート接続設定（最新の最強版ある！） ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_db(file):
+    # 💡 コツは「URL」を書かないことある！
+    # Secretsにある設定と共有設定（image_24fa99.png）をフル活用する公式の書き方ある！
     s_name = "task" if "task" in file else "chat"
-    # 💡 クエリを使って「Google Sheets」として正しく読み込む方式に変えたある！
-    return conn.query(f'SELECT * FROM "{s_name}"', ttl="0s")
+    return conn.read(worksheet=s_name, ttl="0s")
 
 def save_db(df, file):
     s_name = "task" if "task" in file else "chat"
-    # 書き込みも専用メソッドで確実に実行するある！
+    # 書き込みも「ワークシート名」だけで指定するのが、Googleを怒らせない秘訣ある！
     conn.update(worksheet=s_name, data=df)
 
 # ==========================================
