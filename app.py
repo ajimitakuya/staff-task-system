@@ -11,9 +11,9 @@ st.set_page_config(page_title="作業管理システム", layout="wide")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_db(file):
-    # ファイル名からシート名を判定（taskかchat）
     s_name = "task" if "task" in file else "chat"
-    return conn.read(worksheet=s_name, ttl="0s")
+    # ここにURLを直接書くことで、CSV読み込みエラーを完全に回避するある！！
+    return conn.read(spreadsheet="https://docs.google.com/spreadsheets/d/1UZ0O6Rtfu127YClAYrAoU3us8aneudnO-gFVkjndtaQ/edit", worksheet=s_name, ttl="0s")
 
 def save_db(df, file):
     s_name = "task" if "task" in file else "chat"
