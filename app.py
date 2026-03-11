@@ -42,7 +42,8 @@ if 'user' not in st.session_state:
 st.sidebar.markdown(f"### 👤 ログイン中：\n## {st.session_state.user}")
 
 page = st.sidebar.radio("メニューを選択してください", 
-                        ["① 未着手の任務（掲示板）", "② タスクの引き受け・報告", "③ 稼働状況・完了履歴", "④ チームチャット"])
+                        ["① 未着手の任務（掲示板）", "② タスクの引き受け・報告", "③ 稼働状況・完了履歴", 
+                         "④ チームチャット", "⑤ 業務マニュアル", "⑥ 日誌入力状況"]) # 👈 ここを追加するある！
 
 if st.sidebar.button("ログアウト"):
     del st.session_state.user
