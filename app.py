@@ -1,41 +1,39 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-import os
 from streamlit_gsheets import GSheetsConnection
 
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
 
-# --- 🔌 スプレッドシート接続設定（ここがデータの通り道ある！） ---
+# --- 🔌 スプレッドシート接続設定 ---
+# ⚠️ ここを完全に修正したある！
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_db(file):
     s_name = "task" if "task" in file else "chat"
-    # ここにURLを直接書くことで、CSV読み込みエラーを完全に回避するある！！
-    return conn.read(spreadsheet="https://docs.google.com/spreadsheets/d/1UZ0O6Rtfu127YClAYrAoU3us8aneudnO-gFVkjndtaQ/edit", worksheet=s_name, ttl="0s")
+    # 💡 クエリを使って「Google Sheets」として正しく読み込む方式に変えたある！
+    return conn.query(f'SELECT * FROM "{s_name}"', ttl="0s")
 
 def save_db(df, file):
     s_name = "task" if "task" in file else "chat"
-    # 空の値を適切に処理してGoogle側に反映させるある
+    # 書き込みも専用メソッドで確実に実行するある！
     conn.update(worksheet=s_name, data=df)
 
 # ==========================================
-# 🔑 ユーザー認証
+# 🔑 ユーザー認証 (ここはそのままある)
 # ==========================================
 if 'user' not in st.session_state:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
     st.title("🛡️ 業務システム・ログイン")
     st.warning("### 名前を選んでログインしてください💻")
-    
     user_list = ["--- 選択してください ---", "木村 由美", "秋吉 幸雄", "安心院 拓也", "粟田 絵利菜", "小宅 正嗣", "土居 容子", "中本 匡", "中本 文代", "伴 法子", "栁川 幸恵", "山口 晴彦"]
     user = st.selectbox("担当者を選択してください", user_list)
-    
     if user != "--- 選択してください ---":
         if st.button("システムへログイン", use_container_width=True):
             st.session_state.user = user
             st.rerun()
-    st.stop() 
+    st.stop()
 
 # ==========================================
 # 🏠 メインメニュー
