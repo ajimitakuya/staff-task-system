@@ -6,23 +6,23 @@ from streamlit_gsheets import GSheetsConnection
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
 
-
-# --- 🔌 スプレッドシート接続設定（最新の最強版ある！） ---
+# --- 🔌 スプレッドシート接続設定（元のシンプルな形に戻したある！） ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_db(file):
-    # 💡 コツは「URL」を書かないことある！
-    # Secretsにある設定と共有設定（image_24fa99.png）をフル活用する公式の書き方ある！
     s_name = "task" if "task" in file else "chat"
-    return conn.read(worksheet=s_name, ttl="0s")
+    # SecretsからURLを直接取ってきて読み込む、一番最初の安定版ある！
+    url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+    return conn.read(spreadsheet=url, worksheet=s_name, ttl="0s")
 
 def save_db(df, file):
     s_name = "task" if "task" in file else "chat"
-    # 書き込みも「ワークシート名」だけで指定するのが、Googleを怒らせない秘訣ある！
-    conn.update(worksheet=s_name, data=df)
+    # 書き込みもURL指定の形に戻したある！
+    url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+    conn.update(spreadsheet=url, worksheet=s_name, data=df)
 
 # ==========================================
-# 🔑 ユーザー認証 (ここはそのままある)
+# 🔑 ユーザー認証
 # ==========================================
 if 'user' not in st.session_state:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
@@ -36,11 +36,8 @@ if 'user' not in st.session_state:
             st.rerun()
     st.stop()
 
-# ==========================================
-# 🏠 メインメニュー
-# ==========================================
+# --- メインメニュー以降は以前の通りある ---
 st.sidebar.markdown(f"### 👤 ログイン中：\n## {st.session_state.user}")
-
 page = st.sidebar.radio("メニューを選択してください", 
                         ["① 未着手の任務（掲示板）", "② タスクの引き受け・報告", "③ 稼働状況・完了履歴", "④ チームチャット"])
 
@@ -58,8 +55,7 @@ if page == "① 未着手の任務（掲示板）":
     @st.fragment(run_every=60)
     def show_task_board_page():
         st.title("📋 未着手タスク一覧")
-        st.write("現在、依頼されている業務の一覧です。新しいタスクを登録することも可能です。")
-
+        
         with st.expander("➕ 新規タスクを登録する"):
             with st.form("task_form"):
                 t_name = st.text_input("タスク名")
@@ -86,6 +82,8 @@ if page == "① 未着手の任務（掲示板）":
         else:
             st.info("現在、未着手のタスクはありません。")
     show_task_board_page()
+
+# ※ 他のページ（②、③、④）も同様に load_db と save_db を呼び出しているため、この修正で全て元に戻るある！
 
 # ==========================================
 # ② タスクの引き受け・報告
