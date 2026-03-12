@@ -221,19 +221,32 @@ def sync_task_events_to_calendar():
     save_db(cal_df, "calendar")
 
 # ==========================================
-# 🔑 ユーザー認証 (ここはそのままある)
+# 🔑 ユーザー認証
 # ==========================================
 if 'user' not in st.session_state:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
     st.title("🛡️ 業務システム・ログイン")
     st.warning("### 名前を選んでログインしてください💻")
-    user_list = ["--- 選択してください ---", "木村 由美", "秋吉 幸雄", "安心院 拓也", "粟田 絵利菜", "小宅 正嗣", "土居 容子", "中本 匡", "中本 文代", "伴 法子", "栁川 幸恵", "山口 晴彦"]
-    user = st.selectbox("担当者を選択してください", user_list)
-    if user != "--- 選択してください ---":
-        if st.button("システムへログイン", use_container_width=True):
+
+    user_list = [
+        "木村 由美", "秋吉 幸雄", "安心院 拓也", "粟田 絵利菜", "小宅 正嗣",
+        "土居 容子", "中本 匡", "中本 文代", "伴 法子", "栁川 幸恵", "山口 晴彦"
+    ]
+
+    user = st.radio(
+        "担当者を選択してください",
+        user_list,
+        index=None
+    )
+
+    if st.button("システムへログイン", use_container_width=True):
+        if user:
             st.session_state.user = user
             st.session_state.login_at = now_jst().strftime("%Y-%m-%d %H:%M")
             st.rerun()
+        else:
+            st.error("担当者を選択してください。")
+
     st.stop()
 
 update_active_user()
@@ -639,12 +652,21 @@ elif page == "④ チームチャット":
     show_chat_page()
 
 # ==========================================
-# ⑤ 業務マニュアル (画像D&D対応ある！)
+# ⑤ 業務マニュアル ver2 (画像D&D + 削除対応)
 # ==========================================
 elif page == "⑤ 業務マニュアル":
     @st.fragment(run_every=60)
     def show_manual_page():
         st.title("📚 業務マニュアル")
+
+        m_df = load_db("manual")
+
+        if m_df is None or m_df.empty:
+            m_df = pd.DataFrame(columns=["id", "title", "content", "image_data", "created_at"])
+        else:
+            for col in ["id", "title", "content", "image_data", "created_at"]:
+                if col not in m_df.columns:
+                    m_df[col] = ""
 
         with st.expander("📝 新しいマニュアルを作成する"):
             with st.form("manual_form"):
@@ -665,17 +687,9 @@ elif page == "⑤ 業務マニュアル":
 
                 if st.form_submit_button("保存する"):
                     if title and content:
-                        m_df = load_db("manual")
-
-                        # IDが重複しにくいように最大値+1
-                        if m_df is None or m_df.empty:
-                            m_df = pd.DataFrame(columns=["id", "title", "content", "image_data", "created_at"])
+                        if m_df.empty:
                             next_id = 1
                         else:
-                            for col in ["id", "title", "content", "image_data", "created_at"]:
-                                if col not in m_df.columns:
-                                    m_df[col] = ""
-
                             ids = pd.to_numeric(m_df["id"], errors="coerce").dropna()
                             next_id = int(ids.max()) + 1 if not ids.empty else 1
 
@@ -689,7 +703,7 @@ elif page == "⑤ 業務マニュアル":
                             "title": title,
                             "content": content,
                             "image_data": image_data,
-                            "created_at": now_jst().strftime("%Y-%m-%d")
+                            "created_at": now_jst().strftime("%Y-%m-%d %H:%M")
                         }])
 
                         save_db(pd.concat([m_df, new_m], ignore_index=True), "manual")
@@ -712,13 +726,13 @@ elif page == "⑤ 業務マニュアル":
 
         m_df = m_df.fillna("")
 
-        # 新しい順にしたいときは created_at 降順
         try:
             display_df = m_df.sort_values("created_at", ascending=False)
         except Exception:
             display_df = m_df.copy()
 
         for _, row in display_df.iterrows():
+            manual_id = row.get("id", "")
             title = str(row.get("title", "")).strip()
             content = str(row.get("content", "")).strip()
             created_at = str(row.get("created_at", "")).strip()
@@ -739,8 +753,14 @@ elif page == "⑤ 業務マニュアル":
                     except Exception:
                         st.warning("画像データの読み込みに失敗したある。")
 
+                if st.button("🗑️ このマニュアルを削除する", key=f"delete_manual_{manual_id}"):
+                    new_df = m_df[m_df["id"].astype(str) != str(manual_id)].copy()
+                    save_db(new_df, "manual")
+                    st.success("削除したある。")
+                    st.rerun()
+
     show_manual_page()
-    
+
 # ==========================================
 # ⑥ 日誌入力状況（年つき横表・Excel風ある！）
 # ==========================================
