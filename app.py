@@ -27,6 +27,8 @@ def get_sheet_name(file):
         return "record_status"
     elif file == "calendar":
         return "calendar"
+    elif file == "active_users":
+        return "active_users"    
     else:
         raise ValueError(f"未対応のシート名ある: {file}")
 
@@ -77,6 +79,7 @@ def load_db(file):
         "manual": ["id", "title", "content", "image_data", "created_at"],
         "record_status": record_status_cols,
         "calendar": calendar_cols,
+         "active_users": ["user", "login_at", "last_seen"],
     }
 
     for col in expected_cols[file]:
@@ -88,6 +91,47 @@ def load_db(file):
 def save_db(df, file):
     s_name = get_sheet_name(file)
     conn.update(worksheet=s_name, data=df)
+
+def update_active_user():
+    active_df = load_db("active_users")
+
+    if active_df is None or active_df.empty:
+        active_df = pd.DataFrame(columns=["user", "login_at", "last_seen"])
+    else:
+        for col in ["user", "login_at", "last_seen"]:
+            if col not in active_df.columns:
+                active_df[col] = ""
+
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M")
+
+    # 15分以上更新がない人はログアウト扱いにするある
+    keep_rows = []
+    for _, row in active_df.fillna("").iterrows():
+        last_seen = str(row.get("last_seen", "")).strip()
+        if not last_seen:
+            continue
+        try:
+            last_dt = pd.to_datetime(last_seen)
+            if (now_jst().replace(tzinfo=None) - last_dt.to_pydatetime()).total_seconds() <= 15 * 60:
+                keep_rows.append(row)
+        except Exception:
+            pass
+
+    active_df = pd.DataFrame(keep_rows) if keep_rows else pd.DataFrame(columns=["user", "login_at", "last_seen"])
+
+    current_user = st.session_state.user
+
+    if current_user in active_df["user"].astype(str).tolist():
+        active_df.loc[active_df["user"] == current_user, "last_seen"] = now_str
+    else:
+        new_row = pd.DataFrame([{
+            "user": current_user,
+            "login_at": now_str,
+            "last_seen": now_str
+        }])
+        active_df = pd.concat([active_df, new_row], ignore_index=True)
+
+    save_db(active_df, "active_users")
 
 def sync_task_events_to_calendar():
     task_df = load_db("task")
@@ -188,9 +232,11 @@ if 'user' not in st.session_state:
     if user != "--- 選択してください ---":
         if st.button("システムへログイン", use_container_width=True):
             st.session_state.user = user
+            st.session_state.login_at = now_jst().strftime("%Y-%m-%d %H:%M")
             st.rerun()
     st.stop()
 
+update_active_user()
 # ==========================================
 # 🏠 メインメニュー
 # ==========================================
@@ -213,8 +259,41 @@ if st.sidebar.button("ログアウト"):
     del st.session_state.user
     st.rerun()
 
+active_df = load_db("active_users")
+
 st.sidebar.divider()
 st.sidebar.caption("System Version 2.0")
+
+st.sidebar.markdown("### 👥 ログイン中メンバー")
+
+if active_df is None or active_df.empty:
+    st.sidebar.write("現在ログイン中の人はいないある。")
+else:
+    active_df = active_df.fillna("")
+
+    # 15分以内に更新がある人だけ表示
+    now_dt = now_jst().replace(tzinfo=None)
+    visible_rows = []
+
+    for _, row in active_df.iterrows():
+        last_seen = str(row.get("last_seen", "")).strip()
+        if not last_seen:
+            continue
+        try:
+            last_dt = pd.to_datetime(last_seen).to_pydatetime()
+            if (now_dt - last_dt).total_seconds() <= 15 * 60:
+                visible_rows.append(row)
+        except Exception:
+            pass
+
+    if visible_rows:
+        for row in visible_rows:
+            user_name = str(row.get("user", "")).strip()
+            login_at = str(row.get("login_at", "")).strip()
+            st.sidebar.write(f"**{user_name}**")
+            st.sidebar.caption(f"ログイン: {login_at}")
+    else:
+        st.sidebar.write("現在ログイン中の人はいないある。")
 
 task_df = load_db("task").fillna("")
 
