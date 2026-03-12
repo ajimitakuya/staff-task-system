@@ -201,19 +201,35 @@ if page == "① 未着手の任務（掲示板）":
                 t_name = st.text_input("タスク名")
                 t_prio = st.select_slider("緊急度", options=["通常", "重要", "至急"])
                 t_limit = st.date_input("完了期限", datetime.now())
+
                 if st.form_submit_button("タスクを登録"):
                     if t_name:
-                        df = load_db("task") 
-                        new_task = pd.DataFrame([{"id": len(df)+1, "task": t_name, "status": "未着手", 
-                                                 "user": "", "limit": str(t_limit), "priority": t_prio, 
-                                                 "updated_at": datetime.now().strftime('%Y-%m-%d %H:%M')}])
+                        df = load_db("task")
+
+                        # IDが重複しないように最大値+1で作るある
+                        if df.empty:
+                            next_id = 1
+                        else:
+                            ids = pd.to_numeric(df["id"], errors="coerce").dropna()
+                            next_id = int(ids.max()) + 1 if not ids.empty else 1
+
+                        new_task = pd.DataFrame([{
+                            "id": next_id,
+                            "task": t_name,
+                            "status": "未着手",
+                            "user": "",
+                            "limit": str(t_limit),
+                            "priority": t_prio,
+                            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+                        }])
+
                         save_db(pd.concat([df, new_task], ignore_index=True), "task")
                         sync_task_events_to_calendar()
                         st.success("タスクを登録しました。")
                         st.rerun()
                     else:
                         st.error("タスク名を入力してください。")
-
+                        
         df = load_db("task")
         todo = df[df["status"] == "未着手"].copy()
         if not todo.empty:
@@ -620,6 +636,7 @@ elif page == "⑥ 日誌入力状況":
 # ⑦ 勤務カレンダー
 # ==========================================
 elif page == "⑦ 勤務カレンダー":
+    sync_task_events_to_calendar()
     @st.fragment(run_every=60)
     def show_calendar_page():
         st.title("📅 勤務カレンダー")
@@ -682,6 +699,7 @@ elif page == "⑦ 勤務カレンダー":
         st.divider()
 
         events = []
+        event_ids = set()
 
         # ------------------------------------------
         # ① 手入力の予定（calendarシート）
@@ -705,18 +723,22 @@ elif page == "⑦ 勤務カレンダー":
                 elif source_type == "task_active":
                     event_color = "#f39c12"
 
-                events.append({
-                    "id": f"manual_{row.get('id', '')}",
-                    "title": event_title,
-                    "start": start,
-                    "end": end if end else start,
-                    "color": event_color,
-                    "extendedProps": {
-                        "memo": memo,
-                        "user": user_name,
-                        "source_type": source_type if source_type else "manual",
-                    }
-                })
+                event_id = f"manual_{row.get('id', '')}"
+
+                if event_id not in event_ids:
+                    events.append({
+                        "id": event_id,
+                        "title": event_title,
+                        "start": start,
+                        "end": end if end else start,
+                        "color": event_color,
+                        "extendedProps": {
+                            "memo": memo,
+                            "user": user_name,
+                            "source_type": source_type if source_type else "manual",
+                        }
+                    })
+                    event_ids.add(event_id)
 
         # ------------------------------------------
         # ② taskシートから締切イベントを自動生成
@@ -738,18 +760,23 @@ elif page == "⑦ 勤務カレンダー":
                 try:
                     limit_date = pd.to_datetime(limit_str).date()
                     if limit_date >= today:
-                        events.append({
-                            "id": f"deadline_{task_id}",
-                            "title": f"締切：{task_name}",
-                            "start": str(limit_date),
-                            "end": str(limit_date),
-                            "color": "#e74c3c",  # 赤
-                            "extendedProps": {
-                                "memo": f"優先度: {priority} / 状態: {status}",
-                                "user": user_name,
-                                "source_type": "task_deadline",
-                            }
-                        })
+
+                        event_id = f"deadline_{task_id}"
+
+                        if event_id not in event_ids:
+                            events.append({
+                                "id": event_id,
+                                "title": f"締切：{task_name}",
+                                "start": str(limit_date),
+                                "end": str(limit_date),
+                                "color": "#e74c3c",
+                                "extendedProps": {
+                                    "memo": f"優先度: {priority} / 状態: {status}",
+                                    "user": user_name,
+                                    "source_type": "task_deadline",
+                                }
+                            })
+                        event_ids.add(event_id)
                 except Exception:
                     pass
 
@@ -757,18 +784,22 @@ elif page == "⑦ 勤務カレンダー":
             if status == "作業中" and updated_at:
                 try:
                     active_date = pd.to_datetime(updated_at).date()
-                    events.append({
-                        "id": f"active_{task_id}",
-                        "title": f"作業中：{task_name}",
-                        "start": str(active_date),
-                        "end": str(active_date),
-                        "color": "#f39c12",  # オレンジ
-                        "extendedProps": {
-                            "memo": f"着手: {updated_at}",
-                            "user": user_name,
-                            "source_type": "task_active",
-                        }
-                    })
+                    event_id = f"active_{task_id}"
+
+                    if event_id not in event_ids:
+                        events.append({
+                            "id": event_id,
+                            "title": f"作業中：{task_name}",
+                            "start": str(active_date),
+                            "end": str(active_date),
+                            "color": "#f39c12",
+                            "extendedProps": {
+                                "memo": f"着手: {updated_at}",
+                                "user": user_name,
+                                "source_type": "task_active",
+                            }
+                        })
+                        event_ids.add(event_id)
                 except Exception:
                     pass
 
