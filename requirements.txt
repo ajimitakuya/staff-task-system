@@ -1,3 +1,7 @@
 streamlit
-streamlit_gsheets
+pandas
 streamlit-calendar
+gspread
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
