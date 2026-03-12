@@ -651,26 +651,41 @@ elif page == "⑤ 業務マニュアル":
                 title = st.text_input("マニュアルのタイトル")
                 content = st.text_area("手順の説明")
 
-                # D&D対応
                 uploaded_file = st.file_uploader(
                     "写真をドラッグ&ドロップ",
                     type=["png", "jpg", "jpeg"]
                 )
 
                 if uploaded_file is not None:
-                    st.image(uploaded_file, caption="アップロード画像プレビュー", use_container_width=True)
+                    st.image(
+                        uploaded_file,
+                        caption="アップロード画像プレビュー",
+                        use_container_width=True
+                    )
 
                 if st.form_submit_button("保存する"):
                     if title and content:
                         m_df = load_db("manual")
 
+                        # IDが重複しにくいように最大値+1
+                        if m_df is None or m_df.empty:
+                            m_df = pd.DataFrame(columns=["id", "title", "content", "image_data", "created_at"])
+                            next_id = 1
+                        else:
+                            for col in ["id", "title", "content", "image_data", "created_at"]:
+                                if col not in m_df.columns:
+                                    m_df[col] = ""
+
+                            ids = pd.to_numeric(m_df["id"], errors="coerce").dropna()
+                            next_id = int(ids.max()) + 1 if not ids.empty else 1
+
                         image_data = ""
                         if uploaded_file is not None:
-                            file_bytes = uploaded_file.read()
-                            image_data = base64.b64encode(file_bytes).decode("utf-8")
+                            bytes_data = uploaded_file.getvalue()
+                            image_data = base64.b64encode(bytes_data).decode("utf-8")
 
                         new_m = pd.DataFrame([{
-                            "id": len(m_df) + 1,
+                            "id": next_id,
                             "title": title,
                             "content": content,
                             "image_data": image_data,
@@ -684,29 +699,48 @@ elif page == "⑤ 業務マニュアル":
                         st.error("タイトルと説明は必須ある。")
 
         st.divider()
+
         m_df = load_db("manual")
 
-        if not m_df.empty:
-            for _, row in m_df.iterrows():
-                title = row.get("title", "")
-                content = row.get("content", "")
-                created_at = row.get("created_at", "")
-                image_data = row.get("image_data", "")
+        if m_df is None or m_df.empty:
+            st.info("マニュアルはまだ登録されてないある。")
+            return
 
-                with st.expander(f"📖 {title} (作成日: {created_at})"):
+        for col in ["id", "title", "content", "image_data", "created_at"]:
+            if col not in m_df.columns:
+                m_df[col] = ""
+
+        m_df = m_df.fillna("")
+
+        # 新しい順にしたいときは created_at 降順
+        try:
+            display_df = m_df.sort_values("created_at", ascending=False)
+        except Exception:
+            display_df = m_df.copy()
+
+        for _, row in display_df.iterrows():
+            title = str(row.get("title", "")).strip()
+            content = str(row.get("content", "")).strip()
+            created_at = str(row.get("created_at", "")).strip()
+            image_data = str(row.get("image_data", "")).strip()
+
+            with st.expander(f"📖 {title} (作成日: {created_at})"):
+                if content:
                     st.write(content)
 
-                    if isinstance(image_data, str) and image_data.strip():
-                        try:
-                            image_bytes = base64.b64decode(image_data)
-                            st.image(image_bytes, caption="添付画像", use_container_width=True)
-                        except Exception:
-                            st.warning("画像データの読み込みに失敗したある。")
-        else:
-            st.info("マニュアルはまだ登録されてないある。")
+                if image_data:
+                    try:
+                        image_bytes = base64.b64decode(image_data)
+                        st.image(
+                            image_bytes,
+                            caption="添付画像",
+                            use_container_width=True
+                        )
+                    except Exception:
+                        st.warning("画像データの読み込みに失敗したある。")
 
     show_manual_page()
-
+    
 # ==========================================
 # ⑥ 日誌入力状況（年つき横表・Excel風ある！）
 # ==========================================
