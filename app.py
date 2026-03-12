@@ -1,8 +1,9 @@
-import base64
 import streamlit as st
 import pandas as pd
+import base64
 from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
+from streamlit_calendar import calendar
 
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
@@ -28,7 +29,7 @@ def get_sheet_name(file):
 
 def load_db(file):
     s_name = get_sheet_name(file)
-    df = conn.read(worksheet=s_name, ttl="0s")
+    df = conn.read(worksheet=s_name, ttl=0)
 
     if df is None:
         df = pd.DataFrame()
