@@ -216,6 +216,27 @@ if st.sidebar.button("ログアウト"):
 st.sidebar.divider()
 st.sidebar.caption("System Version 2.0")
 
+task_df = load_db("task").fillna("")
+
+my_active = task_df[
+    (task_df["status"].astype(str).str.strip() == "作業中") &
+    (task_df["user"].astype(str).str.strip() == st.session_state.user)
+]
+
+my_todo = task_df[
+    (task_df["status"].astype(str).str.strip() == "未着手")
+]
+
+st.sidebar.divider()
+st.sidebar.markdown("### 📌 マイ状況")
+
+if not my_active.empty:
+    st.sidebar.write(f"作業中: {len(my_active)}件")
+else:
+    st.sidebar.write("作業中: 0件")
+
+st.sidebar.write(f"未着手全体: {len(my_todo)}件")
+
 # ==========================================
 # ① 未着手の任務（掲示板）
 # ==========================================
@@ -308,6 +329,45 @@ elif page == "② タスクの引き受け・報告":
 elif page == "③ 稼働状況・完了履歴":
     @st.fragment(run_every=60)
     def show_status_page():
+
+        st.subheader("⏰ 期限アラート")
+
+        today = now_jst().date()
+        tomorrow = today + timedelta(days=1)
+
+        deadline_alerts = []
+
+        for _, row in df.fillna("").iterrows():
+            if str(row.get("status", "")).strip() == "完了":
+                continue
+
+            limit_str = str(row.get("limit", "")).strip()
+            task_name = str(row.get("task", "")).strip()
+
+            if limit_str:
+                try:
+                    limit_date = pd.to_datetime(limit_str).date()
+
+                    if limit_date < today:
+                        deadline_alerts.append(("期限切れ", task_name, str(limit_date)))
+                    elif limit_date == today:
+                        deadline_alerts.append(("今日期限", task_name, str(limit_date)))
+                    elif limit_date == tomorrow:
+                        deadline_alerts.append(("明日期限", task_name, str(limit_date)))
+                except Exception:
+                    pass
+
+        if deadline_alerts:
+            for kind, task_name, d in deadline_alerts:
+                if kind == "期限切れ":
+                    st.error(f"🔴 {kind}: {task_name}（{d}）")
+                elif kind == "今日期限":
+                    st.warning(f"🟠 {kind}: {task_name}（{d}）")
+                else:
+                    st.info(f"🟡 {kind}: {task_name}（{d}）")
+        else:
+            st.write("期限アラートはないある。")
+
         st.title("📊 チーム稼働状況")
         df = load_db("task")
         
@@ -743,12 +803,12 @@ elif page == "⑦ 勤務カレンダー":
             memo = str(row.get("memo", "")).strip()
             source_type = str(row.get("source_type", "")).strip()
 
-            # task由来イベントは下で task_df から作るので、ここでは表示しないある
             if source_type in ["task_deadline", "task_active"]:
                 continue
 
             if title and start:
-                event_title = title if not user_name else f"{user_name}：{title}"
+                short_title = title if len(title) <= 12 else title[:12] + "…"
+                event_title = short_title if not user_name else f"{user_name}：{short_title}"
                 event_id = f"manual_{row.get('id', '')}"
 
                 if event_id not in event_ids:
@@ -757,11 +817,12 @@ elif page == "⑦ 勤務カレンダー":
                         "title": event_title,
                         "start": start,
                         "end": end if end else start,
-                        "color": "#3788d8",  # 青（手入力）
+                        "color": "#3788d8",
                         "extendedProps": {
                             "memo": memo,
                             "user": user_name,
                             "source_type": "manual",
+                            "full_title": title,
                         }
                     })
                     event_ids.add(event_id)
@@ -786,13 +847,13 @@ elif page == "⑦ 勤務カレンダー":
                 try:
                     limit_date = pd.to_datetime(limit_str).date()
                     if limit_date >= today:
-
                         event_id = f"deadline_{task_id}"
+                        short_title = task_name if len(task_name) <= 12 else task_name[:12] + "…"
 
                         if event_id not in event_ids:
                             events.append({
                                 "id": event_id,
-                                "title": f"締切：{task_name}",
+                                "title": f"締切：{short_title}",
                                 "start": str(limit_date),
                                 "end": str(limit_date),
                                 "color": "#e74c3c",
@@ -800,9 +861,10 @@ elif page == "⑦ 勤務カレンダー":
                                     "memo": f"優先度: {priority} / 状態: {status}",
                                     "user": user_name,
                                     "source_type": "task_deadline",
+                                    "full_title": task_name,
                                 }
                             })
-                        event_ids.add(event_id)
+                            event_ids.add(event_id)
                 except Exception:
                     pass
 
@@ -811,11 +873,12 @@ elif page == "⑦ 勤務カレンダー":
                 try:
                     active_date = pd.to_datetime(updated_at).date()
                     event_id = f"active_{task_id}"
+                    short_title = task_name if len(task_name) <= 12 else task_name[:12] + "…"
 
                     if event_id not in event_ids:
                         events.append({
                             "id": event_id,
-                            "title": f"作業中：{task_name}",
+                            "title": f"作業中：{short_title}",
                             "start": str(active_date),
                             "end": str(active_date),
                             "color": "#f39c12",
@@ -823,6 +886,7 @@ elif page == "⑦ 勤務カレンダー":
                                 "memo": f"着手: {updated_at}",
                                 "user": user_name,
                                 "source_type": "task_active",
+                                "full_title": task_name,
                             }
                         })
                         event_ids.add(event_id)
@@ -859,13 +923,27 @@ elif page == "⑦ 勤務カレンダー":
 
         if state and state.get("eventClick"):
             clicked = state["eventClick"]["event"]
+            ext = clicked.get("extendedProps", {})
+
             st.subheader("🔍 選択中の予定")
-            st.write(f"**予定名**: {clicked.get('title', '')}")
+
+            full_title = ext.get("full_title", "") or clicked.get("title", "")
+            source_type = ext.get("source_type", "")
+
+            type_label = "手入力予定"
+            if source_type == "task_deadline":
+                type_label = "締切タスク"
+            elif source_type == "task_active":
+                type_label = "作業中タスク"
+
+            st.write(f"**種類**: {type_label}")
+            st.write(f"**予定名**: {full_title}")
             st.write(f"**開始**: {clicked.get('start', '')}")
             st.write(f"**終了**: {clicked.get('end', '')}")
-            ext = clicked.get("extendedProps", {})
+
             if ext.get("user"):
                 st.write(f"**担当者**: {ext.get('user')}")
+
             if ext.get("memo"):
                 st.write(f"**メモ**: {ext.get('memo')}")
 
