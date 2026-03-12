@@ -371,6 +371,14 @@ elif page == "⑥ 日誌入力状況":
         st.divider()
         st.caption("各セルに「未入力」「15日まで」「完了」など自由に入力できるある。")
 
+        # data_editorで落ちないように、全部文字列にそろえるある
+        r_df = r_df.fillna("")
+
+        for col in required_cols:
+            if col not in r_df.columns:
+                r_df[col] = ""
+            r_df[col] = r_df[col].astype(str)
+
         # 列設定を自動生成
         column_config = {
             "resident_name": st.column_config.TextColumn("氏名", width="medium")
@@ -403,6 +411,8 @@ elif page == "⑥ 日誌入力状況":
                 for col in required_cols:
                     if col not in edited_df.columns:
                         edited_df[col] = ""
+                    edited_df[col] = edited_df[col].astype(str)
+
                 edited_df = edited_df[required_cols]
 
                 save_db(edited_df, "record_status")
