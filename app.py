@@ -625,13 +625,23 @@ elif page == "⑦ 勤務カレンダー":
         st.title("📅 勤務カレンダー")
 
         cal_df = load_db("calendar")
+        task_df = load_db("task")
 
+        # calendarシートの最低列を保証
         if cal_df is None or cal_df.empty:
-            cal_df = pd.DataFrame(columns=["id", "title", "start", "end", "user", "memo"])
+            cal_df = pd.DataFrame(columns=["id", "title", "start", "end", "user", "memo", "source_type", "source_task_id"])
         else:
-            for col in ["id", "title", "start", "end", "user", "memo"]:
+            for col in ["id", "title", "start", "end", "user", "memo", "source_type", "source_task_id"]:
                 if col not in cal_df.columns:
                     cal_df[col] = ""
+
+        # taskシートの最低列を保証
+        if task_df is None or task_df.empty:
+            task_df = pd.DataFrame(columns=["id", "task", "status", "user", "limit", "priority", "updated_at"])
+        else:
+            for col in ["id", "task", "status", "user", "limit", "priority", "updated_at"]:
+                if col not in task_df.columns:
+                    task_df[col] = ""
 
         with st.expander("➕ 予定を追加する"):
             with st.form("calendar_form"):
@@ -658,7 +668,9 @@ elif page == "⑦ 勤務カレンダー":
                             "start": str(start_date),
                             "end": str(end_date),
                             "user": user_name,
-                            "memo": memo
+                            "memo": memo,
+                            "source_type": "manual",
+                            "source_task_id": ""
                         }])
 
                         save_db(pd.concat([cal_df, new_row], ignore_index=True), "calendar")
@@ -669,31 +681,32 @@ elif page == "⑦ 勤務カレンダー":
 
         st.divider()
 
-        # カレンダー表示用イベントに変換
         events = []
-        display_df = cal_df.fillna("")
 
-        for _, row in display_df.iterrows():
+        # ------------------------------------------
+        # ① 手入力の予定（calendarシート）
+        # ------------------------------------------
+        display_cal_df = cal_df.fillna("")
+
+        for _, row in display_cal_df.iterrows():
             title = str(row.get("title", "")).strip()
             start = str(row.get("start", "")).strip()
             end = str(row.get("end", "")).strip()
             user_name = str(row.get("user", "")).strip()
             memo = str(row.get("memo", "")).strip()
+            source_type = str(row.get("source_type", "")).strip()
 
             if title and start:
                 event_title = title if not user_name else f"{user_name}：{title}"
-                source_type = str(row.get("source_type", "")).strip()
 
-                event_color = ""
+                event_color = "#3788d8"   # 青（手入力）
                 if source_type == "task_deadline":
-                    event_color = "#e74c3c"   # 赤
+                    event_color = "#e74c3c"
                 elif source_type == "task_active":
-                    event_color = "#f39c12"   # オレンジ
-                else:
-                    event_color = "#3788d8"   # 青
+                    event_color = "#f39c12"
 
                 events.append({
-                    "id": str(row.get("id", "")),
+                    "id": f"manual_{row.get('id', '')}",
                     "title": event_title,
                     "start": start,
                     "end": end if end else start,
@@ -701,9 +714,63 @@ elif page == "⑦ 勤務カレンダー":
                     "extendedProps": {
                         "memo": memo,
                         "user": user_name,
-                        "source_type": source_type,
+                        "source_type": source_type if source_type else "manual",
                     }
                 })
+
+        # ------------------------------------------
+        # ② taskシートから締切イベントを自動生成
+        # ------------------------------------------
+        display_task_df = task_df.fillna("")
+        today = datetime.now().date()
+
+        for _, row in display_task_df.iterrows():
+            task_id = str(row.get("id", "")).strip()
+            task_name = str(row.get("task", "")).strip()
+            status = str(row.get("status", "")).strip()
+            user_name = str(row.get("user", "")).strip()
+            priority = str(row.get("priority", "")).strip()
+            limit_str = str(row.get("limit", "")).strip()
+            updated_at = str(row.get("updated_at", "")).strip()
+
+            # 締切が今日以降なら出す
+            if limit_str:
+                try:
+                    limit_date = pd.to_datetime(limit_str).date()
+                    if limit_date >= today:
+                        events.append({
+                            "id": f"deadline_{task_id}",
+                            "title": f"締切：{task_name}",
+                            "start": str(limit_date),
+                            "end": str(limit_date),
+                            "color": "#e74c3c",  # 赤
+                            "extendedProps": {
+                                "memo": f"優先度: {priority} / 状態: {status}",
+                                "user": user_name,
+                                "source_type": "task_deadline",
+                            }
+                        })
+                except Exception:
+                    pass
+
+            # 作業中なら開始日で出す
+            if status == "作業中" and updated_at:
+                try:
+                    active_date = pd.to_datetime(updated_at).date()
+                    events.append({
+                        "id": f"active_{task_id}",
+                        "title": f"作業中：{task_name}",
+                        "start": str(active_date),
+                        "end": str(active_date),
+                        "color": "#f39c12",  # オレンジ
+                        "extendedProps": {
+                            "memo": f"着手: {updated_at}",
+                            "user": user_name,
+                            "source_type": "task_active",
+                        }
+                    })
+                except Exception:
+                    pass
 
         calendar_options = {
             "initialView": "dayGridMonth",
@@ -724,15 +791,14 @@ elif page == "⑦ 勤務カレンダー":
         st.divider()
         st.subheader("📋 登録済み予定一覧")
 
-        if display_df.empty:
-            st.info("予定はまだないある。")
-        else:
-            view_df = display_df.copy()
+        if not display_cal_df.empty:
             st.dataframe(
-                view_df[["start", "end", "user", "title", "memo"]],
+                display_cal_df[["start", "end", "user", "title", "memo"]],
                 use_container_width=True,
                 hide_index=True
             )
+        else:
+            st.info("手入力の予定はまだないある。")
 
         if state and state.get("eventClick"):
             clicked = state["eventClick"]["event"]
@@ -741,6 +807,8 @@ elif page == "⑦ 勤務カレンダー":
             st.write(f"**開始**: {clicked.get('start', '')}")
             st.write(f"**終了**: {clicked.get('end', '')}")
             ext = clicked.get("extendedProps", {})
+            if ext.get("user"):
+                st.write(f"**担当者**: {ext.get('user')}")
             if ext.get("memo"):
                 st.write(f"**メモ**: {ext.get('memo')}")
 
