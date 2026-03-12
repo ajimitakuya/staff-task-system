@@ -34,6 +34,32 @@ def load_db(file):
     if df is None:
         df = pd.DataFrame()
 
+    # record_status の列名を補正するある
+    if file == "record_status" and not df.empty:
+        cols = list(df.columns)
+        fixed_cols = []
+        current_year = None
+
+        for col in cols:
+            col_str = str(col).strip()
+
+            if col_str == "resident_name":
+                fixed_cols.append("resident_name")
+                continue
+
+            if "年" in col_str and "月" in col_str:
+                current_year = col_str.split("年")[0]
+                fixed_cols.append(col_str)
+                continue
+
+            # 「2月」「3月」みたいな省略列を直前の年で補完
+            if col_str.endswith("月") and current_year is not None:
+                fixed_cols.append(f"{current_year}年{col_str}")
+            else:
+                fixed_cols.append(col_str)
+
+        df.columns = fixed_cols
+
     record_status_cols = ["resident_name"]
     for year in range(2025, 2027):
         for month in range(1, 13):
@@ -54,7 +80,6 @@ def load_db(file):
             df[col] = ""
 
     return df
-
 
 def save_db(df, file):
     s_name = get_sheet_name(file)
@@ -229,7 +254,7 @@ if page == "① 未着手の任務（掲示板）":
                         st.rerun()
                     else:
                         st.error("タスク名を入力してください。")
-                        
+
         df = load_db("task")
         todo = df[df["status"] == "未着手"].copy()
         if not todo.empty:
