@@ -288,44 +288,155 @@ elif page == "⑥ 日誌入力状況":
     def show_record_status_page():
         st.title("📝 日誌入力状況管理")
         r_df = load_db("record_status")
-        
-        # 💡 既存のデータからリストを作るある
-        existing_months = sorted(r_df["month"].unique().tolist()) if not r_df.empty else ["4月"]
-        existing_names = sorted(r_df["resident_name"].unique().tolist()) if not r_df.empty else []
+
+        # 必要な列がなければ作るある
+        if r_df is None or r_df.empty:
+            r_df = pd.DataFrame(columns=["id", "resident_name", "month", "status"])
+        else:
+            for col in ["id", "resident_name", "month", "status"]:
+                if col not in r_df.columns:
+                    r_df[col] = ""
+
+        # 月は常に1〜12月を用意するある
+        month_list = [f"{i}月" for i in range(1, 13)]
+
+        # 既存の名前一覧
+        existing_names = sorted(
+            [str(x).strip() for x in r_df["resident_name"].dropna().tolist() if str(x).strip()]
+        )
 
         with st.expander("👤 新しく項目を追加する"):
-            # 名前と月の入力方法を選べるようにしたある！
             col_a, col_b = st.columns(2)
-            with col_a:
-                name_mode = st.radio("名前", ["既存から選ぶ", "新規入力"], horizontal=True)
-                new_name = st.selectbox("選択", existing_names) if name_mode == "既存から選ぶ" and existing_names else st.text_input("名前を入力")
-            with col_b:
-                month_mode = st.radio("対象月", ["既存から選ぶ", "新規入力"], horizontal=True)
-                target_month = st.selectbox("月を選択", existing_months) if month_mode == "既存から選ぶ" and existing_months else st.text_input("月を入力 (例: 3月)")
 
-            if st.button("表に追加する"):
-                if new_name and target_month:
-                    duplicate = r_df[(r_df["resident_name"] == new_name) & (r_df["month"] == target_month)]
-                    if not duplicate.empty:
-                        st.error("⚠️ 既に登録済みある！")
+            with col_a:
+                name_mode = st.radio(
+                    "名前",
+                    ["既存から選ぶ", "新規入力"],
+                    horizontal=True,
+                    key="record_name_mode"
+                )
+
+                if name_mode == "既存から選ぶ" and existing_names:
+                    input_names = st.selectbox(
+                        "名前を選択",
+                        existing_names,
+                        key="record_existing_name"
+                    )
+                else:
+                    input_names = st.text_area(
+                        "名前を入力（改行で複数登録できます）",
+                        placeholder="荒木 和也\n佐藤 太郎\n山田 花子",
+                        key="record_new_names"
+                    )
+
+            with col_b:
+                month_mode = st.radio(
+                    "対象月",
+                    ["一覧から選ぶ", "新規入力"],
+                    horizontal=True,
+                    key="record_month_mode"
+                )
+
+                if month_mode == "一覧から選ぶ":
+                    target_month = st.selectbox(
+                        "月を選択",
+                        month_list,
+                        key="record_month_select"
+                    )
+                else:
+                    target_month = st.text_input(
+                        "月を入力 (例: 3月)",
+                        key="record_month_input"
+                    ).strip()
+
+            if st.button("表に追加する", key="record_add_button"):
+                if not target_month:
+                    st.error("対象月を入力してほしいある。")
+                    st.stop()
+
+                # 既存から選ぶ場合は1人、 新規入力は改行区切りで複数対応
+                if name_mode == "既存から選ぶ" and existing_names:
+                    names = [str(input_names).strip()] if str(input_names).strip() else []
+                else:
+                    names = [n.strip() for n in str(input_names).replace("\r\n", "\n").split("\n") if n.strip()]
+
+                if not names:
+                    st.error("名前を1人以上入力してほしいある。")
+                    st.stop()
+
+                # idの開始値
+                if r_df.empty:
+                    next_id = 1
+                else:
+                    try:
+                        next_id = pd.to_numeric(r_df["id"], errors="coerce").max()
+                        next_id = 1 if pd.isna(next_id) else int(next_id) + 1
+                    except Exception:
+                        next_id = len(r_df) + 1
+
+                new_rows = []
+                skipped_names = []
+
+                for name in names:
+                    duplicate = r_df[
+                        (r_df["resident_name"].astype(str).str.strip() == name) &
+                        (r_df["month"].astype(str).str.strip() == target_month)
+                    ]
+
+                    if duplicate.empty:
+                        new_rows.append({
+                            "id": next_id,
+                            "resident_name": name,
+                            "month": target_month,
+                            "status": "未入力"
+                        })
+                        next_id += 1
                     else:
-                        new_r = pd.DataFrame([{"id": len(r_df)+1, "resident_name": new_name, "month": target_month, "status": "未入力"}])
-                        save_db(pd.concat([r_df, new_r], ignore_index=True), "record_status")
-                        st.success("追加したある！")
-                        st.rerun()
+                        skipped_names.append(name)
+
+                if new_rows:
+                    new_df = pd.DataFrame(new_rows)
+                    save_db(pd.concat([r_df, new_df], ignore_index=True), "record_status")
+                    if skipped_names:
+                        st.success(f"{len(new_rows)}件追加したある！ 重複でスキップ: {', '.join(skipped_names)}")
+                    else:
+                        st.success(f"{len(new_rows)}件追加したある！")
+                    st.rerun()
+                else:
+                    st.warning("全員すでに登録済みある。")
 
         st.divider()
+
         if not r_df.empty:
-            for idx, row in r_df.iterrows():
+            # 表示を月→名前順にしたい場合の軽い整形ある
+            display_df = r_df.copy()
+
+            def month_sort_key(x):
+                try:
+                    return int(str(x).replace("月", "").strip())
+                except Exception:
+                    return 999
+
+            display_df["month_order"] = display_df["month"].apply(month_sort_key)
+            display_df = display_df.sort_values(["month_order", "resident_name"], ascending=[True, True])
+
+            for _, row in display_df.iterrows():
                 col1, col2, col3 = st.columns([2, 1, 2])
-                with col1: st.write(f"**{row['resident_name']}** ({row['month']})")
-                with col2: st.write(f"{'🔴' if row['status'] == '未入力' else '🟢'} {row['status']}")
+
+                with col1:
+                    st.write(f"**{row['resident_name']}** ({row['month']})")
+
+                with col2:
+                    status_text = str(row["status"]).strip()
+                    st.write(f"{'🔴' if status_text == '未入力' else '🟢'} {status_text}")
+
                 with col3:
-                    if row['status'] == "未入力":
+                    if str(row["status"]).strip() == "未入力":
                         if st.button("✅ 完了", key=f"r_{row['id']}"):
                             r_df.loc[r_df["id"] == row["id"], "status"] = "入力済"
                             save_db(r_df, "record_status")
                             st.rerun()
         else:
             st.info("データがないある。")
+
     show_record_status_page()
