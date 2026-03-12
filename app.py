@@ -1,7 +1,11 @@
 import streamlit as st
 import pandas as pd
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+JST = timezone(timedelta(hours=9))
+
+def now_jst():
+    return datetime.now(JST)
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar
 
@@ -225,7 +229,7 @@ if page == "① 未着手の任務（掲示板）":
             with st.form("task_form"):
                 t_name = st.text_input("タスク名")
                 t_prio = st.select_slider("緊急度", options=["通常", "重要", "至急"])
-                t_limit = st.date_input("完了期限", datetime.now())
+                t_limit = st.date_input("完了期限", now_jst().date())
 
                 if st.form_submit_button("タスクを登録"):
                     if t_name:
@@ -245,7 +249,7 @@ if page == "① 未着手の任務（掲示板）":
                             "user": "",
                             "limit": str(t_limit),
                             "priority": t_prio,
-                            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+                            "updated_at": now_jst().strftime("%Y-%m-%d %H:%M")
                         }])
 
                         save_db(pd.concat([df, new_task], ignore_index=True), "task")
@@ -281,7 +285,7 @@ elif page == "② タスクの引き受け・報告":
         for _, row in todo.iterrows():
             p_symbol = "🔴 [至急]" if row['priority'] == "至急" else "🟡 [重要]" if row['priority'] == "重要" else "⚪ [通常]"
             if st.button(f"{p_symbol} {row['task']} (期限:{row['limit']}) を開始する", key=f"get_{row['id']}"):
-                df.loc[df["id"] == row["id"], ["status", "user", "updated_at"]] = ["作業中", st.session_state.user, datetime.now().strftime('%Y-%m-%d %H:%M')]
+                df.loc[df["id"] == row["id"], ["status", "user", "updated_at"]] = ["作業中", st.session_state.user, now_jst().strftime('%Y-%m-%d %H:%M')]
                 save_db(df, "task")
                 sync_task_events_to_calendar()
                 st.rerun()
@@ -292,7 +296,7 @@ elif page == "② タスクの引き受け・報告":
             st.write("現在、対応中のタスクはありません。")
         for _, row in my_tasks.iterrows():
             if st.button(f"✅ {row['task']} の完了を報告する", key=f"done_{row['id']}", type="primary"):
-                df.loc[df["id"] == row["id"], ["status", "updated_at"]] = ["完了", datetime.now().strftime('%Y-%m-%d %H:%M')]
+                df.loc[df["id"] == row["id"], ["status", "updated_at"]] = ["完了", now_jst().strftime('%Y-%m-%d %H:%M')]
                 save_db(df, "task")
                 sync_task_events_to_calendar()
                 st.rerun()
@@ -334,7 +338,7 @@ elif page == "④ チームチャット":
     def show_chat_page():
         st.title("💬 業務連絡チャット")
         chat_df = load_db("chat")
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = now_jst().strftime("%Y-%m-%d")
 
         # 必要列を保証
         if chat_df is None or chat_df.empty:
@@ -488,7 +492,7 @@ elif page == "⑤ 業務マニュアル":
                             "title": title,
                             "content": content,
                             "image_data": image_data,
-                            "created_at": datetime.now().strftime("%Y-%m-%d")
+                            "created_at": now_jst().strftime("%Y-%m-%d")
                         }])
 
                         save_db(pd.concat([m_df, new_m], ignore_index=True), "manual")
@@ -766,7 +770,7 @@ elif page == "⑦ 勤務カレンダー":
         # ② taskシートから締切イベントを自動生成
         # ------------------------------------------
         display_task_df = task_df.fillna("")
-        today = datetime.now().date()
+        today = now_jst().date()
 
         for _, row in display_task_df.iterrows():
             task_id = str(row.get("id", "")).strip()
