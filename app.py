@@ -39,7 +39,7 @@ def load_db(file):
         for month in range(1, 13):
             record_status_cols.append(f"{year}年{month}月")
 
-    calendar_cols = ["id", "title", "start", "end", "user", "memo"]
+    calendar_cols = ["id", "title", "start", "end", "user", "memo", "source_type", "source_task_id"]
 
     expected_cols = {
         "task": ["id", "task", "status", "user", "limit", "priority", "updated_at"],
@@ -59,6 +59,94 @@ def load_db(file):
 def save_db(df, file):
     s_name = get_sheet_name(file)
     conn.update(worksheet=s_name, data=df)
+
+def sync_task_events_to_calendar():
+    task_df = load_db("task")
+    cal_df = load_db("calendar")
+
+    if task_df is None or task_df.empty:
+        return
+
+    if cal_df is None or cal_df.empty:
+        cal_df = pd.DataFrame(columns=[
+            "id", "title", "start", "end", "user", "memo", "source_type", "source_task_id"
+        ])
+    else:
+        for col in ["id", "title", "start", "end", "user", "memo", "source_type", "source_task_id"]:
+            if col not in cal_df.columns:
+                cal_df[col] = ""
+
+    task_df = task_df.fillna("")
+    cal_df = cal_df.fillna("")
+
+    # 既存の task由来イベントだけ一旦消して作り直すある
+    cal_df = cal_df[~cal_df["source_type"].isin(["task_deadline", "task_active"])].copy()
+
+    today = datetime.now().date()
+
+    new_events = []
+
+    # 次のID開始値
+    if cal_df.empty:
+        next_id = 1
+    else:
+        try:
+            next_id = pd.to_numeric(cal_df["id"], errors="coerce").max()
+            next_id = 1 if pd.isna(next_id) else int(next_id) + 1
+        except Exception:
+            next_id = len(cal_df) + 1
+
+    for _, row in task_df.iterrows():
+        task_id = str(row.get("id", "")).strip()
+        task_name = str(row.get("task", "")).strip()
+        status = str(row.get("status", "")).strip()
+        user_name = str(row.get("user", "")).strip()
+        limit_str = str(row.get("limit", "")).strip()
+        updated_at = str(row.get("updated_at", "")).strip()
+
+        # ① 締切イベント
+        if limit_str:
+            try:
+                limit_date = pd.to_datetime(limit_str).date()
+                if limit_date > today:
+                    new_events.append({
+                        "id": next_id,
+                        "title": f"締切：{task_name}",
+                        "start": str(limit_date),
+                        "end": str(limit_date),
+                        "user": user_name,
+                        "memo": f"タスク期限 / 状態: {status}",
+                        "source_type": "task_deadline",
+                        "source_task_id": task_id
+                    })
+                    next_id += 1
+            except Exception:
+                pass
+
+        # ② 作業中イベント
+        if status == "作業中" and updated_at:
+            try:
+                active_date = pd.to_datetime(updated_at).date()
+                new_events.append({
+                    "id": next_id,
+                    "title": f"作業中：{task_name}",
+                    "start": str(active_date),
+                    "end": str(active_date),
+                    "user": user_name,
+                    "memo": f"現在進行中 / 着手: {updated_at}",
+                    "source_type": "task_active",
+                    "source_task_id": task_id
+                })
+                next_id += 1
+            except Exception:
+                pass
+
+    if new_events:
+        add_df = pd.DataFrame(new_events)
+        cal_df = pd.concat([cal_df, add_df], ignore_index=True)
+
+    save_db(cal_df, "calendar")
+
 # ==========================================
 # 🔑 ユーザー認証 (ここはそのままある)
 # ==========================================
@@ -120,6 +208,7 @@ if page == "① 未着手の任務（掲示板）":
                                                  "user": "", "limit": str(t_limit), "priority": t_prio, 
                                                  "updated_at": datetime.now().strftime('%Y-%m-%d %H:%M')}])
                         save_db(pd.concat([df, new_task], ignore_index=True), "task")
+                        sync_task_events_to_calendar()
                         st.success("タスクを登録しました。")
                         st.rerun()
                     else:
@@ -153,8 +242,8 @@ elif page == "② タスクの引き受け・報告":
             if st.button(f"{p_symbol} {row['task']} (期限:{row['limit']}) を開始する", key=f"get_{row['id']}"):
                 df.loc[df["id"] == row["id"], ["status", "user", "updated_at"]] = ["作業中", st.session_state.user, datetime.now().strftime('%Y-%m-%d %H:%M')]
                 save_db(df, "task")
+                sync_task_events_to_calendar()
                 st.rerun()
-
         st.divider()
         st.subheader("⚡ 現在対応中のタスク")
         my_tasks = df[(df["status"] == "作業中") & (df["user"] == st.session_state.user)]
@@ -164,6 +253,7 @@ elif page == "② タスクの引き受け・報告":
             if st.button(f"✅ {row['task']} の完了を報告する", key=f"done_{row['id']}", type="primary"):
                 df.loc[df["id"] == row["id"], ["status", "updated_at"]] = ["完了", datetime.now().strftime('%Y-%m-%d %H:%M')]
                 save_db(df, "task")
+                sync_task_events_to_calendar()
                 st.rerun()
     show_my_tasks_page()
 
@@ -592,14 +682,26 @@ elif page == "⑦ 勤務カレンダー":
 
             if title and start:
                 event_title = title if not user_name else f"{user_name}：{title}"
+                source_type = str(row.get("source_type", "")).strip()
+
+                event_color = ""
+                if source_type == "task_deadline":
+                    event_color = "#e74c3c"   # 赤
+                elif source_type == "task_active":
+                    event_color = "#f39c12"   # オレンジ
+                else:
+                    event_color = "#3788d8"   # 青
+
                 events.append({
                     "id": str(row.get("id", "")),
                     "title": event_title,
                     "start": start,
                     "end": end if end else start,
+                    "color": event_color,
                     "extendedProps": {
                         "memo": memo,
                         "user": user_name,
+                        "source_type": source_type,
                     }
                 })
 
