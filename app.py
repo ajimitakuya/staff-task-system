@@ -1,3 +1,4 @@
+import base64
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
@@ -10,17 +11,43 @@ st.set_page_config(page_title="作業管理システム", layout="wide")
 # --- 🔌 スプレッドシート接続設定（最新の最強版ある！） ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+def get_sheet_name(file):
+    if file == "task":
+        return "task"
+    elif file == "chat":
+        return "chat"
+    elif file == "manual":
+        return "manual"
+    elif file == "record_status":
+        return "record_status"
+    else:
+        raise ValueError(f"未対応のシート名ある: {file}")
+
+
 def load_db(file):
-    # 💡 コツは「URL」を書かないことある！
-    # Secretsにある設定と共有設定（image_24fa99.png）をフル活用する公式の書き方ある！
-    s_name = "task" if "task" in file else "chat"
-    return conn.read(worksheet=s_name, ttl="0s")
+    s_name = get_sheet_name(file)
+    df = conn.read(worksheet=s_name, ttl="0s")
+
+    if df is None:
+        df = pd.DataFrame()
+
+    expected_cols = {
+        "task": ["id", "task", "status", "user", "limit", "priority", "updated_at"],
+        "chat": ["date", "time", "user", "message"],
+        "manual": ["id", "title", "content", "image_data", "created_at"],
+        "record_status": ["id", "resident_name", "month", "status"],
+    }
+
+    for col in expected_cols[file]:
+        if col not in df.columns:
+            df[col] = ""
+
+    return df
+
 
 def save_db(df, file):
-    s_name = "task" if "task" in file else "chat"
-    # 書き込みも「ワークシート名」だけで指定するのが、Googleを怒らせない秘訣ある！
+    s_name = get_sheet_name(file)
     conn.update(worksheet=s_name, data=df)
-
 # ==========================================
 # 🔑 ユーザー認証 (ここはそのままある)
 # ==========================================
@@ -191,32 +218,66 @@ elif page == "⑤ 業務マニュアル":
     @st.fragment(run_every=60)
     def show_manual_page():
         st.title("📚 業務マニュアル")
-        
+
         with st.expander("📝 新しいマニュアルを作成する"):
             with st.form("manual_form"):
                 title = st.text_input("マニュアルのタイトル")
                 content = st.text_area("手順の説明")
-                
-                # 💡 ここが D&D 対応の画像アップローダーある！
-                uploaded_file = st.file_uploader("写真をドラッグ&ドロップ", type=['png', 'jpg', 'jpeg'])
-                
+
+                # D&D対応
+                uploaded_file = st.file_uploader(
+                    "写真をドラッグ&ドロップ",
+                    type=["png", "jpg", "jpeg"]
+                )
+
+                if uploaded_file is not None:
+                    st.image(uploaded_file, caption="アップロード画像プレビュー", use_container_width=True)
+
                 if st.form_submit_button("保存する"):
                     if title and content:
                         m_df = load_db("manual")
-                        # 画像データの扱いは今後リンク保存に進化させるとして、まずは基本情報を保存ある！
-                        new_m = pd.DataFrame([{"id": len(m_df)+1, "title": title, "content": content, "created_at": datetime.now().strftime('%Y-%m-%d')}])
+
+                        image_data = ""
+                        if uploaded_file is not None:
+                            file_bytes = uploaded_file.read()
+                            image_data = base64.b64encode(file_bytes).decode("utf-8")
+
+                        new_m = pd.DataFrame([{
+                            "id": len(m_df) + 1,
+                            "title": title,
+                            "content": content,
+                            "image_data": image_data,
+                            "created_at": datetime.now().strftime("%Y-%m-%d")
+                        }])
+
                         save_db(pd.concat([m_df, new_m], ignore_index=True), "manual")
                         st.success("マニュアルを保存したある！")
                         st.rerun()
+                    else:
+                        st.error("タイトルと説明は必須ある。")
 
         st.divider()
         m_df = load_db("manual")
+
         if not m_df.empty:
             for _, row in m_df.iterrows():
-                with st.expander(f"📖 {row['title']} (作成日: {row['created_at']})"):
-                    st.write(row['content'])
+                title = row.get("title", "")
+                content = row.get("content", "")
+                created_at = row.get("created_at", "")
+                image_data = row.get("image_data", "")
+
+                with st.expander(f"📖 {title} (作成日: {created_at})"):
+                    st.write(content)
+
+                    if isinstance(image_data, str) and image_data.strip():
+                        try:
+                            image_bytes = base64.b64decode(image_data)
+                            st.image(image_bytes, caption="添付画像", use_container_width=True)
+                        except Exception:
+                            st.warning("画像データの読み込みに失敗したある。")
         else:
             st.info("マニュアルはまだ登録されてないある。")
+
     show_manual_page()
 
 # ==========================================
