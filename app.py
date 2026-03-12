@@ -432,7 +432,7 @@ elif page == "③ 稼働状況・完了履歴":
             st.write("直近1週間以内の完了履歴はありません。")
 
     show_status_page()
-    
+
 # ==========================================
 # ④ チームチャット（画像添付対応ある！）
 # ==========================================
@@ -846,11 +846,12 @@ elif page == "⑦ 勤務カレンダー":
             memo = str(row.get("memo", "")).strip()
             source_type = str(row.get("source_type", "")).strip()
 
+            # task由来イベントは下で task_df から作るので、ここでは表示しないある
             if source_type in ["task_deadline", "task_active"]:
                 continue
 
             if title and start:
-                short_title = title if len(title) <= 12 else title[:12] + "…"
+                short_title = title if len(title) <= 10 else title[:10] + "…"
                 event_title = short_title if not user_name else f"{user_name}：{short_title}"
                 event_id = f"manual_{row.get('id', '')}"
 
@@ -891,7 +892,7 @@ elif page == "⑦ 勤務カレンダー":
                     limit_date = pd.to_datetime(limit_str).date()
                     if limit_date >= today:
                         event_id = f"deadline_{task_id}"
-                        short_title = task_name if len(task_name) <= 12 else task_name[:12] + "…"
+                        short_title = task_name if len(task_name) <= 10 else task_name[:10] + "…"
 
                         if event_id not in event_ids:
                             events.append({
@@ -916,7 +917,7 @@ elif page == "⑦ 勤務カレンダー":
                 try:
                     active_date = pd.to_datetime(updated_at).date()
                     event_id = f"active_{task_id}"
-                    short_title = task_name if len(task_name) <= 12 else task_name[:12] + "…"
+                    short_title = task_name if len(task_name) <= 10 else task_name[:10] + "…"
 
                     if event_id not in event_ids:
                         events.append({
@@ -939,6 +940,11 @@ elif page == "⑦ 勤務カレンダー":
         calendar_options = {
             "initialView": "dayGridMonth",
             "locale": "ja",
+            "height": "auto",
+            "dayMaxEvents": 3,
+            "moreLinkClick": "popover",
+            "displayEventTime": False,
+            "eventDisplay": "block",
             "headerToolbar": {
                 "left": "prev,next today",
                 "center": "title",
@@ -952,6 +958,8 @@ elif page == "⑦ 勤務カレンダー":
             key="work_calendar"
         )
 
+
+
         st.divider()
         st.subheader("📋 登録済み予定一覧")
 
@@ -964,10 +972,60 @@ elif page == "⑦ 勤務カレンダー":
         else:
             st.info("手入力の予定はまだないある。")
 
+        # ------------------------------------------
+        # 選択日の予定一覧
+        # ------------------------------------------
+        st.divider()
+        st.subheader("🗓️ 選択日の予定一覧")
+
+        selected_date = None
+
+        if state and state.get("dateClick"):
+            selected_date = str(state["dateClick"].get("date", ""))[:10]
+        elif state and state.get("eventClick"):
+            selected_date = str(state["eventClick"]["event"].get("start", ""))[:10]
+
+        if selected_date:
+            day_events = []
+
+            for ev in events:
+                ev_start = str(ev.get("start", ""))[:10]
+                if ev_start == selected_date:
+                    ext = ev.get("extendedProps", {})
+                    source_type = ext.get("source_type", "")
+
+                    type_label = "手入力予定"
+                    if source_type == "task_deadline":
+                        type_label = "締切タスク"
+                    elif source_type == "task_active":
+                        type_label = "作業中タスク"
+
+                    day_events.append({
+                        "種類": type_label,
+                        "予定名": ext.get("full_title", ev.get("title", "")),
+                        "担当者": ext.get("user", ""),
+                        "メモ": ext.get("memo", "")
+                    })
+
+            if day_events:
+                st.dataframe(
+                    pd.DataFrame(day_events),
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info(f"{selected_date} の予定はないある。")
+        else:
+            st.caption("日付か予定をクリックすると、その日の一覧を下に表示するある。")
+
+        # ------------------------------------------
+        # クリックした予定の詳細
+        # ------------------------------------------
         if state and state.get("eventClick"):
             clicked = state["eventClick"]["event"]
             ext = clicked.get("extendedProps", {})
 
+            st.divider()
             st.subheader("🔍 選択中の予定")
 
             full_title = ext.get("full_title", "") or clicked.get("title", "")
