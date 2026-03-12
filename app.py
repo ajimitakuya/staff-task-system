@@ -739,15 +739,12 @@ elif page == "⑦ 勤務カレンダー":
             memo = str(row.get("memo", "")).strip()
             source_type = str(row.get("source_type", "")).strip()
 
+            # task由来イベントは下で task_df から作るので、ここでは表示しないある
+            if source_type in ["task_deadline", "task_active"]:
+                continue
+
             if title and start:
                 event_title = title if not user_name else f"{user_name}：{title}"
-
-                event_color = "#3788d8"   # 青（手入力）
-                if source_type == "task_deadline":
-                    event_color = "#e74c3c"
-                elif source_type == "task_active":
-                    event_color = "#f39c12"
-
                 event_id = f"manual_{row.get('id', '')}"
 
                 if event_id not in event_ids:
@@ -756,11 +753,11 @@ elif page == "⑦ 勤務カレンダー":
                         "title": event_title,
                         "start": start,
                         "end": end if end else start,
-                        "color": event_color,
+                        "color": "#3788d8",  # 青（手入力）
                         "extendedProps": {
                             "memo": memo,
                             "user": user_name,
-                            "source_type": source_type if source_type else "manual",
+                            "source_type": "manual",
                         }
                     })
                     event_ids.add(event_id)
