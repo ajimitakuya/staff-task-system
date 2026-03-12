@@ -329,7 +329,22 @@ elif page == "② タスクの引き受け・報告":
 elif page == "③ 稼働状況・完了履歴":
     @st.fragment(run_every=60)
     def show_status_page():
+        st.title("📊 チーム稼働状況")
 
+        df = load_db("task")
+
+        if df is None or df.empty:
+            df = pd.DataFrame(columns=["id", "task", "status", "user", "limit", "priority", "updated_at"])
+        else:
+            for col in ["id", "task", "status", "user", "limit", "priority", "updated_at"]:
+                if col not in df.columns:
+                    df[col] = ""
+
+        df = df.fillna("")
+
+        # ------------------------------------------
+        # 期限アラート
+        # ------------------------------------------
         st.subheader("⏰ 期限アラート")
 
         today = now_jst().date()
@@ -337,12 +352,13 @@ elif page == "③ 稼働状況・完了履歴":
 
         deadline_alerts = []
 
-        for _, row in df.fillna("").iterrows():
-            if str(row.get("status", "")).strip() == "完了":
-                continue
-
-            limit_str = str(row.get("limit", "")).strip()
+        for _, row in df.iterrows():
+            status = str(row.get("status", "")).strip()
             task_name = str(row.get("task", "")).strip()
+            limit_str = str(row.get("limit", "")).strip()
+
+            if status == "完了":
+                continue
 
             if limit_str:
                 try:
@@ -368,11 +384,15 @@ elif page == "③ 稼働状況・完了履歴":
         else:
             st.write("期限アラートはないある。")
 
-        st.title("📊 チーム稼働状況")
-        df = load_db("task")
-        
+        st.divider()
+
+        # ------------------------------------------
+        # 現在稼働中のメンバー
+        # ------------------------------------------
         st.subheader("🏃 現在稼働中のメンバー")
-        active = df[df["status"] == "作業中"]
+
+        active = df[df["status"].astype(str).str.strip() == "作業中"].copy()
+
         if active.empty:
             st.write("現在稼働中のメンバーはいません。")
         else:
@@ -380,16 +400,39 @@ elif page == "③ 稼働状況・完了履歴":
                 st.info(f"👤 **{row['user']}**： {row['task']} （着手時刻：{row['updated_at']}）")
 
         st.divider()
+
+        # ------------------------------------------
+        # 完了済みのタスク（過去7日間）
+        # ------------------------------------------
         st.subheader("✅ 完了済みのタスク（過去7日間）")
-        one_week_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-        # 完了済みデータのフィルタリング
-        done = df[(df["status"] == "完了") & (df.get("updated_at", "").str[:10] >= one_week_ago)]
-        if not done.empty:
-            st.table(done.sort_values("updated_at", ascending=False)[["updated_at", "user", "task"]])
+
+        one_week_ago = now_jst() - timedelta(days=7)
+
+        done_rows = []
+
+        for _, row in df.iterrows():
+            status = str(row.get("status", "")).strip()
+            updated_at = str(row.get("updated_at", "")).strip()
+
+            if status != "完了" or not updated_at:
+                continue
+
+            try:
+                done_dt = pd.to_datetime(updated_at)
+                if done_dt >= one_week_ago:
+                    done_rows.append(row)
+            except Exception:
+                pass
+
+        if done_rows:
+            done_df = pd.DataFrame(done_rows)
+            done_df = done_df.sort_values("updated_at", ascending=False)
+            st.table(done_df[["updated_at", "user", "task"]])
         else:
             st.write("直近1週間以内の完了履歴はありません。")
-    show_status_page()
 
+    show_status_page()
+    
 # ==========================================
 # ④ チームチャット（画像添付対応ある！）
 # ==========================================
