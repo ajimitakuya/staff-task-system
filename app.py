@@ -256,7 +256,105 @@ def sync_task_events_to_calendar():
     cal_df = cal_df.fillna("")
     save_db(cal_df, "calendar")
 
-    save_db(cal_df, "calendar")
+def get_urgent_tasks_df():
+    df = load_db("task")
+
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["id", "task", "status", "user", "limit", "priority", "updated_at"])
+
+    for col in ["id", "task", "status", "user", "limit", "priority", "updated_at"]:
+        if col not in df.columns:
+            df[col] = ""
+
+    df = df.fillna("").copy()
+
+    urgent_df = df[
+        df["priority"].astype(str).str.strip().isin(["至急", "重要"]) &
+        (df["status"].astype(str).str.strip() != "完了")
+    ].copy()
+
+    if urgent_df.empty:
+        return urgent_df
+
+    prio_map = {"至急": 0, "重要": 1}
+    urgent_df["prio_sort"] = urgent_df["priority"].map(prio_map).fillna(9)
+
+    try:
+        urgent_df["limit_sort"] = pd.to_datetime(urgent_df["limit"], errors="coerce")
+    except Exception:
+        urgent_df["limit_sort"] = pd.NaT
+
+    urgent_df = urgent_df.sort_values(["prio_sort", "limit_sort", "updated_at"], ascending=[True, True, False])
+    return urgent_df
+
+
+def start_task(task_id):
+    df = load_db("task")
+    if df is None or df.empty:
+        return
+
+    df = df.fillna("").copy()
+    df.loc[df["id"].astype(str) == str(task_id), ["status", "user", "updated_at"]] = [
+        "作業中",
+        st.session_state.user,
+        now_jst().strftime("%Y-%m-%d %H:%M")
+    ]
+    save_db(df, "task")
+    sync_task_events_to_calendar()
+
+
+def complete_task(task_id):
+    df = load_db("task")
+    if df is None or df.empty:
+        return
+
+    df = df.fillna("").copy()
+    df.loc[df["id"].astype(str) == str(task_id), ["status", "updated_at"]] = [
+        "完了",
+        now_jst().strftime("%Y-%m-%d %H:%M")
+    ]
+    save_db(df, "task")
+    sync_task_events_to_calendar()
+
+
+def go_to_page(page_name):
+    st.session_state.current_page = page_name
+    st.rerun()
+
+
+def render_urgent_banner():
+    urgent_df = get_urgent_tasks_df()
+
+    if urgent_df.empty:
+        return
+
+    urgent_count = len(urgent_df)
+    critical_count = len(urgent_df[urgent_df["priority"].astype(str).str.strip() == "至急"])
+    important_count = len(urgent_df[urgent_df["priority"].astype(str).str.strip() == "重要"])
+
+    st.markdown(
+        f"""
+        <div style="
+            background: linear-gradient(90deg, #ff7b54 0%, #ff9f43 100%);
+            color: white;
+            padding: 14px 18px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            font-weight: 700;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        ">
+            🚨 緊急タスクあり　合計 {urgent_count}件（至急 {critical_count}件 / 重要 {important_count}件）
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    col_a, col_b = st.columns([1, 5])
+    with col_a:
+        if st.button("緊急一覧を開く", key="open_urgent_page_button", use_container_width=True):
+            go_to_page("⑧ 緊急一覧")
+    with col_b:
+        st.caption("クリックして、至急・重要タスクの一覧を確認できるある。")
 
 # ==========================================
 # 🔑 ユーザー認証
@@ -295,18 +393,30 @@ heartbeat_active_user()
 
 st.sidebar.markdown(f"### 👤 ログイン中：\n## {st.session_state.user}")
 
-page = st.sidebar.radio(
+page_options = [
+    "① 未着手の任務（掲示板）",
+    "② タスクの引き受け・報告",
+    "③ 稼働状況・完了履歴",
+    "④ チームチャット",
+    "⑤ 業務マニュアル",
+    "⑥ 日誌入力状況",
+    "⑦ 勤務カレンダー",
+    "⑧ 緊急一覧",
+]
+
+if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
+    st.session_state.current_page = "① 未着手の任務（掲示板）"
+
+selected_page = st.sidebar.radio(
     "メニューを選択してください",
-    [
-        "① 未着手の任務（掲示板）",
-        "② タスクの引き受け・報告",
-        "③ 稼働状況・完了履歴",
-        "④ チームチャット",
-        "⑤ 業務マニュアル",
-        "⑥ 日誌入力状況",
-        "⑦ 勤務カレンダー",
-    ]
+    page_options,
+    index=page_options.index(st.session_state.current_page)
 )
+
+if selected_page != st.session_state.current_page:
+    st.session_state.current_page = selected_page
+
+page = st.session_state.current_page
 
 if st.sidebar.button("ログアウト"):
     del st.session_state.user
@@ -314,10 +424,14 @@ if st.sidebar.button("ログアウト"):
         del st.session_state.login_at
     if "last_active_ping" in st.session_state:
         del st.session_state.last_active_ping
+    if "current_page" in st.session_state:
+        del st.session_state.current_page
     st.rerun()
 
 st.sidebar.divider()
 st.sidebar.caption("System Version 2.0")
+
+render_urgent_banner()
 
 # ログイン中メンバー表示
 try:
@@ -1250,3 +1364,115 @@ elif page == "⑦ 勤務カレンダー":
                 st.write(f"**メモ**: {ext.get('memo')}")
 
     show_calendar_page()
+
+# ==========================================
+# ⑧ 緊急一覧
+# ==========================================
+elif page == "⑧ 緊急一覧":
+    def show_urgent_page():
+        st.title("🚨 緊急一覧")
+
+        urgent_df = get_urgent_tasks_df()
+
+        if urgent_df.empty:
+            st.success("現在、至急・重要タスクはないある。")
+            return
+
+        col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 3])
+
+        with col1:
+            if st.button("全部", key="urgent_filter_all", use_container_width=True):
+                st.session_state.urgent_filter = "全部"
+        with col2:
+            if st.button("至急", key="urgent_filter_critical", use_container_width=True):
+                st.session_state.urgent_filter = "至急"
+        with col3:
+            if st.button("重要", key="urgent_filter_important", use_container_width=True):
+                st.session_state.urgent_filter = "重要"
+        with col4:
+            if st.button("未着手", key="urgent_filter_todo", use_container_width=True):
+                st.session_state.urgent_filter = "未着手"
+
+        current_filter = st.session_state.get("urgent_filter", "全部")
+
+        if current_filter == "至急":
+            urgent_df = urgent_df[urgent_df["priority"].astype(str).str.strip() == "至急"]
+        elif current_filter == "重要":
+            urgent_df = urgent_df[urgent_df["priority"].astype(str).str.strip() == "重要"]
+        elif current_filter == "未着手":
+            urgent_df = urgent_df[urgent_df["status"].astype(str).str.strip() == "未着手"]
+
+        st.caption(f"現在の表示: {current_filter}")
+
+        if urgent_df.empty:
+            st.info("条件に合う緊急タスクはないある。")
+            return
+
+        for _, row in urgent_df.iterrows():
+            task_id = str(row.get("id", "")).strip()
+            task_name = str(row.get("task", "")).strip()
+            priority = str(row.get("priority", "")).strip()
+            status = str(row.get("status", "")).strip()
+            user_name = str(row.get("user", "")).strip()
+            limit_str = str(row.get("limit", "")).strip()
+            updated_at = str(row.get("updated_at", "")).strip()
+
+            if priority == "至急":
+                icon = "🚨"
+                border_color = "#ff4d4f"
+                bg_color = "#fff1f0"
+            else:
+                icon = "⚠️"
+                border_color = "#ff9f43"
+                bg_color = "#fff7e6"
+
+            assignee = user_name if user_name else "未割当"
+
+            with st.container(border=True):
+                st.markdown(
+                    f"""
+                    <div style="
+                        border-left: 8px solid {border_color};
+                        background-color: {bg_color};
+                        padding: 14px 16px;
+                        border-radius: 10px;
+                        margin-bottom: 8px;
+                    ">
+                        <div style="font-size: 20px; font-weight: 700; margin-bottom: 8px;">
+                            {icon} {priority}
+                        </div>
+                        <div style="font-size: 22px; font-weight: 700; margin-bottom: 10px;">
+                            {task_name}
+                        </div>
+                        <div style="line-height: 1.9;">
+                            <b>状態:</b> {status}<br>
+                            <b>担当:</b> {assignee}<br>
+                            <b>期限:</b> {limit_str}<br>
+                            <b>更新:</b> {updated_at}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                action_cols = st.columns([1, 1, 4])
+
+                if status == "未着手":
+                    with action_cols[0]:
+                        if st.button("開始する", key=f"urgent_start_{task_id}", use_container_width=True):
+                            start_task(task_id)
+                            st.success("タスクを開始したある！")
+                            st.rerun()
+
+                elif status == "作業中":
+                    if user_name == st.session_state.user:
+                        with action_cols[1]:
+                            if st.button("完了する", key=f"urgent_done_{task_id}", use_container_width=True):
+                                complete_task(task_id)
+                                st.success("タスクを完了したある！")
+                                st.rerun()
+                    else:
+                        with action_cols[2]:
+                            st.caption(f"現在 {user_name} さんが対応中ある。")
+
+    show_urgent_page()
