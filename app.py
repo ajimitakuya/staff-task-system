@@ -29,7 +29,7 @@ def get_sheet_name(file):
     elif file == "calendar":
         return "calendar"
     elif file == "active_users":
-        return "active_users"    
+        return "active_users"
     else:
         raise ValueError(f"未対応のシート名ある: {file}")
 
@@ -83,6 +83,7 @@ def load_db(file, retries=3, delay=0.8):
                 "manual": ["id", "title", "content", "image_data", "created_at"],
                 "record_status": record_status_cols,
                 "calendar": calendar_cols,
+                "active_users": ["user", "login_at", "last_seen"],
             }
 
             for col in expected_cols[file]:
