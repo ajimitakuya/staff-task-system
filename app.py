@@ -1,13 +1,14 @@
 import streamlit as st
 import pandas as pd
 import base64
+import time
+import random
 from datetime import datetime, timedelta, timezone
-JST = timezone(timedelta(hours=9))
-
-def now_jst():
-    return datetime.now(JST)
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar
+JST = timezone(timedelta(hours=9))
+def now_jst():
+    return datetime.now(JST)
 
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
@@ -33,64 +34,85 @@ def get_sheet_name(file):
         raise ValueError(f"未対応のシート名ある: {file}")
 
 
-def load_db(file):
+def load_db(file, retries=3, delay=0.8):
     s_name = get_sheet_name(file)
-    df = conn.read(worksheet=s_name, ttl=0)
 
-    if df is None:
-        df = pd.DataFrame()
+    last_error = None
+    for attempt in range(retries):
+        try:
+            df = conn.read(worksheet=s_name, ttl=2)
 
-    # record_status の列名を補正するある
-    if file == "record_status" and not df.empty:
-        cols = list(df.columns)
-        fixed_cols = []
-        current_year = None
+            if df is None:
+                df = pd.DataFrame()
 
-        for col in cols:
-            col_str = str(col).strip()
+            # record_status の列名補正
+            if file == "record_status" and not df.empty:
+                cols = list(df.columns)
+                fixed_cols = []
+                current_year = None
 
-            if col_str == "resident_name":
-                fixed_cols.append("resident_name")
-                continue
+                for col in cols:
+                    col_str = str(col).strip()
 
-            if "年" in col_str and "月" in col_str:
-                current_year = col_str.split("年")[0]
-                fixed_cols.append(col_str)
-                continue
+                    if col_str == "resident_name":
+                        fixed_cols.append("resident_name")
+                        continue
 
-            # 「2月」「3月」みたいな省略列を直前の年で補完
-            if col_str.endswith("月") and current_year is not None:
-                fixed_cols.append(f"{current_year}年{col_str}")
+                    if "年" in col_str and "月" in col_str:
+                        current_year = col_str.split("年")[0]
+                        fixed_cols.append(col_str)
+                        continue
+
+                    if col_str.endswith("月") and current_year is not None:
+                        fixed_cols.append(f"{current_year}年{col_str}")
+                    else:
+                        fixed_cols.append(col_str)
+
+                df.columns = fixed_cols
+
+            record_status_cols = ["resident_name"]
+            for year in range(2025, 2027):
+                for month in range(1, 13):
+                    record_status_cols.append(f"{year}年{month}月")
+
+            calendar_cols = ["id", "title", "start", "end", "user", "memo", "source_type", "source_task_id"]
+
+            expected_cols = {
+                "task": ["id", "task", "status", "user", "limit", "priority", "updated_at"],
+                "chat": ["date", "time", "user", "message", "image_data"],
+                "manual": ["id", "title", "content", "image_data", "created_at"],
+                "record_status": record_status_cols,
+                "calendar": calendar_cols,
+            }
+
+            for col in expected_cols[file]:
+                if col not in df.columns:
+                    df[col] = ""
+
+            return df
+
+        except Exception as e:
+            last_error = e
+            if attempt < retries - 1:
+                time.sleep(delay + random.random() * 0.5)
             else:
-                fixed_cols.append(col_str)
+                raise last_error
 
-        df.columns = fixed_cols
 
-    record_status_cols = ["resident_name"]
-    for year in range(2025, 2027):
-        for month in range(1, 13):
-            record_status_cols.append(f"{year}年{month}月")
-
-    calendar_cols = ["id", "title", "start", "end", "user", "memo", "source_type", "source_task_id"]
-
-    expected_cols = {
-        "task": ["id", "task", "status", "user", "limit", "priority", "updated_at"],
-        "chat": ["date", "time", "user", "message", "image_data"],
-        "manual": ["id", "title", "content", "image_data", "created_at"],
-        "record_status": record_status_cols,
-        "calendar": calendar_cols,
-         "active_users": ["user", "login_at", "last_seen"],
-    }
-
-    for col in expected_cols[file]:
-        if col not in df.columns:
-            df[col] = ""
-
-    return df
-
-def save_db(df, file):
+def save_db(df, file, retries=3, delay=1.0):
     s_name = get_sheet_name(file)
-    conn.update(worksheet=s_name, data=df)
+
+    last_error = None
+    for attempt in range(retries):
+        try:
+            conn.update(worksheet=s_name, data=df)
+            return
+        except Exception as e:
+            last_error = e
+            if attempt < retries - 1:
+                time.sleep(delay + random.random() * 0.7)
+            else:
+                raise last_error
 
 def update_active_user():
     active_df = load_db("active_users")
@@ -218,6 +240,9 @@ def sync_task_events_to_calendar():
         add_df = pd.DataFrame(new_events)
         cal_df = pd.concat([cal_df, add_df], ignore_index=True)
 
+    cal_df = cal_df.fillna("")
+    save_db(cal_df, "calendar")
+
     save_db(cal_df, "calendar")
 
 # ==========================================
@@ -333,44 +358,57 @@ st.sidebar.write(f"未着手全体: {len(my_todo)}件")
 # ① 未着手の任務（掲示板）
 # ==========================================
 if page == "① 未着手の任務（掲示板）":
-    @st.fragment(run_every=60)
+    # @st.fragment(run_every=60)
     def show_task_board_page():
         st.title("📋 未着手タスク一覧")
         st.write("現在、依頼されている業務の一覧です。新しいタスクを登録することも可能です。")
 
         with st.expander("➕ 新規タスクを登録する"):
             with st.form("task_form"):
-                t_name = st.text_input("タスク名")
+                bulk_tasks = st.text_area(
+                    "タスク名（1行に1件。まとめて貼り付けOK）",
+                    placeholder="請求書の確認\n支援記録の見直し\n送迎表の作成"
+                )
                 t_prio = st.select_slider("緊急度", options=["通常", "重要", "至急"])
                 t_limit = st.date_input("完了期限", now_jst().date())
 
                 if st.form_submit_button("タスクを登録"):
-                    if t_name:
+                    lines = [x.strip() for x in str(bulk_tasks).replace("\r\n", "\n").split("\n") if x.strip()]
+
+                    if lines:
                         df = load_db("task")
 
-                        # IDが重複しないように最大値+1で作るある
                         if df.empty:
                             next_id = 1
                         else:
                             ids = pd.to_numeric(df["id"], errors="coerce").dropna()
                             next_id = int(ids.max()) + 1 if not ids.empty else 1
 
-                        new_task = pd.DataFrame([{
-                            "id": next_id,
-                            "task": t_name,
-                            "status": "未着手",
-                            "user": "",
-                            "limit": str(t_limit),
-                            "priority": t_prio,
-                            "updated_at": now_jst().strftime("%Y-%m-%d %H:%M")
-                        }])
+                        new_rows = []
+                        now_str = now_jst().strftime("%Y-%m-%d %H:%M")
 
-                        save_db(pd.concat([df, new_task], ignore_index=True), "task")
+                        for task_name in lines:
+                            new_rows.append({
+                                "id": next_id,
+                                "task": task_name,
+                                "status": "未着手",
+                                "user": "",
+                                "limit": str(t_limit),
+                                "priority": t_prio,
+                                "updated_at": now_str
+                            })
+                            next_id += 1
+
+                        add_df = pd.DataFrame(new_rows)
+                        merged_df = pd.concat([df, add_df], ignore_index=True)
+
+                        save_db(merged_df, "task")
                         sync_task_events_to_calendar()
-                        st.success("タスクを登録しました。")
+
+                        st.success(f"{len(new_rows)}件のタスクを登録したある！")
                         st.rerun()
                     else:
-                        st.error("タスク名を入力してください。")
+                        st.error("タスクを1件以上入力してください。")
 
         df = load_db("task")
         todo = df[df["status"] == "未着手"].copy()
@@ -386,7 +424,7 @@ if page == "① 未着手の任務（掲示板）":
 # ② タスクの引き受け・報告
 # ==========================================
 elif page == "② タスクの引き受け・報告":
-    @st.fragment(run_every=60)
+    # @st.fragment(run_every=60)
     def show_my_tasks_page():
         st.title("🎯 タスク管理")
         df = load_db("task")
