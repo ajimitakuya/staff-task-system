@@ -13,8 +13,12 @@ def now_jst():
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
 
+JST = timezone(timedelta(hours=9))
 
-# --- 🔌 スプレッドシート接続設定（最新の最強版ある！） ---
+def now_jst():
+    return datetime.now(JST)
+
+# --- 🔌 スプレッドシート接続設定 ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_sheet_name(file):
@@ -32,7 +36,6 @@ def get_sheet_name(file):
         return "active_users"
     else:
         raise ValueError(f"未対応のシート名ある: {file}")
-
 
 def load_db(file, retries=3, delay=0.8):
     s_name = get_sheet_name(file)
@@ -99,7 +102,6 @@ def load_db(file, retries=3, delay=0.8):
             else:
                 raise last_error
 
-
 def save_db(df, file, retries=3, delay=1.0):
     s_name = get_sheet_name(file)
 
@@ -127,15 +129,16 @@ def update_active_user():
 
     now_str = now_jst().strftime("%Y-%m-%d %H:%M")
 
-    # 15分以上更新がない人はログアウト扱いにするある
     keep_rows = []
+    now_naive = now_jst().replace(tzinfo=None)
+
     for _, row in active_df.fillna("").iterrows():
         last_seen = str(row.get("last_seen", "")).strip()
         if not last_seen:
             continue
         try:
-            last_dt = pd.to_datetime(last_seen)
-            if (now_jst().replace(tzinfo=None) - last_dt.to_pydatetime()).total_seconds() <= 15 * 60:
+            last_dt = pd.to_datetime(last_seen).to_pydatetime()
+            if (now_naive - last_dt).total_seconds() <= 15 * 60:
                 keep_rows.append(row)
         except Exception:
             pass
@@ -149,12 +152,21 @@ def update_active_user():
     else:
         new_row = pd.DataFrame([{
             "user": current_user,
-            "login_at": now_str,
+            "login_at": st.session_state.get("login_at", now_str),
             "last_seen": now_str
         }])
         active_df = pd.concat([active_df, new_row], ignore_index=True)
 
     save_db(active_df, "active_users")
+
+def heartbeat_active_user():
+    now_ts = now_jst().timestamp()
+    last_ping = st.session_state.get("last_active_ping", 0)
+
+    # 5分に1回だけ更新
+    if now_ts - last_ping >= 300:
+        update_active_user()
+        st.session_state["last_active_ping"] = now_ts
 
 def sync_task_events_to_calendar():
     task_df = load_db("task")
@@ -269,16 +281,18 @@ if 'user' not in st.session_state:
         if user:
             st.session_state.user = user
             st.session_state.login_at = now_jst().strftime("%Y-%m-%d %H:%M")
+            st.session_state.last_active_ping = 0
             st.rerun()
         else:
             st.error("担当者を選択してください。")
 
     st.stop()
 
-update_active_user()
 # ==========================================
 # 🏠 メインメニュー
 # ==========================================
+heartbeat_active_user()
+
 st.sidebar.markdown(f"### 👤 ログイン中：\n## {st.session_state.user}")
 
 page = st.sidebar.radio(
@@ -296,12 +310,20 @@ page = st.sidebar.radio(
 
 if st.sidebar.button("ログアウト"):
     del st.session_state.user
+    if "login_at" in st.session_state:
+        del st.session_state.login_at
+    if "last_active_ping" in st.session_state:
+        del st.session_state.last_active_ping
     st.rerun()
-
-active_df = load_db("active_users")
 
 st.sidebar.divider()
 st.sidebar.caption("System Version 2.0")
+
+# ログイン中メンバー表示
+try:
+    active_df = load_db("active_users")
+except Exception:
+    active_df = pd.DataFrame(columns=["user", "login_at", "last_seen"])
 
 st.sidebar.markdown("### 👥 ログイン中メンバー")
 
@@ -309,8 +331,6 @@ if active_df is None or active_df.empty:
     st.sidebar.write("現在ログイン中の人はいないある。")
 else:
     active_df = active_df.fillna("")
-
-    # 15分以内に更新がある人だけ表示
     now_dt = now_jst().replace(tzinfo=None)
     visible_rows = []
 
@@ -334,7 +354,11 @@ else:
     else:
         st.sidebar.write("現在ログイン中の人はいないある。")
 
-task_df = load_db("task").fillna("")
+# マイ状況
+try:
+    task_df = load_db("task").fillna("")
+except Exception:
+    task_df = pd.DataFrame(columns=["id", "task", "status", "user", "limit", "priority", "updated_at"])
 
 my_active = task_df[
     (task_df["status"].astype(str).str.strip() == "作業中") &
@@ -347,19 +371,13 @@ my_todo = task_df[
 
 st.sidebar.divider()
 st.sidebar.markdown("### 📌 マイ状況")
-
-if not my_active.empty:
-    st.sidebar.write(f"作業中: {len(my_active)}件")
-else:
-    st.sidebar.write("作業中: 0件")
-
+st.sidebar.write(f"作業中: {len(my_active)}件")
 st.sidebar.write(f"未着手全体: {len(my_todo)}件")
 
 # ==========================================
 # ① 未着手の任務（掲示板）
 # ==========================================
 if page == "① 未着手の任務（掲示板）":
-    # @st.fragment(run_every=60)
     def show_task_board_page():
         st.title("📋 未着手タスク一覧")
         st.write("現在、依頼されている業務の一覧です。新しいタスクを登録することも可能です。")
@@ -412,20 +430,26 @@ if page == "① 未着手の任務（掲示板）":
                         st.error("タスクを1件以上入力してください。")
 
         df = load_db("task")
-        todo = df[df["status"] == "未着手"].copy()
+        todo = df[df["status"].astype(str).str.strip() == "未着手"].copy()
+
         if not todo.empty:
             prio_map = {"至急": 0, "重要": 1, "通常": 2}
             todo["p_val"] = todo["priority"].map(prio_map)
-            st.dataframe(todo.sort_values("p_val")[["priority", "limit", "task"]], use_container_width=True, hide_index=True)
+            st.dataframe(
+                todo.sort_values(["p_val", "limit"])[["priority", "limit", "task"]],
+                use_container_width=True,
+                hide_index=True
+            )
         else:
             st.info("現在、未着手のタスクはありません。")
-    show_task_board_page()
 
+    show_task_board_page()
+    
 # ==========================================
 # ② タスクの引き受け・報告
 # ==========================================
 elif page == "② タスクの引き受け・報告":
-    # @st.fragment(run_every=60)
+    # @st.fragment(run_every=180)
     def show_my_tasks_page():
         st.title("🎯 タスク管理")
         df = load_db("task")
@@ -458,7 +482,7 @@ elif page == "② タスクの引き受け・報告":
 # ③ 稼働状況・完了履歴
 # ==========================================
 elif page == "③ 稼働状況・完了履歴":
-    @st.fragment(run_every=60)
+    @st.fragment(run_every=180)
     def show_status_page():
         st.title("📊 チーム稼働状況")
 
@@ -694,7 +718,7 @@ elif page == "④ チームチャット":
 # ⑤ 業務マニュアル ver2 (画像D&D + 削除対応)
 # ==========================================
 elif page == "⑤ 業務マニュアル":
-    @st.fragment(run_every=60)
+    @st.fragment(run_every=180)
     def show_manual_page():
         st.title("📚 業務マニュアル")
 
@@ -804,7 +828,7 @@ elif page == "⑤ 業務マニュアル":
 # ⑥ 日誌入力状況（年つき横表・Excel風ある！）
 # ==========================================
 elif page == "⑥ 日誌入力状況":
-    @st.fragment(run_every=60)
+    @st.fragment(run_every=180)
     def show_record_status_page():
         st.title("📝 日誌入力状況管理")
 
@@ -941,12 +965,17 @@ elif page == "⑥ 日誌入力状況":
 # ==========================================
 elif page == "⑦ 勤務カレンダー":
     sync_task_events_to_calendar()
-    @st.fragment(run_every=60)
+
+    @st.fragment(run_every=180)
     def show_calendar_page():
         st.title("📅 勤務カレンダー")
 
-        cal_df = load_db("calendar")
-        task_df = load_db("task")
+        try:
+            cal_df = load_db("calendar")
+            task_df = load_db("task")
+        except Exception:
+            st.warning("Googleスプレッドシートとの通信が一時的に不安定ある。少し待って再読み込みしてほしいある。")
+            return
 
         # calendarシートの最低列を保証
         if cal_df is None or cal_df.empty:
