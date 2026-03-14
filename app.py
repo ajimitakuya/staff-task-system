@@ -433,11 +433,13 @@ if "current_page" not in st.session_state or st.session_state.current_page not i
 selected_page = st.sidebar.radio(
     "メニューを選択してください",
     page_options,
-    index=page_options.index(st.session_state.current_page)
+    index=page_options.index(st.session_state.current_page),
+    key="main_menu_radio"
 )
 
 if selected_page != st.session_state.current_page:
     st.session_state.current_page = selected_page
+    st.rerun()
 
 page = st.session_state.current_page
 
@@ -1614,89 +1616,333 @@ elif page == "⑧ 緊急一覧":
 
     show_urgent_page()
 
-def get_next_numeric_id(df, col_name="id", start=1):
-    if df is None or df.empty or col_name not in df.columns:
-        return start
-    ids = pd.to_numeric(df[col_name], errors="coerce").dropna()
-    return int(ids.max()) + 1 if not ids.empty else start
+# ==========================================
+# ⑨ 利用者情報
+# ==========================================
+elif page == "⑨ 利用者情報":
+    def show_resident_page():
+        st.title("👤 利用者情報")
 
+        master_df = get_resident_master_df()
+        schedule_df = get_resident_schedule_df()
+        notes_df = get_resident_notes_df()
 
-def get_next_resident_id(master_df):
-    if master_df is None or master_df.empty or "resident_id" not in master_df.columns:
-        return "R0001"
+        if "resident_mode" not in st.session_state:
+            st.session_state.resident_mode = "利用中"
 
-    numbers = []
-    for x in master_df["resident_id"].fillna("").astype(str):
-        x = x.strip().upper()
-        if x.startswith("R"):
-            num = x[1:]
-            if num.isdigit():
-                numbers.append(int(num))
+        if "selected_resident_id" not in st.session_state:
+            st.session_state.selected_resident_id = ""
 
-    next_num = max(numbers) + 1 if numbers else 1
-    return f"R{next_num:04d}"
+        # ------------------------------------------
+        # 一覧モード
+        # ------------------------------------------
+        if not st.session_state.selected_resident_id:
+            top_cols = st.columns([1, 1, 3])
 
+            with top_cols[0]:
+                if st.button("利用者一覧", use_container_width=True):
+                    st.session_state.resident_mode = "利用中"
+                    st.rerun()
 
-def get_resident_master_df():
-    df = load_db("resident_master")
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "resident_id", "resident_name", "status",
-            "consultant", "consultant_phone",
-            "caseworker", "caseworker_phone",
-            "hospital", "hospital_phone",
-            "nurse", "nurse_phone",
-            "care", "care_phone",
-            "created_at", "updated_at"
-        ])
-    else:
-        for col in [
-            "resident_id", "resident_name", "status",
-            "consultant", "consultant_phone",
-            "caseworker", "caseworker_phone",
-            "hospital", "hospital_phone",
-            "nurse", "nurse_phone",
-            "care", "care_phone",
-            "created_at", "updated_at"
-        ]:
-            if col not in df.columns:
-                df[col] = ""
-    return df.fillna("")
+            with top_cols[1]:
+                if st.button("退所者一覧", use_container_width=True):
+                    st.session_state.resident_mode = "退所"
+                    st.rerun()
 
+            with top_cols[2]:
+                st.caption(f"現在表示: {st.session_state.resident_mode}")
 
-def get_resident_schedule_df():
-    df = load_db("resident_schedule")
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "id", "resident_id", "weekday", "service_type",
-            "start_time", "end_time", "place", "phone", "memo"
-        ])
-    else:
-        for col in [
-            "id", "resident_id", "weekday", "service_type",
-            "start_time", "end_time", "place", "phone", "memo"
-        ]:
-            if col not in df.columns:
-                df[col] = ""
-    return df.fillna("")
+            st.divider()
 
+            with st.expander("➕ 新しい利用者を追加する"):
+                with st.form("resident_add_form"):
+                    resident_name = st.text_input("利用者名")
+                    status = st.selectbox("状態", ["利用中", "退所"])
+                    consultant = st.text_input("相談員")
+                    consultant_phone = st.text_input("相談員電話")
+                    caseworker = st.text_input("ケースワーカー")
+                    caseworker_phone = st.text_input("ケースワーカー電話")
+                    hospital = st.text_input("病院")
+                    hospital_phone = st.text_input("病院電話")
+                    nurse = st.text_input("看護")
+                    nurse_phone = st.text_input("看護電話")
+                    care = st.text_input("介護")
+                    care_phone = st.text_input("介護電話")
 
-def get_resident_notes_df():
-    df = load_db("resident_notes")
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=["id", "resident_id", "date", "user", "note"])
-    else:
-        for col in ["id", "resident_id", "date", "user", "note"]:
-            if col not in df.columns:
-                df[col] = ""
-    return df.fillna("")
+                    if st.form_submit_button("利用者を登録する"):
+                        if resident_name.strip():
+                            next_resident_id = get_next_resident_id(master_df)
+                            now_str = now_jst().strftime("%Y-%m-%d %H:%M")
 
+                            new_row = pd.DataFrame([{
+                                "resident_id": next_resident_id,
+                                "resident_name": resident_name.strip(),
+                                "status": status,
+                                "consultant": consultant.strip(),
+                                "consultant_phone": consultant_phone.strip(),
+                                "caseworker": caseworker.strip(),
+                                "caseworker_phone": caseworker_phone.strip(),
+                                "hospital": hospital.strip(),
+                                "hospital_phone": hospital_phone.strip(),
+                                "nurse": nurse.strip(),
+                                "nurse_phone": nurse_phone.strip(),
+                                "care": care.strip(),
+                                "care_phone": care_phone.strip(),
+                                "created_at": now_str,
+                                "updated_at": now_str
+                            }])
 
-def go_resident_detail(resident_id):
-    st.session_state.selected_resident_id = resident_id
-    st.rerun()
+                            save_db(pd.concat([master_df, new_row], ignore_index=True), "resident_master")
+                            st.success("利用者を登録したある！")
+                            st.rerun()
+                        else:
+                            st.error("利用者名を入力してほしいある。")
 
+            st.divider()
 
-def back_to_resident_list():
-    st.session_state.selected_resident_id = ""
-    st.rerun()
+            search_word = st.text_input("名前検索", placeholder="利用者名を入力")
+
+            list_df = master_df.copy()
+            list_df = list_df[list_df["status"].astype(str).str.strip() == st.session_state.resident_mode].copy()
+
+            if search_word.strip():
+                list_df = list_df[
+                    list_df["resident_name"].astype(str).str.contains(search_word.strip(), case=False, na=False)
+                ].copy()
+
+            list_df = list_df.sort_values("resident_name")
+
+            if list_df.empty:
+                st.info("該当する利用者はいないある。")
+                return
+
+            cols = st.columns(3)
+
+            for i, (_, row) in enumerate(list_df.iterrows()):
+                with cols[i % 3]:
+                    resident_id = str(row.get("resident_id", "")).strip()
+                    resident_name = str(row.get("resident_name", "")).strip()
+                    status = str(row.get("status", "")).strip()
+                    consultant = str(row.get("consultant", "")).strip()
+
+                    if status == "利用中":
+                        status_label = "🟢 利用中"
+                        bg = "#eefbf0"
+                        border = "#2ecc71"
+                    else:
+                        status_label = "⚫ 退所"
+                        bg = "#f3f4f6"
+                        border = "#7f8c8d"
+
+                    with st.container(border=True):
+                        st.markdown(
+                            f"""
+                            <div style="
+                                border-left: 8px solid {border};
+                                background-color: {bg};
+                                padding: 14px;
+                                border-radius: 10px;
+                                min-height: 140px;
+                                margin-bottom: 10px;
+                            ">
+                                <div style="font-size: 20px; font-weight: 700; margin-bottom: 8px;">
+                                    {resident_name}
+                                </div>
+                                <div style="margin-bottom: 6px;">{status_label}</div>
+                                <div>相談員: {consultant if consultant else '未登録'}</div>
+                                <div>ID: {resident_id}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+                        if st.button("詳細を見る", key=f"open_resident_{resident_id}", use_container_width=True):
+                            go_resident_detail(resident_id)
+
+        # ------------------------------------------
+        # 個人詳細モード
+        # ------------------------------------------
+        else:
+            selected_id = st.session_state.selected_resident_id
+
+            detail_df = master_df[master_df["resident_id"].astype(str) == str(selected_id)].copy()
+            if detail_df.empty:
+                st.warning("利用者情報が見つからないある。")
+                if st.button("一覧に戻る", use_container_width=True):
+                    back_to_resident_list()
+                return
+
+            row = detail_df.iloc[0]
+
+            back_cols = st.columns([1, 5])
+            with back_cols[0]:
+                if st.button("← 一覧に戻る", use_container_width=True):
+                    back_to_resident_list()
+
+            resident_name = str(row.get("resident_name", "")).strip()
+            status = str(row.get("status", "")).strip()
+
+            if status == "利用中":
+                status_label = "🟢 利用中"
+            else:
+                status_label = "⚫ 退所"
+
+            st.subheader(f"{resident_name} 様")
+            st.caption(f"{status_label} / ID: {selected_id}")
+
+            st.markdown("### 基本情報")
+            info_cols = st.columns(2)
+
+            with info_cols[0]:
+                st.write(f"**相談員**: {row.get('consultant', '')}")
+                st.write(f"**相談員電話**: {row.get('consultant_phone', '')}")
+                st.write(f"**ケースワーカー**: {row.get('caseworker', '')}")
+                st.write(f"**ケースワーカー電話**: {row.get('caseworker_phone', '')}")
+                st.write(f"**病院**: {row.get('hospital', '')}")
+                st.write(f"**病院電話**: {row.get('hospital_phone', '')}")
+
+            with info_cols[1]:
+                st.write(f"**看護**: {row.get('nurse', '')}")
+                st.write(f"**看護電話**: {row.get('nurse_phone', '')}")
+                st.write(f"**介護**: {row.get('care', '')}")
+                st.write(f"**介護電話**: {row.get('care_phone', '')}")
+                st.write(f"**登録日**: {row.get('created_at', '')}")
+                st.write(f"**更新日**: {row.get('updated_at', '')}")
+
+            st.divider()
+            st.markdown("### 週間予定")
+
+            schedule_view = schedule_df[schedule_df["resident_id"].astype(str) == str(selected_id)].copy()
+
+            weekday_order = {"月": 1, "火": 2, "水": 3, "木": 4, "金": 5, "土": 6, "日": 7}
+            if not schedule_view.empty:
+                schedule_view["weekday_order"] = schedule_view["weekday"].map(weekday_order).fillna(99)
+                schedule_view = schedule_view.sort_values(["weekday_order", "start_time"])
+
+                st.dataframe(
+                    schedule_view[["weekday", "service_type", "start_time", "end_time", "place", "phone", "memo"]],
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("週間予定はまだ登録されてないある。")
+
+            st.divider()
+            st.markdown("### 共有メモ")
+
+            notes_view = notes_df[notes_df["resident_id"].astype(str) == str(selected_id)].copy()
+            if not notes_view.empty:
+                try:
+                    notes_view = notes_view.sort_values("date", ascending=False)
+                except Exception:
+                    pass
+
+                for _, note_row in notes_view.iterrows():
+                    with st.container(border=True):
+                        st.write(f"**{note_row.get('date', '')}**  {note_row.get('user', '')}")
+                        st.write(note_row.get("note", ""))
+            else:
+                st.info("共有メモはまだないある。")
+
+            st.divider()
+            st.markdown("### 編集・追加")
+
+            edit_cols = st.columns(3)
+            with edit_cols[0]:
+                if st.button("基本情報を編集", key=f"edit_basic_{selected_id}", use_container_width=True):
+                    st.session_state.edit_resident_basic = True
+            with edit_cols[1]:
+                if st.button("予定を追加", key=f"edit_schedule_{selected_id}", use_container_width=True):
+                    st.session_state.edit_resident_schedule = True
+            with edit_cols[2]:
+                if st.button("メモを追加", key=f"edit_note_{selected_id}", use_container_width=True):
+                    st.session_state.edit_resident_note = True
+
+            # 基本情報編集
+            if st.session_state.get("edit_resident_basic", False):
+                with st.form(f"resident_basic_form_{selected_id}"):
+                    new_name = st.text_input("利用者名", value=str(row.get("resident_name", "")))
+                    new_status = st.selectbox("状態", ["利用中", "退所"], index=0 if str(row.get("status", "")) == "利用中" else 1)
+                    new_consultant = st.text_input("相談員", value=str(row.get("consultant", "")))
+                    new_consultant_phone = st.text_input("相談員電話", value=str(row.get("consultant_phone", "")))
+                    new_caseworker = st.text_input("ケースワーカー", value=str(row.get("caseworker", "")))
+                    new_caseworker_phone = st.text_input("ケースワーカー電話", value=str(row.get("caseworker_phone", "")))
+                    new_hospital = st.text_input("病院", value=str(row.get("hospital", "")))
+                    new_hospital_phone = st.text_input("病院電話", value=str(row.get("hospital_phone", "")))
+                    new_nurse = st.text_input("看護", value=str(row.get("nurse", "")))
+                    new_nurse_phone = st.text_input("看護電話", value=str(row.get("nurse_phone", "")))
+                    new_care = st.text_input("介護", value=str(row.get("care", "")))
+                    new_care_phone = st.text_input("介護電話", value=str(row.get("care_phone", "")))
+
+                    if st.form_submit_button("基本情報を保存する"):
+                        mask = master_df["resident_id"].astype(str) == str(selected_id)
+                        master_df.loc[mask, "resident_name"] = new_name.strip()
+                        master_df.loc[mask, "status"] = new_status
+                        master_df.loc[mask, "consultant"] = new_consultant.strip()
+                        master_df.loc[mask, "consultant_phone"] = new_consultant_phone.strip()
+                        master_df.loc[mask, "caseworker"] = new_caseworker.strip()
+                        master_df.loc[mask, "caseworker_phone"] = new_caseworker_phone.strip()
+                        master_df.loc[mask, "hospital"] = new_hospital.strip()
+                        master_df.loc[mask, "hospital_phone"] = new_hospital_phone.strip()
+                        master_df.loc[mask, "nurse"] = new_nurse.strip()
+                        master_df.loc[mask, "nurse_phone"] = new_nurse_phone.strip()
+                        master_df.loc[mask, "care"] = new_care.strip()
+                        master_df.loc[mask, "care_phone"] = new_care_phone.strip()
+                        master_df.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M")
+                        save_db(master_df, "resident_master")
+                        st.session_state.edit_resident_basic = False
+                        st.success("基本情報を更新したある！")
+                        st.rerun()
+
+            # 予定追加
+            if st.session_state.get("edit_resident_schedule", False):
+                with st.form(f"resident_schedule_form_{selected_id}"):
+                    weekday = st.selectbox("曜日", ["月", "火", "水", "木", "金", "土", "日"])
+                    service_type = st.selectbox("サービス種別", ["看護", "介護", "通院", "作業所", "その他"])
+                    start_time = st.text_input("開始時刻", placeholder="10:00")
+                    end_time = st.text_input("終了時刻", placeholder="11:00")
+                    place = st.text_input("事業所・病院名など")
+                    phone = st.text_input("電話番号")
+                    memo = st.text_input("メモ")
+
+                    if st.form_submit_button("予定を追加する"):
+                        next_id = get_next_numeric_id(schedule_df, "id", 1)
+                        new_row = pd.DataFrame([{
+                            "id": next_id,
+                            "resident_id": selected_id,
+                            "weekday": weekday,
+                            "service_type": service_type,
+                            "start_time": start_time.strip(),
+                            "end_time": end_time.strip(),
+                            "place": place.strip(),
+                            "phone": phone.strip(),
+                            "memo": memo.strip()
+                        }])
+                        save_db(pd.concat([schedule_df, new_row], ignore_index=True), "resident_schedule")
+                        st.session_state.edit_resident_schedule = False
+                        st.success("予定を追加したある！")
+                        st.rerun()
+
+            # メモ追加
+            if st.session_state.get("edit_resident_note", False):
+                with st.form(f"resident_note_form_{selected_id}"):
+                    new_note = st.text_area("共有メモ")
+
+                    if st.form_submit_button("メモを追加する"):
+                        if new_note.strip():
+                            next_id = get_next_numeric_id(notes_df, "id", 1)
+                            new_row = pd.DataFrame([{
+                                "id": next_id,
+                                "resident_id": selected_id,
+                                "date": now_jst().strftime("%Y-%m-%d %H:%M"),
+                                "user": st.session_state.user,
+                                "note": new_note.strip()
+                            }])
+                            save_db(pd.concat([notes_df, new_row], ignore_index=True), "resident_notes")
+                            st.session_state.edit_resident_note = False
+                            st.success("メモを追加したある！")
+                            st.rerun()
+                        else:
+                            st.error("メモ内容を入力してほしいある。")
+
+    show_resident_page()
