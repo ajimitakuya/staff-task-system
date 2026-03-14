@@ -395,7 +395,7 @@ if 'user' not in st.session_state:
 
     user_list = [
         "木村 由美", "秋吉 幸雄", "安心院 拓也", "粟田 絵利菜", "小宅 正嗣",
-        "土居 容子", "中本 匡", "中本 文代", "伴 法子", "栁川 幸恵", "山口 晴彦"
+        "土居 容子", "中本 匡", "中本 文代", "中本 雄斗", "伴 法子", "栁川 幸恵", "山口 晴彦"
     ]
 
     user = st.radio(
@@ -479,6 +479,7 @@ for p in page_options:
                 padding: 12px 14px;
                 margin-bottom: 8px;
                 box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+                text-align:center;
             ">
                 ● {p}
             </div>
@@ -2003,42 +2004,90 @@ elif page == "⑨ 利用者情報":
             if schedule_view.empty:
                 st.info("週間予定はまだ登録されてないある。")
             else:
-                row_order = ["介護", "看護", "病院"]
-                col_order = ["日", "月", "火", "水", "木", "金", "土"]
+                color_map = {
+                    "病院": "#f6c90e",
+                    "看護": "#9fd3e6",
+                    "介護": "#b7e20f",
+                }
+                col_order = ["月", "火", "水", "木", "金", "土", "日"]
 
-                calendar_rows = []
-                for service_type in row_order:
-                    row_data = {"区分": service_type}
-                    for wd in col_order:
-                        hit_df = schedule_view[
-                            (schedule_view["service_type"].astype(str) == service_type) &
-                            (schedule_view["weekday"].astype(str) == wd)
-                        ].copy()
+                legend_html = ""
+                for name, color in color_map.items():
+                    legend_html += f'''
+                    <div style="
+                        display:inline-block;
+                        background:{color};
+                        color:#111;
+                        font-weight:700;
+                        padding:8px 28px;
+                        border:2px solid #111;
+                        border-radius:4px;
+                        margin-right:10px;
+                        margin-bottom:10px;
+                    ">{name}</div>
+                    '''
+                st.markdown(legend_html, unsafe_allow_html=True)
 
-                        if hit_df.empty:
-                            row_data[wd] = ""
-                        else:
-                            hit = hit_df.iloc[0]
+                table_html = '<table style="width:100%; border-collapse:collapse; table-layout:fixed;">'
+                table_html += '<tr>'
+                for wd in col_order:
+                    table_html += f'<th style="border:2px solid #111; padding:8px; text-align:center; background:#fafafa;">{wd}</th>'
+                table_html += '</tr><tr>'
+
+                for wd in col_order:
+                    day_df = schedule_view[schedule_view["weekday"].astype(str) == wd].copy()
+
+                    items = []
+                    if not day_df.empty:
+                        def _slot_num(x):
+                            memo_val = str(x.get("memo", "")).strip()
+                            if memo_val.startswith("slot:"):
+                                try:
+                                    return int(memo_val.replace("slot:", ""))
+                                except Exception:
+                                    return 99
+                            return 99
+
+                        day_df["_slot_num"] = day_df.apply(_slot_num, axis=1)
+                        day_df = day_df.sort_values(["_slot_num", "service_type", "start_time"])
+
+                        for _, hit in day_df.iterrows():
+                            service_type = str(hit.get("service_type", "")).strip()
+                            bg = color_map.get(service_type, "#eeeeee")
                             time_text = str(hit.get("start_time", "")).strip()
                             if str(hit.get("end_time", "")).strip():
-                                time_text += f"-{str(hit.get('end_time', '')).strip()}"
-                            place_text = str(hit.get("place", "")).strip()
-                            person_text = str(hit.get("person_in_charge", "")).strip()
+                                time_text += f"〜{str(hit.get('end_time', '')).strip()}"
 
-                            display_parts = []
-                            if time_text:
-                                display_parts.append(time_text)
-                            if place_text:
-                                display_parts.append(place_text)
-                            if person_text:
-                                display_parts.append(f"担当:{person_text}")
+                            items.append(
+                                f'''
+                                <div style="
+                                    background:{bg};
+                                    border:2px solid #111;
+                                    padding:6px 8px;
+                                    margin:4px 0;
+                                    font-weight:700;
+                                    text-align:left;
+                                    min-height:28px;
+                                ">
+                                    {time_text}
+                                </div>
+                                '''
+                            )
 
-                            row_data[wd] = "\n".join(display_parts)
+                    cell_html = "".join(items)
+                    table_html += f'''
+                    <td style="
+                        border:2px solid #111;
+                        vertical-align:top;
+                        padding:6px;
+                        height:190px;
+                    ">
+                        {cell_html}
+                    </td>
+                    '''
 
-                    calendar_rows.append(row_data)
-
-                week_df = pd.DataFrame(calendar_rows)
-                st.dataframe(week_df, use_container_width=True, hide_index=True)
+                table_html += '</tr></table>'
+                st.markdown(table_html, unsafe_allow_html=True)
 
             st.divider()
             st.markdown("### 共有メモ")
@@ -2134,38 +2183,80 @@ elif page == "⑨ 利用者情報":
                         st.rerun()
 
             # ------------------------------------------
-            # 予定追加（週間カレンダー形式）
+            # 予定追加（週間カレンダー形式・1日4枠）
             # ------------------------------------------
             if st.session_state.get("edit_resident_schedule", False):
-                weekday_list = ["日", "月", "火", "水", "木", "金", "土"]
+                weekday_list = ["月", "火", "水", "木", "金", "土", "日"]
                 service_defs = [
-                    ("介護", "介護施設"),
-                    ("看護", "看護施設"),
-                    ("病院", "病院"),
+                    ("病院", "#f6c90e"),
+                    ("看護", "#9fd3e6"),
+                    ("介護", "#b7e20f"),
                 ]
 
                 st.markdown("#### 週間予定をまとめて登録")
-                st.caption("時間は 09:00-10:00 のように入力するある。空欄は登録しないある。")
+                st.caption("各曜日は最大4枠まで入力できるある。時間は 10:00-11:00 のように入れるある。空欄は無視されるある。")
 
                 with st.form(f"resident_schedule_week_form_{selected_id}"):
                     weekly_inputs = {}
 
-                    for service_type, label in service_defs:
-                        st.markdown(f"##### {label}")
-                        place_name = st.text_input(f"{label}名", key=f"{selected_id}_{service_type}_place")
-                        phone_val = st.text_input(f"{label}電話", key=f"{selected_id}_{service_type}_phone")
-                        person_val = st.text_input(f"{label}担当者", key=f"{selected_id}_{service_type}_person")
+                    for service_type, color in service_defs:
+                        st.markdown(
+                            f"""
+                            <div style="
+                                display:inline-block;
+                                background:{color};
+                                color:#111;
+                                font-weight:700;
+                                padding:8px 24px;
+                                border:2px solid #111;
+                                border-radius:4px;
+                                margin:6px 10px 10px 0;
+                            ">
+                                {service_type}
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
 
-                        cols = st.columns(7)
+                        top_cols = st.columns([1, 1])
+                        with top_cols[0]:
+                            place_name = st.text_input(f"{service_type}名", key=f"{selected_id}_{service_type}_place")
+                        with top_cols[1]:
+                            person_val = st.text_input(f"{service_type}担当", key=f"{selected_id}_{service_type}_person")
+
+                        phone_val = st.text_input(f"{service_type}電話", key=f"{selected_id}_{service_type}_phone")
+
+                        day_cols = st.columns(7)
                         day_values = {}
 
                         for idx, wd in enumerate(weekday_list):
-                            with cols[idx]:
-                                day_values[wd] = st.text_input(
-                                    wd,
-                                    placeholder="09:00-10:00",
-                                    key=f"{selected_id}_{service_type}_{wd}"
+                            with day_cols[idx]:
+                                st.markdown(
+                                    f"""
+                                    <div style="
+                                        border:2px solid #111;
+                                        text-align:center;
+                                        font-weight:700;
+                                        padding:6px 0;
+                                        margin-bottom:6px;
+                                    ">
+                                        {wd}
+                                    </div>
+                                    """,
+                                    unsafe_allow_html=True
                                 )
+
+                                slots = []
+                                for slot_no in range(1, 5):
+                                    val = st.text_input(
+                                        f"{wd}{slot_no}",
+                                        placeholder=f"① 10:00-11:00",
+                                        key=f"{selected_id}_{service_type}_{wd}_{slot_no}",
+                                        label_visibility="collapsed"
+                                    )
+                                    slots.append(val)
+
+                                day_values[wd] = slots
 
                         weekly_inputs[service_type] = {
                             "place": place_name.strip(),
@@ -2183,7 +2274,7 @@ elif page == "⑨ 利用者情報":
                         cancel_weekly = st.form_submit_button("キャンセル", use_container_width=True)
 
                     if save_weekly:
-                        # この利用者の 病院/看護/介護 の既存予定を消して入れ直す
+                        # この利用者の 病院/看護/介護 の既存予定を全部消して入れ直す
                         keep_df = schedule_df[
                             ~(
                                 (schedule_df["resident_id"].astype(str) == str(selected_id)) &
@@ -2199,32 +2290,33 @@ elif page == "⑨ 利用者情報":
                             phone_val = data["phone"]
                             person_val = data["person_in_charge"]
 
-                            for wd, time_range in data["days"].items():
-                                time_range = str(time_range).strip()
-                                if not time_range:
-                                    continue
+                            for wd, slot_list in data["days"].items():
+                                for slot_index, time_range in enumerate(slot_list, start=1):
+                                    time_range = str(time_range).strip()
+                                    if not time_range:
+                                        continue
 
-                                if "-" in time_range:
-                                    start_time, end_time = [x.strip() for x in time_range.split("-", 1)]
-                                elif "～" in time_range:
-                                    start_time, end_time = [x.strip() for x in time_range.split("～", 1)]
-                                else:
-                                    start_time = time_range
-                                    end_time = ""
+                                    if "-" in time_range:
+                                        start_time, end_time = [x.strip() for x in time_range.split("-", 1)]
+                                    elif "～" in time_range:
+                                        start_time, end_time = [x.strip() for x in time_range.split("～", 1)]
+                                    else:
+                                        start_time = time_range
+                                        end_time = ""
 
-                                new_rows.append({
-                                    "id": next_id,
-                                    "resident_id": selected_id,
-                                    "weekday": wd,
-                                    "service_type": service_type,
-                                    "start_time": start_time,
-                                    "end_time": end_time,
-                                    "place": place_name,
-                                    "phone": phone_val,
-                                    "person_in_charge": person_val,
-                                    "memo": ""
-                                })
-                                next_id += 1
+                                    new_rows.append({
+                                        "id": next_id,
+                                        "resident_id": selected_id,
+                                        "weekday": wd,
+                                        "service_type": service_type,
+                                        "start_time": start_time,
+                                        "end_time": end_time,
+                                        "place": place_name,
+                                        "phone": phone_val,
+                                        "person_in_charge": person_val,
+                                        "memo": f"slot:{slot_index}"
+                                    })
+                                    next_id += 1
 
                         if new_rows:
                             add_df = pd.DataFrame(new_rows)
@@ -2251,42 +2343,90 @@ elif page == "⑨ 利用者情報":
                 if schedule_view.empty:
                     st.info("週間予定はまだ登録されてないある。")
                 else:
-                    row_order = ["介護", "看護", "病院"]
-                    col_order = ["日", "月", "火", "水", "木", "金", "土"]
+                    color_map = {
+                        "病院": "#f6c90e",
+                        "看護": "#9fd3e6",
+                        "介護": "#b7e20f",
+                    }
+                    col_order = ["月", "火", "水", "木", "金", "土", "日"]
 
-                    calendar_rows = []
-                    for service_type in row_order:
-                        row_data = {"区分": service_type}
-                        for wd in col_order:
-                            hit_df = schedule_view[
-                                (schedule_view["service_type"].astype(str) == service_type) &
-                                (schedule_view["weekday"].astype(str) == wd)
-                            ].copy()
+                    legend_html = ""
+                    for name, color in color_map.items():
+                        legend_html += f'''
+                        <div style="
+                            display:inline-block;
+                            background:{color};
+                            color:#111;
+                            font-weight:700;
+                            padding:8px 28px;
+                            border:2px solid #111;
+                            border-radius:4px;
+                            margin-right:10px;
+                            margin-bottom:10px;
+                        ">{name}</div>
+                        '''
+                    st.markdown(legend_html, unsafe_allow_html=True)
 
-                            if hit_df.empty:
-                                row_data[wd] = ""
-                            else:
-                                hit = hit_df.iloc[0]
+                    header_html = '<table style="width:100%; border-collapse:collapse; table-layout:fixed;">'
+                    header_html += '<tr>'
+                    for wd in col_order:
+                        header_html += f'<th style="border:2px solid #111; padding:8px; text-align:center; background:#fafafa;">{wd}</th>'
+                    header_html += '</tr><tr>'
+
+                    for wd in col_order:
+                        day_df = schedule_view[schedule_view["weekday"].astype(str) == wd].copy()
+
+                        items = []
+                        if not day_df.empty:
+                            def _slot_num(x):
+                                memo_val = str(x.get("memo", "")).strip()
+                                if memo_val.startswith("slot:"):
+                                    try:
+                                        return int(memo_val.replace("slot:", ""))
+                                    except Exception:
+                                        return 99
+                                return 99
+
+                            day_df["_slot_num"] = day_df.apply(_slot_num, axis=1)
+                            day_df = day_df.sort_values(["_slot_num", "service_type", "start_time"])
+
+                            for _, hit in day_df.iterrows():
+                                service_type = str(hit.get("service_type", "")).strip()
+                                bg = color_map.get(service_type, "#eeeeee")
                                 time_text = str(hit.get("start_time", "")).strip()
                                 if str(hit.get("end_time", "")).strip():
-                                    time_text += f"-{str(hit.get('end_time', '')).strip()}"
-                                place_text = str(hit.get("place", "")).strip()
-                                person_text = str(hit.get("person_in_charge", "")).strip()
+                                    time_text += f"〜{str(hit.get('end_time', '')).strip()}"
 
-                                display_parts = []
-                                if time_text:
-                                    display_parts.append(time_text)
-                                if place_text:
-                                    display_parts.append(place_text)
-                                if person_text:
-                                    display_parts.append(f"担当:{person_text}")
+                                items.append(
+                                    f'''
+                                    <div style="
+                                        background:{bg};
+                                        border:2px solid #111;
+                                        padding:6px 8px;
+                                        margin:4px 0;
+                                        font-weight:700;
+                                        text-align:left;
+                                        min-height:28px;
+                                    ">
+                                        {time_text}
+                                    </div>
+                                    '''
+                                )
 
-                                row_data[wd] = "\n".join(display_parts)
+                        cell_html = "".join(items)
+                        header_html += f'''
+                        <td style="
+                            border:2px solid #111;
+                            vertical-align:top;
+                            padding:6px;
+                            height:190px;
+                        ">
+                            {cell_html}
+                        </td>
+                        '''
 
-                        calendar_rows.append(row_data)
-
-                    week_df = pd.DataFrame(calendar_rows)
-                    st.dataframe(week_df, use_container_width=True, hide_index=True)
+                    header_html += '</tr></table>'
+                    st.markdown(header_html, unsafe_allow_html=True)
 
                 # 既存予定を全部消すボタン
                 delete_target = schedule_df[
