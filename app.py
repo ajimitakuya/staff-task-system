@@ -1927,10 +1927,11 @@ elif page == "⑨ 利用者情報":
 
             with st.expander("➕ 新しい利用者を追加する"):
                 weekdays = ["月", "火", "水", "木", "金", "土", "日"]
+
                 service_defs = [
-                    ("病院", "#FFD54F"),
-                    ("看護", "#9FD3E6"),
-                    ("介護", "#B7E20F"),
+                    ("病院", "#F8E7A1"),
+                    ("看護", "#CFEAF6"),
+                    ("介護", "#DDEDB7"),
                 ]
 
                 slot_placeholders = [
@@ -1974,12 +1975,6 @@ elif page == "⑨ 利用者情報":
                         padding:7px 0;
                         background:#fafafa;
                         margin-bottom:4px;
-                    }
-                    .add-week-wrap {
-                        border:3px solid #111;
-                        padding:10px 10px 6px 10px;
-                        margin-bottom:18px;
-                        background:#fff;
                     }
                     </style>
                     """,
@@ -2036,7 +2031,6 @@ elif page == "⑨ 利用者情報":
                                 placeholder="電話"
                             )
 
-                        st.markdown('<div class="add-week-wrap">', unsafe_allow_html=True)
                         day_cols = st.columns(7)
 
                         day_values = {}
@@ -2056,8 +2050,6 @@ elif page == "⑨ 利用者情報":
                                     slots.append(slot_val)
 
                                 day_values[wd] = slots
-
-                        st.markdown("</div>", unsafe_allow_html=True)
 
                         weekly_inputs[service_name] = {
                             "place": str(place_val).strip(),
@@ -2493,9 +2485,9 @@ elif page == "⑨ 利用者情報":
             service_types = ["病院", "看護", "介護"]
 
             color_map = {
-                "病院": "#FFD54F",
-                "看護": "#81D4FA",
-                "介護": "#AED581",
+                "病院": "#F8E7A1",
+                "看護": "#CFEAF6",
+                "介護": "#DDEDB7",
             }
 
             slot_placeholders = [
@@ -2678,7 +2670,7 @@ elif page == "⑨ 利用者情報":
                     save_db(new_schedule_df, "resident_schedule")
                     st.success("週間予定を削除したある。")
                     st.rerun()
-                    
+
         # ------------------------------------------
         # メモ追加
         # ------------------------------------------
