@@ -443,30 +443,70 @@ st.sidebar.markdown("メニューを選択してください")
 st.sidebar.markdown(
     """
     <style>
-    div[data-testid="stSidebar"] button[kind="secondary"] {
+    /* サイドバーの余白調整 */
+    section[data-testid="stSidebar"] .stButton {
+        margin-bottom: 0.45rem !important;
+    }
+
+    /* 未選択メニュー用ボタン */
+    section[data-testid="stSidebar"] .stButton > button {
         border-radius: 12px !important;
         border: 1px solid #d9d9d9 !important;
-        background: white !important;
+        background: #ffffff !important;
         color: #1f2d3d !important;
         font-weight: 700 !important;
-        padding: 0.65rem 0.8rem !important;
-        margin-bottom: 0.45rem !important;
+        padding: 0.78rem 1rem !important;
         text-align: left !important;
         justify-content: flex-start !important;
         box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
+        min-height: 56px !important;
     }
-    div[data-testid="stSidebar"] button[kind="secondary"] > div {
-        justify-content: flex-start !important;
-        width: 100% !important;
-    }
-    div[data-testid="stSidebar"] button[kind="secondary"] p {
-        width: 100% !important;
-        text-align: left !important;
-        margin: 0 !important;
-    }
-    div[data-testid="stSidebar"] button[kind="secondary"]:hover {
+
+    section[data-testid="stSidebar"] .stButton > button:hover {
         border-color: #ff9f43 !important;
         color: #ff7b54 !important;
+        background: #fffaf5 !important;
+    }
+
+    section[data-testid="stSidebar"] .stButton > button p {
+        text-align: left !important;
+        width: 100% !important;
+        margin: 0 !important;
+    }
+
+    /* 選択中メニュー表示 */
+    .menu-selected-box {
+        border-radius: 12px;
+        border: 1px solid #ff9f43;
+        background: linear-gradient(90deg, #fff1e8 0%, #fff7e6 100%);
+        color: #d35400;
+        font-weight: 700;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        text-align: center;
+        min-height: 56px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+    }
+
+    /* 未選択メニュー表示 */
+    .menu-unselected-label {
+        border-radius: 12px;
+        border: 1px solid #d9d9d9;
+        background: #ffffff;
+        color: #1f2d3d;
+        font-weight: 700;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        text-align: left;
+        min-height: 56px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        box-sizing: border-box;
     }
     </style>
     """,
@@ -478,21 +518,7 @@ for p in page_options:
 
     if is_selected:
         st.sidebar.markdown(
-            f"""
-            <div style="
-                border-radius:12px;
-                border:1px solid #ff9f43;
-                background: linear-gradient(90deg, #fff1e8 0%, #fff7e6 100%);
-                color:#d35400;
-                font-weight:700;
-                padding: 12px 14px;
-                margin-bottom: 8px;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-                text-align:center;
-            ">
-                ● {p}
-            </div>
-            """,
+            f'<div class="menu-selected-box">● {p}</div>',
             unsafe_allow_html=True
         )
     else:
