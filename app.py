@@ -3054,7 +3054,7 @@ elif page == "⑩ 検索":
         with search_cols[0]:
             contact_cat1 = st.selectbox(
                 "大分類で絞る",
-                ["全部"] + sorted([x for x in contacts_df["category1"].astype(str).unique().tolist() if x.strip()]),
+                ["全部", "医療", "外部連携", "家族", "業者"],
                 key="contact_search_cat1"
             )
 
@@ -3171,12 +3171,51 @@ elif page == "⑩ 検索":
     st.divider()
 
     # ------------------------------------------
-    # 既存の資料検索
+    # 資料検索（固定カテゴリ表示版）
     # ------------------------------------------
-    CATEGORY_MAP = {
-        "利用者関連": ["個別支援計画", "モニタリング", "アセスメント", "担当者会議", "その他"],
-        "運営関連": ["マニュアル", "帳票", "研修", "行政提出", "その他"],
-        "外部連携": ["病院", "訪問看護", "ケアマネ", "薬局", "その他"],
+    st.markdown("### 📁 資料検索")
+
+    CATEGORY1_OPTIONS = [
+        "全部",
+        "利用者関連",
+        "運営関連",
+        "外部連携",
+        "その他",
+    ]
+
+    CATEGORY2_MAP = {
+        "全部": ["全部"],
+        "利用者関連": [
+            "全部",
+            "個別支援計画案",
+            "サービス担当者会議",
+            "個別支援計画",
+            "モニタリング",
+            "在宅評価シート",
+            "アセスメント",
+            "その他",
+        ],
+        "運営関連": [
+            "全部",
+            "マニュアル",
+            "帳票",
+            "研修",
+            "行政提出",
+            "その他",
+        ],
+        "外部連携": [
+            "全部",
+            "病院",
+            "訪問看護",
+            "ケアマネ",
+            "薬局",
+            "行政",
+            "その他",
+        ],
+        "その他": [
+            "全部",
+            "その他",
+        ],
     }
 
     doc_df = load_db("document_master")
@@ -3198,28 +3237,31 @@ elif page == "⑩ 検索":
 
     doc_df = doc_df.fillna("").copy()
 
-    st.markdown("### 📁 資料検索")
-
     search_cols = st.columns([2, 2, 2, 3])
 
     with search_cols[0]:
         cat1 = st.selectbox(
             "カテゴリ1",
-            ["全部"] + sorted([x for x in doc_df["category1"].astype(str).unique().tolist() if x.strip()]),
+            CATEGORY1_OPTIONS,
             key="doc_search_cat1"
         )
 
     with search_cols[1]:
+        cat2_options = CATEGORY2_MAP.get(cat1, ["全部"])
         cat2 = st.selectbox(
             "カテゴリ2",
-            ["全部"] + sorted([x for x in doc_df["category2"].astype(str).unique().tolist() if x.strip()]),
+            cat2_options,
             key="doc_search_cat2"
         )
 
     with search_cols[2]:
+        status_candidates = ["全部"]
+        if not doc_df.empty:
+            status_values = sorted([x for x in doc_df["status"].astype(str).unique().tolist() if x.strip()])
+            status_candidates += status_values
         status_filter = st.selectbox(
             "状態",
-            ["全部"] + sorted([x for x in doc_df["status"].astype(str).unique().tolist() if x.strip()]),
+            status_candidates,
             key="doc_search_status"
         )
 
