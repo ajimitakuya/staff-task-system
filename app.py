@@ -451,7 +451,7 @@ st.sidebar.markdown(
     <style>
     /* サイドバー全体 */
     section[data-testid="stSidebar"] .stButton {
-        margin-bottom: 0.45rem !important;
+        margin-bottom: 12px !important;
     }
 
     /* 未選択メニューボタン本体 */
@@ -509,7 +509,7 @@ st.sidebar.markdown(
         color: #d35400;
         font-weight: 700;
         padding: 12px 14px;
-        margin-bottom: 8px;
+        margin-bottom: 12px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         text-align: center;
         display: flex;
