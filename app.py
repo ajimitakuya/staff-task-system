@@ -2190,6 +2190,61 @@ elif page == "⑨ 利用者情報":
 # ⑩ 書類
 # ==========================================
 elif page == "⑩ 書類":
+    CATEGORY_MAP = {
+        "ケアマネ": {
+            "書類": ["提出書類", "記入例", "テンプレート", "契約関係", "その他"],
+            "連絡先": ["電話", "FAX", "メール", "住所", "担当者", "その他"],
+            "情報": ["役割", "支援方針", "注意事項", "面談内容", "その他"],
+            "その他": ["その他"]
+        },
+        "相談員": {
+            "書類": ["提出書類", "記入例", "テンプレート", "モニタリング", "個別支援計画", "その他"],
+            "連絡先": ["電話", "FAX", "メール", "住所", "担当者", "その他"],
+            "情報": ["支援内容", "注意事項", "面談内容", "連携事項", "その他"],
+            "その他": ["その他"]
+        },
+        "介護施設": {
+            "書類": ["提出書類", "契約関係", "利用資料", "その他"],
+            "連絡先": ["電話", "FAX", "メール", "住所", "担当者", "その他"],
+            "情報": ["受入情報", "注意事項", "連携事項", "支援内容", "その他"],
+            "その他": ["その他"]
+        },
+        "役所": {
+            "書類": ["申請書類", "提出書類", "更新手続き", "契約関係", "その他"],
+            "連絡先": ["電話", "FAX", "メール", "住所", "窓口", "その他"],
+            "情報": ["制度情報", "申請手順", "注意事項", "担当部署", "その他"],
+            "その他": ["その他"]
+        },
+        "病院": {
+            "書類": ["診断書", "紹介状", "提出書類", "医療関係", "その他"],
+            "連絡先": ["電話", "FAX", "メール", "住所", "外来窓口", "担当者", "その他"],
+            "情報": ["通院情報", "入院情報", "服薬情報", "注意事項", "医療連携", "その他"],
+            "その他": ["その他"]
+        },
+        "利用者": {
+            "書類": ["個別支援計画", "モニタリング", "面談記録", "契約関係", "申請関係", "その他"],
+            "連絡先": ["本人連絡先", "家族連絡先", "緊急連絡先", "その他"],
+            "情報": ["基本情報", "支援内容", "注意事項", "医療情報", "金銭情報", "生活状況", "その他"],
+            "その他": ["その他"]
+        },
+        "退所者": {
+            "書類": ["退所書類", "契約終了", "引継ぎ資料", "その他"],
+            "連絡先": ["本人連絡先", "家族連絡先", "関係先", "その他"],
+            "情報": ["退所理由", "引継ぎ事項", "注意事項", "その他"],
+            "その他": ["その他"]
+        },
+        "その他": {
+            "書類": ["その他"],
+            "連絡先": ["その他"],
+            "情報": ["その他"],
+            "その他": ["その他"]
+        }
+    }
+
+    CATEGORY1_MASTER = list(CATEGORY_MAP.keys())
+    FILE_TYPE_MASTER = ["PDF", "Word", "Excel", "画像", "URL", "その他"]
+    STATUS_MASTER = ["利用中", "旧版", "無効"]
+
     def get_document_master_df():
         df = load_db("document_master")
         if df is None or df.empty:
@@ -2223,6 +2278,16 @@ elif page == "⑩ 書類":
         next_num = max(numbers) + 1 if numbers else 1
         return f"D{next_num:04d}"
 
+    def get_category2_options(cat1):
+        if cat1 in CATEGORY_MAP:
+            return list(CATEGORY_MAP[cat1].keys())
+        return ["その他"]
+
+    def get_category3_options(cat1, cat2):
+        if cat1 in CATEGORY_MAP and cat2 in CATEGORY_MAP[cat1]:
+            return CATEGORY_MAP[cat1][cat2]
+        return ["その他"]
+
     def reset_document_flags():
         st.session_state.selected_document_id = ""
         st.session_state.edit_document = False
@@ -2249,27 +2314,18 @@ elif page == "⑩ 書類":
 
         with st.expander("➕ 新しい書類を登録する"):
             with st.form("document_add_form"):
-                category1 = st.selectbox(
-                    "カテゴリ1",
-                    ["ケアマネ", "相談員", "介護施設", "役所", "病院", "利用者", "退所者", "その他"]
-                )
-                category2 = st.selectbox(
-                    "カテゴリ2",
-                    ["書類", "情報", "その他"]
-                )
-                category3 = st.selectbox(
-                    "カテゴリ3",
-                    ["提出先", "記入例", "テンプレート", "手順", "注意事項", "申請関係", "医療関係", "金銭関係", "契約関係", "その他"]
-                )
+                add_cat1 = st.selectbox("カテゴリ1", CATEGORY1_MASTER, key="doc_add_cat1")
+                add_cat2_options = get_category2_options(add_cat1)
+                add_cat2 = st.selectbox("カテゴリ2", add_cat2_options, key="doc_add_cat2")
+                add_cat3_options = get_category3_options(add_cat1, add_cat2)
+                add_cat3 = st.selectbox("カテゴリ3", add_cat3_options, key="doc_add_cat3")
+
                 title = st.text_input("タイトル")
-                file_type = st.selectbox(
-                    "ファイル種別",
-                    ["PDF", "Word", "Excel", "画像", "URL", "その他"]
-                )
+                file_type = st.selectbox("ファイル種別", FILE_TYPE_MASTER)
                 url = st.text_input("URL / 保存先リンク")
                 summary = st.text_area("概要")
                 memo = st.text_area("メモ")
-                status = st.selectbox("状態", ["利用中", "旧版", "無効"])
+                status = st.selectbox("状態", STATUS_MASTER)
 
                 if st.form_submit_button("書類を登録する"):
                     if title.strip():
@@ -2278,9 +2334,9 @@ elif page == "⑩ 書類":
 
                         new_row = pd.DataFrame([{
                             "document_id": next_id,
-                            "category1": category1,
-                            "category2": category2,
-                            "category3": category3,
+                            "category1": add_cat1,
+                            "category2": add_cat2,
+                            "category3": add_cat3,
                             "title": title.strip(),
                             "file_type": file_type,
                             "url": url.strip(),
@@ -2300,20 +2356,57 @@ elif page == "⑩ 書類":
         st.divider()
         st.markdown("### 🔎 書類検索")
 
-        search_cols = st.columns(4)
+        search_col1, search_col2, search_col3, search_col4 = st.columns(4)
 
-        cat1_options = ["すべて"] + sorted([x for x in doc_df["category1"].astype(str).unique().tolist() if x])
-        cat2_options = ["すべて"] + sorted([x for x in doc_df["category2"].astype(str).unique().tolist() if x])
-        cat3_options = ["すべて"] + sorted([x for x in doc_df["category3"].astype(str).unique().tolist() if x])
+        with search_col1:
+            search_cat1 = st.selectbox(
+                "カテゴリ1",
+                ["すべて"] + CATEGORY1_MASTER,
+                key="doc_search_cat1"
+            )
+
+        if search_cat1 == "すべて":
+            search_cat2_options = ["すべて"]
+            search_cat3_options = ["すべて"]
+        else:
+            search_cat2_options = ["すべて"] + get_category2_options(search_cat1)
+            current_search_cat2 = st.session_state.get("doc_search_cat2_dynamic", "すべて")
+            if current_search_cat2 not in search_cat2_options:
+                current_search_cat2 = "すべて"
+                st.session_state["doc_search_cat2_dynamic"] = "すべて"
+
+            if current_search_cat2 == "すべて":
+                search_cat3_options = ["すべて"]
+            else:
+                search_cat3_options = ["すべて"] + get_category3_options(search_cat1, current_search_cat2)
+
+        with search_col2:
+            search_cat2 = st.selectbox(
+                "カテゴリ2",
+                search_cat2_options,
+                key="doc_search_cat2_dynamic"
+            )
+
+        if search_cat1 == "すべて" or search_cat2 == "すべて":
+            search_cat3_options = ["すべて"]
+        else:
+            search_cat3_options = ["すべて"] + get_category3_options(search_cat1, search_cat2)
+
+        current_search_cat3 = st.session_state.get("doc_search_cat3_dynamic", "すべて")
+        if current_search_cat3 not in search_cat3_options:
+            current_search_cat3 = "すべて"
+            st.session_state["doc_search_cat3_dynamic"] = "すべて"
+
+        with search_col3:
+            search_cat3 = st.selectbox(
+                "カテゴリ3",
+                search_cat3_options,
+                key="doc_search_cat3_dynamic"
+            )
+
         status_options = ["すべて"] + sorted([x for x in doc_df["status"].astype(str).unique().tolist() if x])
 
-        with search_cols[0]:
-            search_cat1 = st.selectbox("カテゴリ1", cat1_options, key="doc_search_cat1")
-        with search_cols[1]:
-            search_cat2 = st.selectbox("カテゴリ2", cat2_options, key="doc_search_cat2")
-        with search_cols[2]:
-            search_cat3 = st.selectbox("カテゴリ3", cat3_options, key="doc_search_cat3")
-        with search_cols[3]:
+        with search_col4:
             search_status = st.selectbox("状態", status_options, key="doc_search_status")
 
         keyword = st.text_input("キーワード検索", placeholder="タイトル・概要・メモで検索", key="doc_keyword")
@@ -2344,7 +2437,7 @@ elif page == "⑩ 書類":
 
         with btn_col3:
             if st.session_state.doc_view_mode == "":
-                st.caption("カテゴリを選んで「検索」、または「一覧」を押してほしいある。")
+                st.caption("カテゴリを選んで『検索』、または『一覧』を押してほしいある。")
             elif st.session_state.doc_view_mode == "search":
                 st.caption("検索結果を表示中ある。")
             elif st.session_state.doc_view_mode == "list":
@@ -2451,7 +2544,6 @@ elif page == "⑩ 書類":
     # ------------------------------------------
     else:
         selected_id = st.session_state.selected_document_id
-
         detail_df = doc_df[doc_df["document_id"].astype(str) == str(selected_id)].copy()
 
         if detail_df.empty:
@@ -2509,41 +2601,67 @@ elif page == "⑩ 書類":
                 st.session_state.edit_document = True
 
             if st.session_state.get("edit_document", False):
-                cat1_master = ["ケアマネ", "相談員", "介護施設", "役所", "病院", "利用者", "退所者", "その他"]
-                cat2_master = ["書類", "情報", "その他"]
-                cat3_master = ["提出先", "記入例", "テンプレート", "手順", "注意事項", "申請関係", "医療関係", "金銭関係", "契約関係", "その他"]
-                file_type_master = ["PDF", "Word", "Excel", "画像", "URL", "その他"]
-                status_master = ["利用中", "旧版", "無効"]
+                current_cat1 = str(row.get("category1", "")).strip()
+                if current_cat1 not in CATEGORY1_MASTER:
+                    current_cat1 = CATEGORY1_MASTER[0]
+
+                current_cat2_options = get_category2_options(current_cat1)
+                current_cat2 = str(row.get("category2", "")).strip()
+                if current_cat2 not in current_cat2_options:
+                    current_cat2 = current_cat2_options[0]
+
+                current_cat3_options = get_category3_options(current_cat1, current_cat2)
+                current_cat3 = str(row.get("category3", "")).strip()
+                if current_cat3 not in current_cat3_options:
+                    current_cat3 = current_cat3_options[0]
 
                 with st.form(f"document_edit_form_{selected_id}"):
                     new_cat1 = st.selectbox(
                         "カテゴリ1",
-                        cat1_master,
-                        index=cat1_master.index(str(row.get("category1", "")).strip()) if str(row.get("category1", "")).strip() in cat1_master else 0
+                        CATEGORY1_MASTER,
+                        index=CATEGORY1_MASTER.index(current_cat1),
+                        key="doc_edit_cat1"
                     )
+
+                    new_cat2_options = get_category2_options(new_cat1)
+                    new_cat2_default = current_cat2 if current_cat2 in new_cat2_options else new_cat2_options[0]
                     new_cat2 = st.selectbox(
                         "カテゴリ2",
-                        cat2_master,
-                        index=cat2_master.index(str(row.get("category2", "")).strip()) if str(row.get("category2", "")).strip() in cat2_master else 0
+                        new_cat2_options,
+                        index=new_cat2_options.index(new_cat2_default),
+                        key="doc_edit_cat2"
                     )
+
+                    new_cat3_options = get_category3_options(new_cat1, new_cat2)
+                    new_cat3_default = current_cat3 if current_cat3 in new_cat3_options else new_cat3_options[0]
                     new_cat3 = st.selectbox(
                         "カテゴリ3",
-                        cat3_master,
-                        index=cat3_master.index(str(row.get("category3", "")).strip()) if str(row.get("category3", "")).strip() in cat3_master else 0
+                        new_cat3_options,
+                        index=new_cat3_options.index(new_cat3_default),
+                        key="doc_edit_cat3"
                     )
+
+                    current_file_type = str(row.get("file_type", "")).strip()
+                    if current_file_type not in FILE_TYPE_MASTER:
+                        current_file_type = FILE_TYPE_MASTER[0]
+
+                    current_status = str(row.get("status", "")).strip()
+                    if current_status not in STATUS_MASTER:
+                        current_status = STATUS_MASTER[0]
+
                     new_title = st.text_input("タイトル", value=str(row.get("title", "")))
                     new_file_type = st.selectbox(
                         "ファイル種別",
-                        file_type_master,
-                        index=file_type_master.index(str(row.get("file_type", "")).strip()) if str(row.get("file_type", "")).strip() in file_type_master else 0
+                        FILE_TYPE_MASTER,
+                        index=FILE_TYPE_MASTER.index(current_file_type)
                     )
                     new_url = st.text_input("URL / 保存先リンク", value=str(row.get("url", "")))
                     new_summary = st.text_area("概要", value=str(row.get("summary", "")))
                     new_memo = st.text_area("メモ", value=str(row.get("memo", "")))
                     new_status = st.selectbox(
                         "状態",
-                        status_master,
-                        index=status_master.index(str(row.get("status", "")).strip()) if str(row.get("status", "")).strip() in status_master else 0
+                        STATUS_MASTER,
+                        index=STATUS_MASTER.index(current_status)
                     )
 
                     save_col1, save_col2 = st.columns(2)
