@@ -40,6 +40,8 @@ def get_sheet_name(file):
         return "resident_schedule"
     elif file == "resident_notes":
         return "resident_notes"
+    elif file == "document_master":
+        return "document_master"
     else:
         raise ValueError(f"未対応のシート名ある: {file}")
 
@@ -108,6 +110,11 @@ def load_db(file, retries=3, delay=0.8):
                 ],
                 "resident_notes": [
                     "id", "resident_id", "date", "user", "note"
+                ],
+                "document_master": [
+                    "document_id", "category1", "category2", "category3",
+                    "title", "file_type", "url", "summary", "memo",
+                    "status", "updated_at", "created_at"
                 ],
             }
 
@@ -425,6 +432,7 @@ page_options = [
     "⑦ 勤務カレンダー",
     "⑧ 緊急一覧",
     "⑨ 利用者情報",
+    "⑩ 書類",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -2177,3 +2185,345 @@ elif page == "⑨ 利用者情報":
                                 st.rerun()
 
     show_resident_page()
+
+# ==========================================
+# ⑩ 書類
+# ==========================================
+elif page == "⑩ 書類":
+    def get_document_master_df():
+        df = load_db("document_master")
+        if df is None or df.empty:
+            df = pd.DataFrame(columns=[
+                "document_id", "category1", "category2", "category3",
+                "title", "file_type", "url", "summary", "memo",
+                "status", "updated_at", "created_at"
+            ])
+        else:
+            for col in [
+                "document_id", "category1", "category2", "category3",
+                "title", "file_type", "url", "summary", "memo",
+                "status", "updated_at", "created_at"
+            ]:
+                if col not in df.columns:
+                    df[col] = ""
+        return df.fillna("")
+
+    def get_next_document_id(doc_df):
+        if doc_df is None or doc_df.empty or "document_id" not in doc_df.columns:
+            return "D0001"
+
+        numbers = []
+        for x in doc_df["document_id"].fillna("").astype(str):
+            x = x.strip().upper()
+            if x.startswith("D"):
+                num = x[1:]
+                if num.isdigit():
+                    numbers.append(int(num))
+
+        next_num = max(numbers) + 1 if numbers else 1
+        return f"D{next_num:04d}"
+
+    def reset_document_flags():
+        st.session_state.selected_document_id = ""
+        st.session_state.edit_document = False
+
+    st.title("📄 書類")
+
+    if "selected_document_id" not in st.session_state:
+        st.session_state.selected_document_id = ""
+
+    if "edit_document" not in st.session_state:
+        st.session_state.edit_document = False
+
+    doc_df = get_document_master_df()
+
+    # ------------------------------------------
+    # 一覧モード
+    # ------------------------------------------
+    if not st.session_state.selected_document_id:
+        st.session_state.edit_document = False
+
+        with st.expander("➕ 新しい書類を登録する"):
+            with st.form("document_add_form"):
+                category1 = st.selectbox(
+                    "カテゴリ1",
+                    ["ケアマネ", "相談員", "介護施設", "役所", "病院", "利用者", "退所者", "その他"]
+                )
+                category2 = st.selectbox(
+                    "カテゴリ2",
+                    ["書類", "情報", "その他"]
+                )
+                category3 = st.selectbox(
+                    "カテゴリ3",
+                    ["提出先", "記入例", "テンプレート", "手順", "注意事項", "申請関係", "医療関係", "金銭関係", "契約関係", "その他"]
+                )
+                title = st.text_input("タイトル")
+                file_type = st.selectbox(
+                    "ファイル種別",
+                    ["PDF", "Word", "Excel", "画像", "URL", "その他"]
+                )
+                url = st.text_input("URL / 保存先リンク")
+                summary = st.text_area("概要")
+                memo = st.text_area("メモ")
+                status = st.selectbox("状態", ["利用中", "旧版", "無効"])
+
+                if st.form_submit_button("書類を登録する"):
+                    if title.strip():
+                        next_id = get_next_document_id(doc_df)
+                        now_str = now_jst().strftime("%Y-%m-%d %H:%M")
+
+                        new_row = pd.DataFrame([{
+                            "document_id": next_id,
+                            "category1": category1,
+                            "category2": category2,
+                            "category3": category3,
+                            "title": title.strip(),
+                            "file_type": file_type,
+                            "url": url.strip(),
+                            "summary": summary.strip(),
+                            "memo": memo.strip(),
+                            "status": status,
+                            "updated_at": now_str,
+                            "created_at": now_str
+                        }])
+
+                        save_db(pd.concat([doc_df, new_row], ignore_index=True), "document_master")
+                        st.success("書類を登録したある！")
+                        st.rerun()
+                    else:
+                        st.error("タイトルを入力してほしいある。")
+
+        st.divider()
+        st.markdown("### 🔎 書類検索")
+
+        search_cols = st.columns(4)
+
+        cat1_options = ["すべて"] + sorted([x for x in doc_df["category1"].astype(str).unique().tolist() if x])
+        cat2_options = ["すべて"] + sorted([x for x in doc_df["category2"].astype(str).unique().tolist() if x])
+        cat3_options = ["すべて"] + sorted([x for x in doc_df["category3"].astype(str).unique().tolist() if x])
+        status_options = ["すべて"] + sorted([x for x in doc_df["status"].astype(str).unique().tolist() if x])
+
+        with search_cols[0]:
+            search_cat1 = st.selectbox("カテゴリ1", cat1_options, key="doc_search_cat1")
+        with search_cols[1]:
+            search_cat2 = st.selectbox("カテゴリ2", cat2_options, key="doc_search_cat2")
+        with search_cols[2]:
+            search_cat3 = st.selectbox("カテゴリ3", cat3_options, key="doc_search_cat3")
+        with search_cols[3]:
+            search_status = st.selectbox("状態", status_options, key="doc_search_status")
+
+        keyword = st.text_input("キーワード検索", placeholder="タイトル・概要・メモで検索", key="doc_keyword")
+
+        filtered_df = doc_df.copy()
+
+        if search_cat1 != "すべて":
+            filtered_df = filtered_df[filtered_df["category1"].astype(str) == search_cat1]
+
+        if search_cat2 != "すべて":
+            filtered_df = filtered_df[filtered_df["category2"].astype(str) == search_cat2]
+
+        if search_cat3 != "すべて":
+            filtered_df = filtered_df[filtered_df["category3"].astype(str) == search_cat3]
+
+        if search_status != "すべて":
+            filtered_df = filtered_df[filtered_df["status"].astype(str) == search_status]
+
+        if keyword.strip():
+            kw = keyword.strip()
+            filtered_df = filtered_df[
+                filtered_df["title"].astype(str).str.contains(kw, case=False, na=False) |
+                filtered_df["summary"].astype(str).str.contains(kw, case=False, na=False) |
+                filtered_df["memo"].astype(str).str.contains(kw, case=False, na=False)
+            ]
+
+        if not filtered_df.empty:
+            filtered_df = filtered_df.sort_values(["status", "updated_at", "title"], ascending=[True, False, True])
+
+        st.divider()
+        st.markdown("### 📚 検索結果")
+
+        if filtered_df.empty:
+            st.warning("該当する書類が見つからなかったある。条件をゆるめて探してほしいある。")
+        else:
+            cols = st.columns(2)
+
+            for i, (_, row) in enumerate(filtered_df.iterrows()):
+                with cols[i % 2]:
+                    document_id = str(row.get("document_id", "")).strip()
+                    title = str(row.get("title", "")).strip()
+                    category1 = str(row.get("category1", "")).strip()
+                    category2 = str(row.get("category2", "")).strip()
+                    category3 = str(row.get("category3", "")).strip()
+                    file_type = str(row.get("file_type", "")).strip()
+                    status = str(row.get("status", "")).strip()
+                    summary = str(row.get("summary", "")).strip()
+
+                    if status == "利用中":
+                        border = "#2ecc71"
+                        bg = "#eefbf0"
+                    elif status == "旧版":
+                        border = "#f39c12"
+                        bg = "#fff7e6"
+                    else:
+                        border = "#95a5a6"
+                        bg = "#f3f4f6"
+
+                    with st.container(border=True):
+                        st.markdown(
+                            f"""
+                            <div style="
+                                border-left: 8px solid {border};
+                                background-color: {bg};
+                                padding: 14px;
+                                border-radius: 10px;
+                                min-height: 170px;
+                                margin-bottom: 10px;
+                            ">
+                                <div style="font-size: 19px; font-weight: 700; margin-bottom: 8px;">
+                                    {title}
+                                </div>
+                                <div style="margin-bottom: 6px;">
+                                    {category1} / {category2} / {category3}
+                                </div>
+                                <div style="margin-bottom: 6px;">
+                                    種別: {file_type} / 状態: {status}
+                                </div>
+                                <div>
+                                    {summary if summary else '概要なし'}
+                                </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+                        if st.button("詳細を見る", key=f"open_document_{document_id}", use_container_width=True):
+                            st.session_state.selected_document_id = document_id
+                            st.session_state.edit_document = False
+                            st.rerun()
+
+    # ------------------------------------------
+    # 詳細モード
+    # ------------------------------------------
+    else:
+        selected_id = st.session_state.selected_document_id
+
+        detail_df = doc_df[doc_df["document_id"].astype(str) == str(selected_id)].copy()
+
+        if detail_df.empty:
+            st.warning("書類情報が見つからないある。")
+            if st.button("一覧に戻る", use_container_width=True):
+                reset_document_flags()
+                st.rerun()
+        else:
+            row = detail_df.iloc[0]
+
+            back_cols = st.columns([1, 5])
+            with back_cols[0]:
+                if st.button("← 一覧に戻る", use_container_width=True):
+                    reset_document_flags()
+                    st.rerun()
+
+            st.subheader(str(row.get("title", "")).strip())
+            st.caption(f"ID: {selected_id}")
+
+            st.markdown("### 基本情報")
+            info_cols = st.columns(2)
+
+            with info_cols[0]:
+                st.write(f"**カテゴリ1**: {row.get('category1', '')}")
+                st.write(f"**カテゴリ2**: {row.get('category2', '')}")
+                st.write(f"**カテゴリ3**: {row.get('category3', '')}")
+                st.write(f"**ファイル種別**: {row.get('file_type', '')}")
+                st.write(f"**状態**: {row.get('status', '')}")
+
+            with info_cols[1]:
+                st.write(f"**作成日**: {row.get('created_at', '')}")
+                st.write(f"**更新日**: {row.get('updated_at', '')}")
+
+            st.divider()
+            st.markdown("### 概要")
+            st.write(row.get("summary", "") if str(row.get("summary", "")).strip() else "概要なし")
+
+            st.divider()
+            st.markdown("### メモ")
+            st.write(row.get("memo", "") if str(row.get("memo", "")).strip() else "メモなし")
+
+            st.divider()
+            st.markdown("### リンク")
+            url_val = str(row.get("url", "")).strip()
+            if url_val:
+                st.link_button("書類を開く", url_val, use_container_width=True)
+            else:
+                st.info("URLはまだ登録されてないある。")
+
+            st.divider()
+            st.markdown("### 編集")
+
+            if st.button("書類情報を編集", use_container_width=True):
+                st.session_state.edit_document = True
+
+            if st.session_state.get("edit_document", False):
+                with st.form(f"document_edit_form_{selected_id}"):
+                    new_cat1 = st.selectbox(
+                        "カテゴリ1",
+                        ["ケアマネ", "相談員", "介護施設", "役所", "病院", "利用者", "退所者", "その他"],
+                        index=["ケアマネ", "相談員", "介護施設", "役所", "病院", "利用者", "退所者", "その他"].index(str(row.get("category1", "")).strip()) if str(row.get("category1", "")).strip() in ["ケアマネ", "相談員", "介護施設", "役所", "病院", "利用者", "退所者", "その他"] else 0
+                    )
+                    new_cat2 = st.selectbox(
+                        "カテゴリ2",
+                        ["書類", "情報", "その他"],
+                        index=["書類", "情報", "その他"].index(str(row.get("category2", "")).strip()) if str(row.get("category2", "")).strip() in ["書類", "情報", "その他"] else 0
+                    )
+                    new_cat3 = st.selectbox(
+                        "カテゴリ3",
+                        ["提出先", "記入例", "テンプレート", "手順", "注意事項", "申請関係", "医療関係", "金銭関係", "契約関係", "その他"],
+                        index=["提出先", "記入例", "テンプレート", "手順", "注意事項", "申請関係", "医療関係", "金銭関係", "契約関係", "その他"].index(str(row.get("category3", "")).strip()) if str(row.get("category3", "")).strip() in ["提出先", "記入例", "テンプレート", "手順", "注意事項", "申請関係", "医療関係", "金銭関係", "契約関係", "その他"] else 0
+                    )
+                    new_title = st.text_input("タイトル", value=str(row.get("title", "")))
+                    new_file_type = st.selectbox(
+                        "ファイル種別",
+                        ["PDF", "Word", "Excel", "画像", "URL", "その他"],
+                        index=["PDF", "Word", "Excel", "画像", "URL", "その他"].index(str(row.get("file_type", "")).strip()) if str(row.get("file_type", "")).strip() in ["PDF", "Word", "Excel", "画像", "URL", "その他"] else 0
+                    )
+                    new_url = st.text_input("URL / 保存先リンク", value=str(row.get("url", "")))
+                    new_summary = st.text_area("概要", value=str(row.get("summary", "")))
+                    new_memo = st.text_area("メモ", value=str(row.get("memo", "")))
+                    new_status = st.selectbox(
+                        "状態",
+                        ["利用中", "旧版", "無効"],
+                        index=["利用中", "旧版", "無効"].index(str(row.get("status", "")).strip()) if str(row.get("status", "")).strip() in ["利用中", "旧版", "無効"] else 0
+                    )
+
+                    save_col1, save_col2 = st.columns(2)
+
+                    with save_col1:
+                        save_doc = st.form_submit_button("保存する", use_container_width=True)
+                    with save_col2:
+                        cancel_doc = st.form_submit_button("キャンセル", use_container_width=True)
+
+                    if save_doc:
+                        if new_title.strip():
+                            mask = doc_df["document_id"].astype(str) == str(selected_id)
+                            doc_df.loc[mask, "category1"] = new_cat1
+                            doc_df.loc[mask, "category2"] = new_cat2
+                            doc_df.loc[mask, "category3"] = new_cat3
+                            doc_df.loc[mask, "title"] = new_title.strip()
+                            doc_df.loc[mask, "file_type"] = new_file_type
+                            doc_df.loc[mask, "url"] = new_url.strip()
+                            doc_df.loc[mask, "summary"] = new_summary.strip()
+                            doc_df.loc[mask, "memo"] = new_memo.strip()
+                            doc_df.loc[mask, "status"] = new_status
+                            doc_df.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M")
+
+                            save_db(doc_df, "document_master")
+                            st.session_state.edit_document = False
+                            st.success("書類情報を更新したある！")
+                            st.rerun()
+                        else:
+                            st.error("タイトルを入力してほしいある。")
+
+                    if cancel_doc:
+                        st.session_state.edit_document = False
+                        st.rerun()
+
+    show_document_page = None
