@@ -37,6 +37,10 @@ def get_sheet_name(file):
         return "resident_notes"
     elif file == "document_master":
         return "document_master"
+    elif file == "external_contacts":
+        return "external_contacts"
+    elif file == "resident_links":
+        return "resident_links"
     else:
         raise ValueError(f"未対応のシート名ある: {file}")
 
@@ -111,6 +115,13 @@ def load_db(file, retries=3, delay=0.8):
                     "title", "file_type", "url", "summary", "memo",
                     "status", "updated_at", "created_at"
                 ],
+                "external_contacts": [
+                    "contact_id", "category1", "category2",
+                    "name", "organization", "phone", "memo"
+                ],
+                "resident_links": [
+                    "id", "resident_id", "contact_id", "role"
+                ],                
             }
 
             for col in expected_cols[file]:
@@ -427,7 +438,7 @@ page_options = [
     "⑦ タスクカレンダー",
     "⑧ 緊急一覧",
     "⑨ 利用者情報",
-    "⑩ 書類",
+    "⑩ 検索",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -617,6 +628,109 @@ def get_resident_notes_df():
             if col not in df.columns:
                 df[col] = ""
     return df.fillna("")
+
+def get_external_contacts_df():
+    df = load_db("external_contacts")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "contact_id", "category1", "category2",
+            "name", "organization", "phone", "memo"
+        ])
+    else:
+        for col in [
+            "contact_id", "category1", "category2",
+            "name", "organization", "phone", "memo"
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_resident_links_df():
+    df = load_db("resident_links")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["id", "resident_id", "contact_id", "role"])
+    else:
+        for col in ["id", "resident_id", "contact_id", "role"]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_next_contact_id(contact_df):
+    if contact_df is None or contact_df.empty or "contact_id" not in contact_df.columns:
+        return "C001"
+
+    numbers = []
+    for x in contact_df["contact_id"].fillna("").astype(str):
+        x = x.strip().upper()
+        if x.startswith("C"):
+            num = x[1:]
+            if num.isdigit():
+                numbers.append(int(num))
+
+    next_num = max(numbers) + 1 if numbers else 1
+    return f"C{next_num:03d}"
+
+
+def get_resident_contact_cards(resident_id):
+    links_df = get_resident_links_df()
+    contacts_df = get_external_contacts_df()
+
+    if links_df.empty or contacts_df.empty:
+        return pd.DataFrame(columns=[
+            "contact_id", "category1", "category2",
+            "name", "organization", "phone", "memo", "role"
+        ])
+
+    target_links = links_df[
+        links_df["resident_id"].astype(str) == str(resident_id)
+    ].copy()
+
+    if target_links.empty:
+        return pd.DataFrame(columns=[
+            "contact_id", "category1", "category2",
+            "name", "organization", "phone", "memo", "role"
+        ])
+
+    merged = target_links.merge(
+        contacts_df,
+        how="left",
+        on="contact_id"
+    )
+
+    for col in ["category1", "category2", "name", "organization", "phone", "memo", "role"]:
+        if col not in merged.columns:
+            merged[col] = ""
+
+    merged = merged.fillna("")
+    return merged
+
+def get_contact_residents(contact_id):
+    links_df = get_resident_links_df()
+    master_df = get_resident_master_df()
+
+    if links_df.empty or master_df.empty:
+        return pd.DataFrame(columns=["resident_id", "resident_name", "status", "role"])
+
+    target_links = links_df[
+        links_df["contact_id"].astype(str) == str(contact_id)
+    ].copy()
+
+    if target_links.empty:
+        return pd.DataFrame(columns=["resident_id", "resident_name", "status", "role"])
+
+    merged = target_links.merge(
+        master_df[["resident_id", "resident_name", "status"]],
+        how="left",
+        on="resident_id"
+    )
+
+    for col in ["resident_id", "resident_name", "status", "role"]:
+        if col not in merged.columns:
+            merged[col] = ""
+
+    return merged.fillna("")
 
 
 def get_schedule_slot_num(row):
@@ -2245,6 +2359,73 @@ elif page == "⑨ 利用者情報":
         st.subheader(f"{resident_name} 様")
         st.caption(f"{status_label} / ID: {selected_id}")
 
+        st.divider()
+        st.markdown("### ☎️ 関係者・外部連携")
+
+        contact_cards_df = get_resident_contact_cards(selected_id)
+
+        if contact_cards_df.empty:
+            st.info("この利用者に紐づく関係者はまだ登録されてないある。")
+        else:
+            category_icon_map = {
+                "医療": "🏥",
+                "外部連携": "🤝",
+                "家族": "👪",
+                "業者": "🛠️",
+            }
+
+            display_order = ["医療", "外部連携", "家族", "業者"]
+
+            for cat1 in display_order:
+                cat_df = contact_cards_df[
+                    contact_cards_df["category1"].astype(str).str.strip() == cat1
+                ].copy()
+
+                if cat_df.empty:
+                    continue
+
+                icon = category_icon_map.get(cat1, "📌")
+                st.markdown(f"#### {icon} {cat1}")
+
+                for _, crow in cat_df.iterrows():
+                    role = str(crow.get("role", "")).strip()
+                    category2 = str(crow.get("category2", "")).strip()
+                    name = str(crow.get("name", "")).strip()
+                    org = str(crow.get("organization", "")).strip()
+                    phone = str(crow.get("phone", "")).strip()
+                    memo = str(crow.get("memo", "")).strip()
+                    contact_id = str(crow.get("contact_id", "")).strip()
+
+                    title_text = role if role else category2
+
+                    with st.container(border=True):
+                        st.markdown(
+                            f"""
+                            <div style="
+                                border-left: 6px solid #9aa5b1;
+                                background:#fafafa;
+                                padding:12px 14px;
+                                border-radius:10px;
+                                margin-bottom:10px;
+                            ">
+                                <div style="font-size:18px; font-weight:700; margin-bottom:6px;">
+                                    {title_text}
+                                </div>
+                                <div style="line-height:1.8;">
+                                    <b>氏名:</b> {name}<br>
+                                    <b>事業所:</b> {org}<br>
+                                    <b>電話:</b> {phone}<br>
+                                    <b>分類:</b> {category2}<br>
+                                    <b>ID:</b> {contact_id}
+                                </div>
+                                <div style="margin-top:8px; color:#555;">
+                                    {memo}
+                                </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )        
+
         # ------------------------------------------
         # この人の至急アラート
         # ------------------------------------------
@@ -2387,6 +2568,86 @@ elif page == "⑨ 利用者情報":
                     st.write(note_row.get("note", ""))
         else:
             st.info("共有メモはまだないある。")
+
+
+        st.divider()
+        st.markdown("### ➕ 関係者を登録する")
+
+        with st.expander("新しい関係者を追加"):
+            with st.form(f"resident_contact_add_form_{selected_id}"):
+                form_col1, form_col2 = st.columns(2)
+
+                with form_col1:
+                    category1 = st.selectbox(
+                        "大分類",
+                        ["医療", "外部連携", "家族", "業者"],
+                        key=f"contact_cat1_{selected_id}"
+                    )
+
+                    category2_map = {
+                        "医療": ["主治医", "訪問看護", "薬局", "行政", "その他"],
+                        "外部連携": ["ケアマネ", "相談員", "行政", "その他"],
+                        "家族": ["家族", "成年後見人", "身元引受人", "その他"],
+                        "業者": ["配食", "福祉用具", "修理", "その他"],
+                    }
+
+                    category2 = st.selectbox(
+                        "分類",
+                        category2_map.get(category1, ["その他"]),
+                        key=f"contact_cat2_{selected_id}"
+                    )
+
+                    role = st.text_input(
+                        "この利用者に対する役割",
+                        value=category2,
+                        key=f"contact_role_{selected_id}"
+                    )
+
+                    name = st.text_input("氏名", key=f"contact_name_{selected_id}")
+
+                with form_col2:
+                    organization = st.text_input("事業所名", key=f"contact_org_{selected_id}")
+                    phone = st.text_input("電話番号", key=f"contact_phone_{selected_id}")
+                    memo = st.text_area("メモ", key=f"contact_memo_{selected_id}")
+
+                save_contact = st.form_submit_button("関係者を登録する", use_container_width=True)
+
+                if save_contact:
+                    if name.strip() or organization.strip():
+                        contacts_df = get_external_contacts_df()
+                        links_df = get_resident_links_df()
+
+                        next_contact_id = get_next_contact_id(contacts_df)
+                        next_link_id = get_next_numeric_id(links_df, "id", 1)
+
+                        new_contact_row = pd.DataFrame([{
+                            "contact_id": next_contact_id,
+                            "category1": category1,
+                            "category2": category2,
+                            "name": name.strip(),
+                            "organization": organization.strip(),
+                            "phone": phone.strip(),
+                            "memo": memo.strip(),
+                        }])
+
+                        new_contacts_df = pd.concat([contacts_df, new_contact_row], ignore_index=True)
+                        save_db(new_contacts_df, "external_contacts")
+
+                        new_link_row = pd.DataFrame([{
+                            "id": next_link_id,
+                            "resident_id": selected_id,
+                            "contact_id": next_contact_id,
+                            "role": role.strip(),
+                        }])
+
+                        new_links_df = pd.concat([links_df, new_link_row], ignore_index=True)
+                        save_db(new_links_df, "resident_links")
+
+                        st.success("関係者を登録したある！")
+                        st.rerun()
+                    else:
+                        st.error("氏名か事業所名のどちらかは入れてほしいある。")
+
 
         st.divider()
         st.markdown("### 編集・追加")
@@ -2744,12 +3005,150 @@ elif page == "⑨ 利用者情報":
                             st.success("メモを削除したある。")
                             st.rerun()
 
+                        if st.button(
+                            "この紐づきを削除",
+                            key=f"delete_contact_link_{selected_id}_{contact_id}",
+                            use_container_width=True
+                        ):
+                            links_df = get_resident_links_df()
+                            new_links_df = links_df[
+                                ~(
+                                    (links_df["resident_id"].astype(str) == str(selected_id)) &
+                                    (links_df["contact_id"].astype(str) == str(contact_id))
+                                )
+                            ].copy()
+                            save_db(new_links_df, "resident_links")
+                            st.success("この利用者との紐づきを削除したある。")
+                            st.rerun()
+
     show_resident_page()
 
 # ==========================================
 # ⑩ 書類
 # ==========================================
-elif page == "⑩ 書類":
+elif page == "⑩ 検索":
+    st.title("🔎 検索")
+
+    st.markdown("### ☎️ 関係者検索")
+
+    contacts_df = get_external_contacts_df()
+
+    if contacts_df.empty:
+        st.info("関係者データはまだ登録されてないある。")
+    else:
+        for col in ["contact_id", "category1", "category2", "name", "organization", "phone", "memo"]:
+            if col not in contacts_df.columns:
+                contacts_df[col] = ""
+
+        contacts_df = contacts_df.fillna("").copy()
+
+        search_cols = st.columns([2, 2, 3])
+
+        with search_cols[0]:
+            contact_cat1 = st.selectbox(
+                "大分類で絞る",
+                ["全部"] + sorted([x for x in contacts_df["category1"].astype(str).unique().tolist() if x.strip()]),
+                key="contact_search_cat1"
+            )
+
+        with search_cols[1]:
+            contact_cat2 = st.text_input("分類で絞る", key="contact_search_cat2", placeholder="ケアマネ / 主治医 / 薬局 など")
+
+        with search_cols[2]:
+            contact_kw = st.text_input("キーワード検索", key="contact_search_kw", placeholder="氏名・事業所名・電話・メモ")
+
+        view_contacts = contacts_df.copy()
+
+        if contact_cat1 != "全部":
+            view_contacts = view_contacts[
+                view_contacts["category1"].astype(str).str.strip() == contact_cat1
+            ].copy()
+
+        if contact_cat2.strip():
+            view_contacts = view_contacts[
+                view_contacts["category2"].astype(str).str.contains(contact_cat2.strip(), case=False, na=False)
+            ].copy()
+
+        if contact_kw.strip():
+            kw = contact_kw.strip()
+            view_contacts = view_contacts[
+                view_contacts["name"].astype(str).str.contains(kw, case=False, na=False) |
+                view_contacts["organization"].astype(str).str.contains(kw, case=False, na=False) |
+                view_contacts["phone"].astype(str).str.contains(kw, case=False, na=False) |
+                view_contacts["memo"].astype(str).str.contains(kw, case=False, na=False)
+            ].copy()
+
+        if view_contacts.empty:
+            st.info("条件に合う関係者はいないある。")
+        else:
+            try:
+                view_contacts = view_contacts.sort_values(["category1", "category2", "organization", "name"])
+            except Exception:
+                pass
+
+            for _, crow in view_contacts.iterrows():
+                contact_id = str(crow.get("contact_id", "")).strip()
+                category1 = str(crow.get("category1", "")).strip()
+                category2 = str(crow.get("category2", "")).strip()
+                name = str(crow.get("name", "")).strip()
+                org = str(crow.get("organization", "")).strip()
+                phone = str(crow.get("phone", "")).strip()
+                memo = str(crow.get("memo", "")).strip()
+
+                with st.container(border=True):
+                    st.markdown(
+                        f"""
+                        <div style="
+                            border-left: 6px solid #9aa5b1;
+                            background:#fafafa;
+                            padding:12px 14px;
+                            border-radius:10px;
+                            margin-bottom:10px;
+                        ">
+                            <div style="font-size:18px; font-weight:700; margin-bottom:6px;">
+                                {category2 if category2 else '関係者'}
+                            </div>
+                            <div style="line-height:1.8;">
+                                <b>氏名:</b> {name}<br>
+                                <b>事業所:</b> {org}<br>
+                                <b>電話:</b> {phone}<br>
+                                <b>大分類:</b> {category1}<br>
+                                <b>ID:</b> {contact_id}
+                            </div>
+                            <div style="margin-top:8px; color:#555;">
+                                {memo}
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+                    linked_residents_df = get_contact_residents(contact_id)
+
+                    if linked_residents_df.empty:
+                        st.caption("担当利用者はまだ紐づいてないある。")
+                    else:
+                        st.markdown("**担当利用者**")
+                        for _, rrow in linked_residents_df.iterrows():
+                            rid = str(rrow.get("resident_id", "")).strip()
+                            rname = str(rrow.get("resident_name", "")).strip()
+                            rstatus = str(rrow.get("status", "")).strip()
+                            rrole = str(rrow.get("role", "")).strip()
+
+                            label = f"{rname} ({rid})"
+                            if rrole:
+                                label += f" / {rrole}"
+                            if rstatus:
+                                label += f" / {rstatus}"
+
+                            btn_key = f"jump_resident_from_contact_{contact_id}_{rid}"
+                            if st.button(label, key=btn_key, use_container_width=True):
+                                st.session_state.current_page = "⑨ 利用者情報"
+                                st.session_state.selected_resident_id = rid
+                                st.rerun()
+
+    st.divider()
+
     CATEGORY_MAP = {
         "ケアマネ": {
             "書類": ["提出書類", "記入例", "テンプレート", "契約関係", "その他"],
@@ -2853,7 +3252,7 @@ elif page == "⑩ 書類":
         st.session_state.edit_document = False
         st.session_state.doc_view_mode = ""
 
-    st.title("📄 書類")
+    st.title("📄 検索")
 
     if "selected_document_id" not in st.session_state:
         st.session_state.selected_document_id = ""
@@ -2914,7 +3313,7 @@ elif page == "⑩ 書類":
                         st.error("タイトルを入力してほしいある。")
 
         st.divider()
-        st.markdown("### 🔎 書類検索")
+        st.markdown("### 🔎 検索")
 
         search_col1, search_col2, search_col3, search_col4 = st.columns(4)
 
