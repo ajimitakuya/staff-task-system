@@ -34,6 +34,12 @@ def get_sheet_name(file):
         return "calendar"
     elif file == "active_users":
         return "active_users"
+    elif file == "resident_master":
+        return "resident_master"
+    elif file == "resident_schedule":
+        return "resident_schedule"
+    elif file == "resident_notes":
+        return "resident_notes"
     else:
         raise ValueError(f"未対応のシート名ある: {file}")
 
@@ -87,6 +93,22 @@ def load_db(file, retries=3, delay=0.8):
                 "record_status": record_status_cols,
                 "calendar": calendar_cols,
                 "active_users": ["user", "login_at", "last_seen"],
+                                "resident_master": [
+                    "resident_id", "resident_name", "status",
+                    "consultant", "consultant_phone",
+                    "caseworker", "caseworker_phone",
+                    "hospital", "hospital_phone",
+                    "nurse", "nurse_phone",
+                    "care", "care_phone",
+                    "created_at", "updated_at"
+                ],
+                "resident_schedule": [
+                    "id", "resident_id", "weekday", "service_type",
+                    "start_time", "end_time", "place", "phone", "memo"
+                ],
+                "resident_notes": [
+                    "id", "resident_id", "date", "user", "note"
+                ],
             }
 
             for col in expected_cols[file]:
@@ -402,6 +424,7 @@ page_options = [
     "⑥ 日誌入力状況",
     "⑦ 勤務カレンダー",
     "⑧ 緊急一覧",
+    "⑨ 利用者情報",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -432,6 +455,93 @@ st.sidebar.divider()
 st.sidebar.caption("System Version 2.0")
 
 render_urgent_banner()
+
+def get_next_numeric_id(df, col_name="id", start=1):
+    if df is None or df.empty or col_name not in df.columns:
+        return start
+    ids = pd.to_numeric(df[col_name], errors="coerce").dropna()
+    return int(ids.max()) + 1 if not ids.empty else start
+
+
+def get_next_resident_id(master_df):
+    if master_df is None or master_df.empty or "resident_id" not in master_df.columns:
+        return "R0001"
+
+    numbers = []
+    for x in master_df["resident_id"].fillna("").astype(str):
+        x = x.strip().upper()
+        if x.startswith("R"):
+            num = x[1:]
+            if num.isdigit():
+                numbers.append(int(num))
+
+    next_num = max(numbers) + 1 if numbers else 1
+    return f"R{next_num:04d}"
+
+
+def get_resident_master_df():
+    df = load_db("resident_master")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "resident_id", "resident_name", "status",
+            "consultant", "consultant_phone",
+            "caseworker", "caseworker_phone",
+            "hospital", "hospital_phone",
+            "nurse", "nurse_phone",
+            "care", "care_phone",
+            "created_at", "updated_at"
+        ])
+    else:
+        for col in [
+            "resident_id", "resident_name", "status",
+            "consultant", "consultant_phone",
+            "caseworker", "caseworker_phone",
+            "hospital", "hospital_phone",
+            "nurse", "nurse_phone",
+            "care", "care_phone",
+            "created_at", "updated_at"
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_resident_schedule_df():
+    df = load_db("resident_schedule")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "id", "resident_id", "weekday", "service_type",
+            "start_time", "end_time", "place", "phone", "memo"
+        ])
+    else:
+        for col in [
+            "id", "resident_id", "weekday", "service_type",
+            "start_time", "end_time", "place", "phone", "memo"
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_resident_notes_df():
+    df = load_db("resident_notes")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["id", "resident_id", "date", "user", "note"])
+    else:
+        for col in ["id", "resident_id", "date", "user", "note"]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def go_resident_detail(resident_id):
+    st.session_state.selected_resident_id = resident_id
+    st.rerun()
+
+
+def back_to_resident_list():
+    st.session_state.selected_resident_id = ""
+    st.rerun()
 
 # ログイン中メンバー表示
 try:
@@ -1503,3 +1613,90 @@ elif page == "⑧ 緊急一覧":
                                 st.caption(f"現在 {user_name} さんが対応中ある。")
 
     show_urgent_page()
+
+def get_next_numeric_id(df, col_name="id", start=1):
+    if df is None or df.empty or col_name not in df.columns:
+        return start
+    ids = pd.to_numeric(df[col_name], errors="coerce").dropna()
+    return int(ids.max()) + 1 if not ids.empty else start
+
+
+def get_next_resident_id(master_df):
+    if master_df is None or master_df.empty or "resident_id" not in master_df.columns:
+        return "R0001"
+
+    numbers = []
+    for x in master_df["resident_id"].fillna("").astype(str):
+        x = x.strip().upper()
+        if x.startswith("R"):
+            num = x[1:]
+            if num.isdigit():
+                numbers.append(int(num))
+
+    next_num = max(numbers) + 1 if numbers else 1
+    return f"R{next_num:04d}"
+
+
+def get_resident_master_df():
+    df = load_db("resident_master")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "resident_id", "resident_name", "status",
+            "consultant", "consultant_phone",
+            "caseworker", "caseworker_phone",
+            "hospital", "hospital_phone",
+            "nurse", "nurse_phone",
+            "care", "care_phone",
+            "created_at", "updated_at"
+        ])
+    else:
+        for col in [
+            "resident_id", "resident_name", "status",
+            "consultant", "consultant_phone",
+            "caseworker", "caseworker_phone",
+            "hospital", "hospital_phone",
+            "nurse", "nurse_phone",
+            "care", "care_phone",
+            "created_at", "updated_at"
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_resident_schedule_df():
+    df = load_db("resident_schedule")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "id", "resident_id", "weekday", "service_type",
+            "start_time", "end_time", "place", "phone", "memo"
+        ])
+    else:
+        for col in [
+            "id", "resident_id", "weekday", "service_type",
+            "start_time", "end_time", "place", "phone", "memo"
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_resident_notes_df():
+    df = load_db("resident_notes")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["id", "resident_id", "date", "user", "note"])
+    else:
+        for col in ["id", "resident_id", "date", "user", "note"]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def go_resident_detail(resident_id):
+    st.session_state.selected_resident_id = resident_id
+    st.rerun()
+
+
+def back_to_resident_list():
+    st.session_state.selected_resident_id = ""
+    st.rerun()
