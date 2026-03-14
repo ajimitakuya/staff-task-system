@@ -963,6 +963,9 @@ if st.sidebar.button(f"作業中: {active_count}件", key="go_my_active", use_co
 if st.sidebar.button(f"未着手全体: {todo_count}件", key="go_todo_board", use_container_width=True):
     st.session_state.current_page = "① 未着手の任務（掲示板）"
     st.rerun()
+
+# ここを追加するある
+page = st.session_state.get("current_page", "① 未着手の任務（掲示板）")
 # ==========================================
 # ① 未着手の任務（掲示板）
 # ==========================================
