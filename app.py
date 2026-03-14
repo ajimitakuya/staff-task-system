@@ -1617,15 +1617,14 @@ elif page == "⑧ 緊急一覧":
     show_urgent_page()
 
 # ==========================================
-# ⑨ 利用者情報
+# ⑨ 利用者情報（軽量化版 + 至急アラート連動）
 # ==========================================
 elif page == "⑨ 利用者情報":
     def show_resident_page():
         st.title("👤 利用者情報")
 
+        # 一覧では master だけ読む → 軽量化
         master_df = get_resident_master_df()
-        schedule_df = get_resident_schedule_df()
-        notes_df = get_resident_notes_df()
 
         if "resident_mode" not in st.session_state:
             st.session_state.resident_mode = "利用中"
@@ -1633,10 +1632,26 @@ elif page == "⑨ 利用者情報":
         if "selected_resident_id" not in st.session_state:
             st.session_state.selected_resident_id = ""
 
+        if "edit_resident_basic" not in st.session_state:
+            st.session_state.edit_resident_basic = False
+
+        if "edit_resident_schedule" not in st.session_state:
+            st.session_state.edit_resident_schedule = False
+
+        if "edit_resident_note" not in st.session_state:
+            st.session_state.edit_resident_note = False
+
+        def reset_resident_edit_flags():
+            st.session_state.edit_resident_basic = False
+            st.session_state.edit_resident_schedule = False
+            st.session_state.edit_resident_note = False
+
         # ------------------------------------------
         # 一覧モード
         # ------------------------------------------
         if not st.session_state.selected_resident_id:
+            reset_resident_edit_flags()
+
             top_cols = st.columns([1, 1, 3])
 
             with top_cols[0]:
@@ -1710,16 +1725,18 @@ elif page == "⑨ 利用者情報":
                     list_df["resident_name"].astype(str).str.contains(search_word.strip(), case=False, na=False)
                 ].copy()
 
-            list_df = list_df.sort_values("resident_name")
+            if not list_df.empty:
+                list_df = list_df.sort_values("resident_name")
 
             if list_df.empty:
                 st.info("該当する利用者はいないある。")
                 return
 
-            cols = st.columns(3)
+            # スマホでも軽めにするため2列
+            cols = st.columns(2)
 
             for i, (_, row) in enumerate(list_df.iterrows()):
-                with cols[i % 3]:
+                with cols[i % 2]:
                     resident_id = str(row.get("resident_id", "")).strip()
                     resident_name = str(row.get("resident_name", "")).strip()
                     status = str(row.get("status", "")).strip()
@@ -1757,7 +1774,9 @@ elif page == "⑨ 利用者情報":
                         )
 
                         if st.button("詳細を見る", key=f"open_resident_{resident_id}", use_container_width=True):
-                            go_resident_detail(resident_id)
+                            st.session_state.selected_resident_id = resident_id
+                            reset_resident_edit_flags()
+                            st.rerun()
 
         # ------------------------------------------
         # 個人詳細モード
@@ -1769,18 +1788,37 @@ elif page == "⑨ 利用者情報":
             if detail_df.empty:
                 st.warning("利用者情報が見つからないある。")
                 if st.button("一覧に戻る", use_container_width=True):
-                    back_to_resident_list()
+                    st.session_state.selected_resident_id = ""
+                    reset_resident_edit_flags()
+                    st.rerun()
                 return
 
             row = detail_df.iloc[0]
+            resident_name = str(row.get("resident_name", "")).strip()
+            status = str(row.get("status", "")).strip()
+
+            # 詳細に入ってから必要なものだけ読む → 軽量化
+            schedule_df = get_resident_schedule_df()
+            notes_df = get_resident_notes_df()
+
+            try:
+                task_df_detail = load_db("task")
+                if task_df_detail is None or task_df_detail.empty:
+                    task_df_detail = pd.DataFrame(columns=["id", "task", "status", "user", "limit", "priority", "updated_at"])
+                else:
+                    for col in ["id", "task", "status", "user", "limit", "priority", "updated_at"]:
+                        if col not in task_df_detail.columns:
+                            task_df_detail[col] = ""
+                    task_df_detail = task_df_detail.fillna("")
+            except Exception:
+                task_df_detail = pd.DataFrame(columns=["id", "task", "status", "user", "limit", "priority", "updated_at"])
 
             back_cols = st.columns([1, 5])
             with back_cols[0]:
                 if st.button("← 一覧に戻る", use_container_width=True):
-                    back_to_resident_list()
-
-            resident_name = str(row.get("resident_name", "")).strip()
-            status = str(row.get("status", "")).strip()
+                    st.session_state.selected_resident_id = ""
+                    reset_resident_edit_flags()
+                    st.rerun()
 
             if status == "利用中":
                 status_label = "🟢 利用中"
@@ -1790,6 +1828,102 @@ elif page == "⑨ 利用者情報":
             st.subheader(f"{resident_name} 様")
             st.caption(f"{status_label} / ID: {selected_id}")
 
+            # ------------------------------------------
+            # この人の至急アラート
+            # ※ 現状は task 名に利用者名が含まれるものを拾う
+            # ------------------------------------------
+            st.markdown("### 🚨 この人のために今すぐやること")
+
+            urgent_person_df = task_df_detail[
+                task_df_detail["priority"].astype(str).str.strip().isin(["至急", "重要"]) &
+                (task_df_detail["status"].astype(str).str.strip() != "完了") &
+                task_df_detail["task"].astype(str).str.contains(resident_name, case=False, na=False)
+            ].copy()
+
+            if not urgent_person_df.empty:
+                prio_map = {"至急": 0, "重要": 1}
+                urgent_person_df["prio_sort"] = urgent_person_df["priority"].map(prio_map).fillna(9)
+                urgent_person_df["limit_sort"] = pd.to_datetime(urgent_person_df["limit"], errors="coerce")
+                urgent_person_df = urgent_person_df.sort_values(["prio_sort", "limit_sort", "updated_at"], ascending=[True, True, False])
+
+                for _, trow in urgent_person_df.iterrows():
+                    t_id = str(trow.get("id", "")).strip()
+                    t_name = str(trow.get("task", "")).strip()
+                    t_priority = str(trow.get("priority", "")).strip()
+                    t_status = str(trow.get("status", "")).strip()
+                    t_user = str(trow.get("user", "")).strip()
+                    t_limit = str(trow.get("limit", "")).strip()
+                    t_updated = str(trow.get("updated_at", "")).strip()
+
+                    try:
+                        limit_date = pd.to_datetime(t_limit, errors="coerce").date()
+                    except Exception:
+                        limit_date = None
+
+                    today = now_jst().date()
+
+                    if limit_date and limit_date < today:
+                        icon = "🩸"
+                        border_color = "#d63031"
+                        bg_color = "#ffeaea"
+                    elif t_priority == "至急":
+                        icon = "🚨"
+                        border_color = "#ff4d4f"
+                        bg_color = "#fff1f0"
+                    else:
+                        icon = "⚠️"
+                        border_color = "#ff9f43"
+                        bg_color = "#fff7e6"
+
+                    assignee = t_user if t_user else "未割当"
+
+                    with st.container(border=True):
+                        st.markdown(
+                            f"""
+                            <div style="
+                                border-left: 8px solid {border_color};
+                                background-color: {bg_color};
+                                padding: 14px;
+                                border-radius: 10px;
+                                margin-bottom: 10px;
+                            ">
+                                <div style="font-size:18px; font-weight:700; margin-bottom:6px;">
+                                    {icon} {t_priority} - {t_name}
+                                </div>
+                                <div style="line-height:1.8;">
+                                    <b>状態:</b> {t_status}<br>
+                                    <b>担当:</b> {assignee}<br>
+                                    <b>期限:</b> {t_limit}<br>
+                                    <b>更新:</b> {t_updated}
+                                </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+                        btn_cols = st.columns([1, 1, 4])
+
+                        if t_status == "未着手":
+                            with btn_cols[0]:
+                                if st.button("開始する", key=f"resident_urgent_start_{t_id}", use_container_width=True):
+                                    start_task(t_id)
+                                    st.success("タスクを開始したある！")
+                                    st.rerun()
+
+                        elif t_status == "作業中":
+                            if t_user == st.session_state.user:
+                                with btn_cols[1]:
+                                    if st.button("完了する", key=f"resident_urgent_done_{t_id}", use_container_width=True):
+                                        complete_task(t_id)
+                                        st.success("タスクを完了したある！")
+                                        st.rerun()
+                            else:
+                                with btn_cols[2]:
+                                    st.caption(f"現在 {t_user} さんが対応中ある。")
+            else:
+                st.info("この利用者に連動した至急・重要タスクは今のところないある。")
+
+            st.divider()
             st.markdown("### 基本情報")
             info_cols = st.columns(2)
 
@@ -1851,18 +1985,32 @@ elif page == "⑨ 利用者情報":
             with edit_cols[0]:
                 if st.button("基本情報を編集", key=f"edit_basic_{selected_id}", use_container_width=True):
                     st.session_state.edit_resident_basic = True
+                    st.session_state.edit_resident_schedule = False
+                    st.session_state.edit_resident_note = False
+
             with edit_cols[1]:
                 if st.button("予定を追加", key=f"edit_schedule_{selected_id}", use_container_width=True):
+                    st.session_state.edit_resident_basic = False
                     st.session_state.edit_resident_schedule = True
+                    st.session_state.edit_resident_note = False
+
             with edit_cols[2]:
                 if st.button("メモを追加", key=f"edit_note_{selected_id}", use_container_width=True):
+                    st.session_state.edit_resident_basic = False
+                    st.session_state.edit_resident_schedule = False
                     st.session_state.edit_resident_note = True
 
+            # ------------------------------------------
             # 基本情報編集
+            # ------------------------------------------
             if st.session_state.get("edit_resident_basic", False):
                 with st.form(f"resident_basic_form_{selected_id}"):
                     new_name = st.text_input("利用者名", value=str(row.get("resident_name", "")))
-                    new_status = st.selectbox("状態", ["利用中", "退所"], index=0 if str(row.get("status", "")) == "利用中" else 1)
+                    new_status = st.selectbox(
+                        "状態",
+                        ["利用中", "退所"],
+                        index=0 if str(row.get("status", "")) == "利用中" else 1
+                    )
                     new_consultant = st.text_input("相談員", value=str(row.get("consultant", "")))
                     new_consultant_phone = st.text_input("相談員電話", value=str(row.get("consultant_phone", "")))
                     new_caseworker = st.text_input("ケースワーカー", value=str(row.get("caseworker", "")))
@@ -1874,7 +2022,15 @@ elif page == "⑨ 利用者情報":
                     new_care = st.text_input("介護", value=str(row.get("care", "")))
                     new_care_phone = st.text_input("介護電話", value=str(row.get("care_phone", "")))
 
-                    if st.form_submit_button("基本情報を保存する"):
+                    save_col1, save_col2 = st.columns(2)
+
+                    with save_col1:
+                        save_basic = st.form_submit_button("基本情報を保存する", use_container_width=True)
+
+                    with save_col2:
+                        cancel_basic = st.form_submit_button("キャンセル", use_container_width=True)
+
+                    if save_basic:
                         mask = master_df["resident_id"].astype(str) == str(selected_id)
                         master_df.loc[mask, "resident_name"] = new_name.strip()
                         master_df.loc[mask, "status"] = new_status
@@ -1894,7 +2050,13 @@ elif page == "⑨ 利用者情報":
                         st.success("基本情報を更新したある！")
                         st.rerun()
 
+                    if cancel_basic:
+                        st.session_state.edit_resident_basic = False
+                        st.rerun()
+
+            # ------------------------------------------
             # 予定追加
+            # ------------------------------------------
             if st.session_state.get("edit_resident_schedule", False):
                 with st.form(f"resident_schedule_form_{selected_id}"):
                     weekday = st.selectbox("曜日", ["月", "火", "水", "木", "金", "土", "日"])
@@ -1905,7 +2067,13 @@ elif page == "⑨ 利用者情報":
                     phone = st.text_input("電話番号")
                     memo = st.text_input("メモ")
 
-                    if st.form_submit_button("予定を追加する"):
+                    save_col1, save_col2 = st.columns(2)
+                    with save_col1:
+                        add_schedule = st.form_submit_button("予定を追加する", use_container_width=True)
+                    with save_col2:
+                        cancel_schedule = st.form_submit_button("キャンセル", use_container_width=True)
+
+                    if add_schedule:
                         next_id = get_next_numeric_id(schedule_df, "id", 1)
                         new_row = pd.DataFrame([{
                             "id": next_id,
@@ -1918,31 +2086,94 @@ elif page == "⑨ 利用者情報":
                             "phone": phone.strip(),
                             "memo": memo.strip()
                         }])
+
                         save_db(pd.concat([schedule_df, new_row], ignore_index=True), "resident_schedule")
                         st.session_state.edit_resident_schedule = False
                         st.success("予定を追加したある！")
                         st.rerun()
 
+                    if cancel_schedule:
+                        st.session_state.edit_resident_schedule = False
+                        st.rerun()
+
+                # 既存予定の削除
+                schedule_delete_df = schedule_df[schedule_df["resident_id"].astype(str) == str(selected_id)].copy()
+                if not schedule_delete_df.empty:
+                    st.caption("登録済み予定を削除する場合は下から選ぶある。")
+
+                    weekday_order_del = {"月": 1, "火": 2, "水": 3, "木": 4, "金": 5, "土": 6, "日": 7}
+                    schedule_delete_df["weekday_order"] = schedule_delete_df["weekday"].map(weekday_order_del).fillna(99)
+                    schedule_delete_df = schedule_delete_df.sort_values(["weekday_order", "start_time"])
+
+                    for _, srow in schedule_delete_df.iterrows():
+                        sid = str(srow.get("id", "")).strip()
+                        label = f"{srow.get('weekday', '')} {srow.get('service_type', '')} {srow.get('start_time', '')}-{srow.get('end_time', '')} {srow.get('place', '')}"
+                        dcol1, dcol2 = st.columns([4, 1])
+                        with dcol1:
+                            st.write(label)
+                        with dcol2:
+                            if st.button("削除", key=f"delete_schedule_{selected_id}_{sid}", use_container_width=True):
+                                new_schedule_df = schedule_df[schedule_df["id"].astype(str) != str(sid)].copy()
+                                save_db(new_schedule_df, "resident_schedule")
+                                st.success("予定を削除したある。")
+                                st.rerun()
+
+            # ------------------------------------------
             # メモ追加
+            # ------------------------------------------
             if st.session_state.get("edit_resident_note", False):
                 with st.form(f"resident_note_form_{selected_id}"):
-                    new_note = st.text_area("共有メモ")
+                    note_date = st.date_input("日付", value=now_jst().date())
+                    note_text = st.text_area("共有メモ")
 
-                    if st.form_submit_button("メモを追加する"):
-                        if new_note.strip():
+                    save_col1, save_col2 = st.columns(2)
+                    with save_col1:
+                        add_note = st.form_submit_button("メモを追加する", use_container_width=True)
+                    with save_col2:
+                        cancel_note = st.form_submit_button("キャンセル", use_container_width=True)
+
+                    if add_note:
+                        if note_text.strip():
                             next_id = get_next_numeric_id(notes_df, "id", 1)
                             new_row = pd.DataFrame([{
                                 "id": next_id,
                                 "resident_id": selected_id,
-                                "date": now_jst().strftime("%Y-%m-%d %H:%M"),
+                                "date": str(note_date),
                                 "user": st.session_state.user,
-                                "note": new_note.strip()
+                                "note": note_text.strip()
                             }])
+
                             save_db(pd.concat([notes_df, new_row], ignore_index=True), "resident_notes")
                             st.session_state.edit_resident_note = False
-                            st.success("メモを追加したある！")
+                            st.success("共有メモを追加したある！")
                             st.rerun()
                         else:
                             st.error("メモ内容を入力してほしいある。")
+
+                    if cancel_note:
+                        st.session_state.edit_resident_note = False
+                        st.rerun()
+
+                # 既存メモの削除
+                notes_delete_df = notes_df[notes_df["resident_id"].astype(str) == str(selected_id)].copy()
+                if not notes_delete_df.empty:
+                    try:
+                        notes_delete_df = notes_delete_df.sort_values("date", ascending=False)
+                    except Exception:
+                        pass
+
+                    st.caption("登録済みメモを削除する場合は下から選ぶある。")
+
+                    for _, nrow in notes_delete_df.iterrows():
+                        nid = str(nrow.get("id", "")).strip()
+                        with st.container(border=True):
+                            st.write(f"**{nrow.get('date', '')}**  {nrow.get('user', '')}")
+                            st.write(nrow.get("note", ""))
+
+                            if st.button("このメモを削除", key=f"delete_note_{selected_id}_{nid}", use_container_width=True):
+                                new_notes_df = notes_df[notes_df["id"].astype(str) != str(nid)].copy()
+                                save_db(new_notes_df, "resident_notes")
+                                st.success("メモを削除したある。")
+                                st.rerun()
 
     show_resident_page()
