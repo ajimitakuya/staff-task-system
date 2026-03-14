@@ -394,7 +394,7 @@ if 'user' not in st.session_state:
     st.warning("### 名前を選んでログインしてください💻")
 
     user_list = [
-        "木村 由美", "秋吉 幸雄", "粟田 絵利菜", "小宅 正嗣",
+        "木村 由美", "秋吉 幸雄", "安心院 拓也", "粟田 絵利菜", "小宅 正嗣",
         "土居 容子", "中本 匡", "中本 文代", "中本 雄斗", "伴 法子", "栁川 幸恵", "山口 晴彦"
     ]
 
@@ -443,23 +443,28 @@ st.sidebar.markdown("メニューを選択してください")
 st.sidebar.markdown(
     """
     <style>
-    /* サイドバーの余白調整 */
+    /* サイドバー全体 */
     section[data-testid="stSidebar"] .stButton {
         margin-bottom: 0.45rem !important;
     }
 
-    /* 未選択メニュー用ボタン */
+    /* 未選択メニューボタン本体 */
     section[data-testid="stSidebar"] .stButton > button {
+        width: 100% !important;
+        min-height: 56px !important;
         border-radius: 12px !important;
         border: 1px solid #d9d9d9 !important;
         background: #ffffff !important;
         color: #1f2d3d !important;
         font-weight: 700 !important;
-        padding: 0.78rem 1rem !important;
-        text-align: left !important;
-        justify-content: flex-start !important;
+        padding: 0 !important;
         box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
-        min-height: 56px !important;
+
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+
+        text-align: left !important;
     }
 
     section[data-testid="stSidebar"] .stButton > button:hover {
@@ -468,14 +473,30 @@ st.sidebar.markdown(
         background: #fffaf5 !important;
     }
 
-    section[data-testid="stSidebar"] .stButton > button p {
-        text-align: left !important;
+    /* buttonの中の文字コンテナを強制左寄せ */
+    section[data-testid="stSidebar"] .stButton > button > div {
         width: 100% !important;
-        margin: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        padding: 0.78rem 1rem !important;
+        box-sizing: border-box !important;
     }
 
-    /* 選択中メニュー表示 */
+    /* さらに中の文字要素も左寄せ */
+    section[data-testid="stSidebar"] .stButton > button > div p,
+    section[data-testid="stSidebar"] .stButton > button > div span {
+        width: 100% !important;
+        margin: 0 !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+    }
+
+    /* 選択中メニュー */
     .menu-selected-box {
+        width: 100%;
+        min-height: 56px;
         border-radius: 12px;
         border: 1px solid #ff9f43;
         background: linear-gradient(90deg, #fff1e8 0%, #fff7e6 100%);
@@ -485,27 +506,9 @@ st.sidebar.markdown(
         margin-bottom: 8px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         text-align: center;
-        min-height: 56px;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-sizing: border-box;
-    }
-
-    /* 未選択メニュー表示 */
-    .menu-unselected-label {
-        border-radius: 12px;
-        border: 1px solid #d9d9d9;
-        background: #ffffff;
-        color: #1f2d3d;
-        font-weight: 700;
-        padding: 12px 14px;
-        margin-bottom: 8px;
-        text-align: left;
-        min-height: 56px;
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
         box-sizing: border-box;
     }
     </style>
