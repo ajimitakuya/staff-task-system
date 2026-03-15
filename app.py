@@ -440,6 +440,7 @@ page_options = [
     "⑨ 利用者情報",
     "⑩ 検索",
     "書類_個別支援計画案",
+    "書類_サービス担当者会議",
     "書類_個別支援計画",
 ]
 
@@ -562,6 +563,7 @@ main_page_options = [
 
 document_page_options = [
     ("書類_個別支援計画案", "個別支援計画案"),
+    ("書類_サービス担当者会議", "サービス担当者会議"),
     ("書類_個別支援計画", "個別支援計画"),
 ]
 
@@ -812,6 +814,216 @@ def render_plan_form_page(doc_title: str):
         for idx, item in enumerate(row_data, start=1):
             st.markdown(f"**{idx}行目**")
             st.write(item)
+
+    st.info(f"{doc_title} の入力UI確認用ある。保存機能は次に付けるある。")
+
+
+def render_meeting_form_page(doc_title: str):
+    st.title(f"📄 {doc_title}")
+    st.caption("サービス担当者会議の入力UIある。まだ保存はしないある。")
+
+    master_df = get_resident_master_df()
+
+    if master_df is None or master_df.empty:
+        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        return
+
+    master_df = master_df.fillna("").copy()
+
+    resident_options = []
+    resident_map = {}
+
+    for _, row in master_df.iterrows():
+        rid = str(row.get("resident_id", "")).strip()
+        rname = str(row.get("resident_name", "")).strip()
+        status = str(row.get("status", "")).strip()
+
+        if not rname:
+            continue
+
+        label = f"{rname}"
+        if rid:
+            label += f" ({rid})"
+        if status:
+            label += f" / {status}"
+
+        resident_options.append(label)
+        resident_map[label] = row.to_dict()
+
+    if not resident_options:
+        st.warning("利用者情報がまだ登録されてないある。")
+        return
+
+    st.markdown("## 基本情報")
+
+    selected_label = st.selectbox(
+        "誰の書類を入力するか",
+        resident_options,
+        key=f"{doc_title}_resident_select"
+    )
+
+    selected_row = resident_map[selected_label]
+    resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    # -----------------------------
+    # 作成年月日
+    # M3 / O3 / Q3
+    # -----------------------------
+    st.markdown("### 作成年月日")
+    create_cols = st.columns([2, 2, 2, 6])
+
+    with create_cols[0]:
+        create_year = st.text_input("作成年（西暦）", key=f"{doc_title}_create_year", placeholder="2026")
+    with create_cols[1]:
+        create_month = st.text_input("月", key=f"{doc_title}_create_month", placeholder="3")
+    with create_cols[2]:
+        create_day = st.text_input("日", key=f"{doc_title}_create_day", placeholder="14")
+
+    # -----------------------------
+    # 利用者名 / 作成者
+    # C4 / M4
+    # -----------------------------
+    base_cols = st.columns([6, 4])
+
+    with base_cols[0]:
+        st.text_input(
+            "利用者名",
+            value=resident_name,
+            key=f"{doc_title}_resident_name",
+            disabled=True
+        )
+    with base_cols[1]:
+        creator_name = st.text_input(
+            "作成者（担当者）名",
+            value=st.session_state.user,
+            key=f"{doc_title}_creator_name"
+        )
+
+    st.divider()
+
+    # -----------------------------
+    # 開催日時 / 開催場所
+    # C5 E5 G5 / M5
+    # -----------------------------
+    st.markdown("## 開催情報")
+
+    meeting_cols = st.columns([2, 2, 2, 6])
+
+    with meeting_cols[0]:
+        meeting_year = st.text_input("開催年（西暦）", key=f"{doc_title}_meeting_year", placeholder="2026")
+    with meeting_cols[1]:
+        meeting_month = st.text_input("開催月", key=f"{doc_title}_meeting_month", placeholder="3")
+    with meeting_cols[2]:
+        meeting_day = st.text_input("開催日", key=f"{doc_title}_meeting_day", placeholder="14")
+    with meeting_cols[3]:
+        meeting_place = st.text_input("開催場所", key=f"{doc_title}_meeting_place", placeholder="事業所相談室")
+
+    st.divider()
+
+    # -----------------------------
+    # 会議出席者
+    # E8 J8 O8 / E9 J9 O9 / E10 J10 O10
+    # -----------------------------
+    st.markdown("## 会議出席者")
+
+    header_cols = st.columns(3)
+    with header_cols[0]:
+        st.markdown("**左列**")
+    with header_cols[1]:
+        st.markdown("**中央列**")
+    with header_cols[2]:
+        st.markdown("**右列**")
+
+    row1 = st.columns(3)
+    with row1[0]:
+        manager_name = st.text_input("管理者名", key=f"{doc_title}_manager_name")
+    with row1[1]:
+        staff_name = st.text_input("支援員名", key=f"{doc_title}_staff_name")
+    with row1[2]:
+        attendee_user_name = st.text_input(
+            "利用者名",
+            value=resident_name,
+            key=f"{doc_title}_attendee_user_name"
+        )
+
+    row2 = st.columns(3)
+    with row2[0]:
+        care_manager_name = st.text_input("ケアマネ", key=f"{doc_title}_care_manager_name")
+    with row2[1]:
+        nurse_name = st.text_input("看護師", key=f"{doc_title}_nurse_name")
+    with row2[2]:
+        family_name = st.text_input("親族", key=f"{doc_title}_family_name")
+
+    row3 = st.columns(3)
+    with row3[0]:
+        service_manager_name = st.text_input("サービス管理責任者", key=f"{doc_title}_service_manager_name")
+    with row3[1]:
+        consultant_name = st.text_input("相談員", key=f"{doc_title}_consultant_name")
+    with row3[2]:
+        keyperson_name = st.text_input("キーパーソン", key=f"{doc_title}_keyperson_name")
+
+    st.divider()
+
+    # -----------------------------
+    # 本文
+    # C11〜C14
+    # -----------------------------
+    st.markdown("## 会議内容")
+
+    agenda = st.text_area(
+        "議題",
+        key=f"{doc_title}_agenda",
+        height=90,
+        placeholder="C11"
+    )
+
+    discussion = st.text_area(
+        "検討内容",
+        key=f"{doc_title}_discussion",
+        height=140,
+        placeholder="C12"
+    )
+
+    issues_left = st.text_area(
+        "残された課題",
+        key=f"{doc_title}_issues_left",
+        height=100,
+        placeholder="C13"
+    )
+
+    conclusion = st.text_area(
+        "結論",
+        key=f"{doc_title}_conclusion",
+        height=100,
+        placeholder="C14"
+    )
+
+    st.divider()
+
+    with st.expander("入力内容確認"):
+        st.write(f"利用者名: {resident_name}")
+        st.write(f"作成年月日: {create_year} / {create_month} / {create_day}")
+        st.write(f"作成者: {creator_name}")
+        st.write(f"開催日時: {meeting_year} / {meeting_month} / {meeting_day}")
+        st.write(f"開催場所: {meeting_place}")
+
+        st.markdown("**会議出席者**")
+        st.write({
+            "管理者名": manager_name,
+            "支援員名": staff_name,
+            "利用者名": attendee_user_name,
+            "ケアマネ": care_manager_name,
+            "看護師": nurse_name,
+            "親族": family_name,
+            "サービス管理責任者": service_manager_name,
+            "相談員": consultant_name,
+            "キーパーソン": keyperson_name,
+        })
+
+        st.write(f"議題: {agenda}")
+        st.write(f"検討内容: {discussion}")
+        st.write(f"残された課題: {issues_left}")
+        st.write(f"結論: {conclusion}")
 
     st.info(f"{doc_title} の入力UI確認用ある。保存機能は次に付けるある。")
 
@@ -3623,7 +3835,8 @@ elif page == "⑩ 検索":
 
 elif page == "書類_個別支援計画案":
     render_plan_form_page("個別支援計画案")
-
+elif page == "書類_サービス担当者会議":
+    render_meeting_form_page("サービス担当者会議")
 elif page == "書類_個別支援計画":
     render_plan_form_page("個別支援計画")
 
