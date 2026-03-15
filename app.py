@@ -3,15 +3,12 @@ import pandas as pd
 import base64
 import time
 import random
-import os
-import shutil
-import json
-from datetime import datetime
-from openpyxl import load_workbook
+from io import BytesIO
 from datetime import datetime, timedelta, timezone, date
-import calendar
+import calendar as py_calendar
+from openpyxl import load_workbook
 from streamlit_gsheets import GSheetsConnection
-from streamlit_calendar import calendar
+from streamlit_calendar import calendar as st_calendar
 JST = timezone(timedelta(hours=9))
 def now_jst():
     return datetime.now(JST)
@@ -143,6 +140,70 @@ def load_db(file, retries=3, delay=0.8):
             else:
                 raise last_error
 
+@st.cache_data(ttl=60)
+def get_resident_master_df():
+    return get_resident_master_df_cached().copy()
+
+
+@st.cache_data(ttl=60)
+def get_resident_schedule_df_cached():
+    df = load_db("resident_schedule")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "id", "resident_id", "weekday", "service_type",
+            "start_time", "end_time", "place", "phone", "person_in_charge", "memo"
+        ])
+    else:
+        for col in [
+            "id", "resident_id", "weekday", "service_type",
+            "start_time", "end_time", "place", "phone", "person_in_charge", "memo"
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+@st.cache_data(ttl=60)
+def get_resident_notes_df_cached():
+    df = load_db("resident_notes")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["id", "resident_id", "date", "user", "note"])
+    else:
+        for col in ["id", "resident_id", "date", "user", "note"]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+@st.cache_data(ttl=60)
+def get_external_contacts_df_cached():
+    df = load_db("external_contacts")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "contact_id", "category1", "category2",
+            "name", "organization", "phone", "memo"
+        ])
+    else:
+        for col in [
+            "contact_id", "category1", "category2",
+            "name", "organization", "phone", "memo"
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+@st.cache_data(ttl=60)
+def get_resident_links_df_cached():
+    df = load_db("resident_links")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["id", "resident_id", "contact_id", "role"])
+    else:
+        for col in ["id", "resident_id", "contact_id", "role"]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
 def save_db(df, file, retries=3, delay=1.0):
     s_name = get_sheet_name(file)
 
@@ -150,6 +211,7 @@ def save_db(df, file, retries=3, delay=1.0):
     for attempt in range(retries):
         try:
             conn.update(worksheet=s_name, data=df)
+            st.cache_data.clear()
             return
         except Exception as e:
             last_error = e
@@ -620,6 +682,30 @@ st.sidebar.caption("System Version 2.0")
 
 render_urgent_banner()
 
+TEMPLATE_FILES = {
+    "個別支援計画案": "個別支援計画案.xlsx",
+    "個別支援計画": "個別支援計画.xlsx",
+    "サービス担当者会議": "サービス担当者会議.xlsx",
+    "モニタリング": "モニタリング.xlsx",
+    "在宅評価シート": "在宅評価シート.xlsx",
+}
+
+
+def create_excel_file(template_name, cell_data):
+
+    template = TEMPLATE_FILES[template_name]
+
+    wb = load_workbook(template)
+    ws = wb.active
+
+    for cell, value in cell_data.items():
+        ws[cell] = value
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return buffer
 
 def render_plan_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
@@ -823,48 +909,29 @@ def render_plan_form_page(doc_title: str):
             st.markdown(f"**{idx}行目**")
             st.write(item)
 
-    st.info(f"{doc_title} の入力UI確認用ある。保存機能は次に付けるある。")
-
     st.divider()
+    st.markdown("### Excel出力")
 
-    st.markdown("### 保存")
+    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
 
-    root = get_storage_root()
+        cell_data = {
+            "C4": resident_name,
+            "M3": year_val,
+            "O3": month_val,
+            "Q3": day_val,
+            "M4": manager_val
+        }
 
-    if not root:
+        template_name = doc_title
+        file = create_excel_file(template_name, cell_data)
 
-        root_input = st.text_input(
-            "利用者書類フォルダ（最初の1回だけ）",
-            placeholder=r"Y:\利用者書類"
+        st.download_button(
+            label="ダウンロード",
+            data=file,
+            file_name=f"{doc_title}_{year_val}.{month_val}.{day_val}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"{doc_title}_download_excel"
         )
-
-        if st.button("保存先を登録"):
-            if os.path.exists(root_input):
-                set_storage_root(root_input)
-                st.success("保存先登録したある")
-            else:
-                st.error("そのフォルダ存在しないある")
-
-    else:
-
-        if st.button("個別支援計画案を保存"):
-
-            if not year_val or not month_val or not day_val:
-                st.error("作成年月日を入力してほしいある")
-            else:
-                success, msg = save_plan_draft(
-                    resident_name,
-                    year_val,
-                    month_val,
-                    day_val,
-                    manager_val if manager_val else st.session_state.user
-                )
-
-                if success:
-                    st.success(f"保存成功ある！\n{msg}")
-                else:
-                    st.error(msg)
-
 
 def render_meeting_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
@@ -1073,7 +1140,45 @@ def render_meeting_form_page(doc_title: str):
         st.write(f"残された課題: {issues_left}")
         st.write(f"結論: {conclusion}")
 
-    st.info("保存先設定後、この書類をExcel保存できるある。")
+    st.divider()
+    st.markdown("### Excel出力")
+
+    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
+
+        cell_data = {
+            "M3": create_year,
+            "O3": create_month,
+            "Q3": create_day,
+            "C4": resident_name,
+            "M4": creator_name,
+            "C5": meeting_year,
+            "E5": meeting_month,
+            "G5": meeting_day,
+            "M5": meeting_place,
+            "E8": manager_name,
+            "J8": staff_name,
+            "O8": attendee_user_name,
+            "E9": care_manager_name,
+            "J9": nurse_name,
+            "O9": family_name,
+            "E10": service_manager_name,
+            "J10": consultant_name,
+            "O10": keyperson_name,
+            "C11": agenda,
+            "C12": discussion,
+            "C13": issues_left,
+            "C14": conclusion,
+        }
+
+        file = create_excel_file("サービス担当者会議", cell_data)
+
+        st.download_button(
+            label="ダウンロード",
+            data=file,
+            file_name=f"サービス担当者会議_{create_year}.{create_month}.{create_day}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"{doc_title}_download_excel"
+        )
 
 
 def render_monitoring_form_page(doc_title: str):
@@ -1191,15 +1296,46 @@ def render_monitoring_form_page(doc_title: str):
             st.markdown(f"**具体的達成目標番号{idx}**")
             st.write(item)
 
-    st.info(f"{doc_title} の入力UI確認用ある。保存機能は次に付けるある。")
+    st.divider()
+    st.markdown("### Excel出力")
 
+    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
+
+        cell_data = {
+            "C5": resident_name,
+            "E5": year_val,
+            "G5": month_val,
+            "I5": day_val,
+
+            "C8": row_data[0]["status"],
+            "D8": row_data[0]["detail"],
+            "E8": row_data[0]["future"],
+
+            "C9": row_data[1]["status"],
+            "D9": row_data[1]["detail"],
+            "E9": row_data[1]["future"],
+
+            "C10": row_data[2]["status"],
+            "D10": row_data[2]["detail"],
+            "E10": row_data[2]["future"],
+        }
+
+        file = create_excel_file("モニタリング", cell_data)
+
+        st.download_button(
+            label="ダウンロード",
+            data=file,
+            file_name=f"モニタリング_{year_val}.{month_val}.{day_val}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"{doc_title}_download_excel"
+        )
 
 def get_saturday_dates_for_month(year: int, month: int):
-    cal = calendar.monthcalendar(year, month)
+    cal = py_calendar.monthcalendar(year, month)
     saturdays = []
 
     for week in cal:
-        sat_day = week[calendar.SATURDAY]
+        sat_day = week[py_calendar.SATURDAY]
         if sat_day != 0:
             saturdays.append(date(year, month, sat_day))
 
@@ -1370,78 +1506,56 @@ def render_home_evaluation_form_page(doc_title: str):
             st.markdown(f"**第{idx}週**")
             st.write(item)
 
-    st.info(f"{doc_title} の入力UI確認用ある。保存機能は次に付けるある。")
+    st.divider()
+    st.markdown("### Excel出力")
 
+    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
 
-CONFIG_FILE = "storage_config.json"
+        cell_data = {
+            "B3": resident_name,
+            "J3": year_val,
+            "L3": month_val,
 
-def get_storage_root():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data.get("root")
-    return None
+            "B7": goal1,
+            "B8": goal2,
+            "B9": goal3,
 
-def set_storage_root(path):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump({"root": path}, f)
+            "H11": service_manager,
 
-def ensure_resident_folders(root, resident_name):
+            "B12": monthly1,
+            "B13": monthly2,
+            "B14": monthly3,
 
-    resident_folder = os.path.join(root, resident_name)
+            "A19": week_rows[0]["sat_date"],
+            "C19": week_rows[0]["weekly_report"],
+            "J20": week_rows[0]["visit_manager"],
 
-    doc_types = [
-        "個別支援計画案",
-        "個別支援計画",
-        "サービス担当者会議",
-        "モニタリング",
-        "在宅評価シート"
-    ]
+            "A21": week_rows[1]["sat_date"],
+            "C21": week_rows[1]["weekly_report"],
+            "J22": week_rows[1]["visit_manager"],
 
-    os.makedirs(resident_folder, exist_ok=True)
+            "A23": week_rows[2]["sat_date"],
+            "C23": week_rows[2]["weekly_report"],
+            "J24": week_rows[2]["visit_manager"],
 
-    paths = {}
+            "A25": week_rows[3]["sat_date"],
+            "C25": week_rows[3]["weekly_report"],
+            "J26": week_rows[3]["visit_manager"],
 
-    for d in doc_types:
-        p = os.path.join(resident_folder, d)
-        os.makedirs(p, exist_ok=True)
-        paths[d] = p
+            "A27": week_rows[4]["sat_date"],
+            "C27": week_rows[4]["weekly_report"],
+            "J28": week_rows[4]["visit_manager"],
+        }
 
-    return paths
+        file = create_excel_file("在宅評価シート", cell_data)
 
-def save_plan_draft(resident_name, year, month, day, creator):
-
-    root = get_storage_root()
-
-    if not root:
-        return False, "保存ルート未設定"
-
-    folders = ensure_resident_folders(root, resident_name)
-
-    dest_folder = folders["個別支援計画案"]
-
-    template = "個別支援計画案.xlsx"
-
-    date_str = f"{year}.{month}.{day}"
-
-    file_name = f"個別支援計画案 {date_str}.xlsx"
-
-    dest_path = os.path.join(dest_folder, file_name)
-
-    shutil.copy2(template, dest_path)
-
-    wb = load_workbook(dest_path)
-    ws = wb.active
-
-    ws["C4"] = resident_name
-    ws["M3"] = year
-    ws["O3"] = month
-    ws["Q3"] = day
-    ws["M4"] = creator
-
-    wb.save(dest_path)
-
-    return True, dest_path
+        st.download_button(
+            label="ダウンロード",
+            data=file,
+            file_name=f"在宅評価シート_{year_val}.{month_val}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"{doc_title}_download_excel"
+        )
 
 def get_next_numeric_id(df, col_name="id", start=1):
     if df is None or df.empty or col_name not in df.columns:
@@ -1465,9 +1579,10 @@ def get_next_resident_id(master_df):
     next_num = max(numbers) + 1 if numbers else 1
     return f"R{next_num:04d}"
 
-
-def get_resident_master_df():
+@st.cache_data(ttl=60)
+def get_resident_master_df_cached():
     df = load_db("resident_master")
+
     if df is None or df.empty:
         df = pd.DataFrame(columns=[
             "resident_id", "resident_name", "status",
@@ -1490,62 +1605,23 @@ def get_resident_master_df():
         ]:
             if col not in df.columns:
                 df[col] = ""
-    return df.fillna("")
 
+    return df.fillna("")
 
 def get_resident_schedule_df():
-    df = load_db("resident_schedule")
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "id", "resident_id", "weekday", "service_type",
-            "start_time", "end_time", "place", "phone", "person_in_charge", "memo"
-        ])
-    else:
-        for col in [
-            "id", "resident_id", "weekday", "service_type",
-            "start_time", "end_time", "place", "phone", "person_in_charge", "memo"
-        ]:
-            if col not in df.columns:
-                df[col] = ""
-    return df.fillna("")
+    return get_resident_schedule_df_cached().copy()
 
 
 def get_resident_notes_df():
-    df = load_db("resident_notes")
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=["id", "resident_id", "date", "user", "note"])
-    else:
-        for col in ["id", "resident_id", "date", "user", "note"]:
-            if col not in df.columns:
-                df[col] = ""
-    return df.fillna("")
+    return get_resident_notes_df_cached().copy()
+
 
 def get_external_contacts_df():
-    df = load_db("external_contacts")
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "contact_id", "category1", "category2",
-            "name", "organization", "phone", "memo"
-        ])
-    else:
-        for col in [
-            "contact_id", "category1", "category2",
-            "name", "organization", "phone", "memo"
-        ]:
-            if col not in df.columns:
-                df[col] = ""
-    return df.fillna("")
+    return get_external_contacts_df_cached().copy()
 
 
 def get_resident_links_df():
-    df = load_db("resident_links")
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=["id", "resident_id", "contact_id", "role"])
-    else:
-        for col in ["id", "resident_id", "contact_id", "role"]:
-            if col not in df.columns:
-                df[col] = ""
-    return df.fillna("")
+    return get_resident_links_df_cached().copy()
 
 
 def get_next_contact_id(contact_df):
@@ -2639,7 +2715,7 @@ elif page == "⑦ タスクカレンダー":
             }
         }
 
-        state = calendar(
+        state = st_calendar(
             events=events,
             options=calendar_options,
             key="work_calendar"
