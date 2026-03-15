@@ -1685,7 +1685,7 @@ try:
 except Exception:
     active_df = pd.DataFrame(columns=["user", "login_at", "last_seen"])
 
-
+st.sidebar.markdown(f"### 👤 ログイン中")
 
 if active_df is None or active_df.empty:
     st.sidebar.write("現在ログイン中の人はいないある。")
