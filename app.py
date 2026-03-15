@@ -4427,7 +4427,7 @@ elif page == "⑩ 書類アップロード":
                     st.rerun()
 
     st.divider()
-
+    """"
     st.markdown("### 書類検索")
 
     doc_df = get_document_master_df()
@@ -4486,6 +4486,7 @@ elif page == "⑩ 書類アップロード":
                     )
 
                 st.divider()
+                """            
 
 elif page == "⓪ 検索":
 
