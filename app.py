@@ -3,7 +3,8 @@ import pandas as pd
 import base64
 import time
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
+import calendar
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar
 JST = timezone(timedelta(hours=9))
@@ -443,6 +444,7 @@ page_options = [
     "書類_サービス担当者会議",
     "書類_個別支援計画",
     "書類_モニタリング",
+    "書類_在宅評価シート",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -567,6 +569,7 @@ document_page_options = [
     ("書類_サービス担当者会議", "サービス担当者会議"),
     ("書類_個別支援計画", "個別支援計画"),
     ("書類_モニタリング", "モニタリング"),
+    ("書類_在宅評価シート", "在宅評価シート"),
 ]
 
 for p in main_page_options:
@@ -1143,6 +1146,185 @@ def render_monitoring_form_page(doc_title: str):
 
         for idx, item in enumerate(row_data, start=1):
             st.markdown(f"**具体的達成目標番号{idx}**")
+            st.write(item)
+
+    st.info(f"{doc_title} の入力UI確認用ある。保存機能は次に付けるある。")
+
+
+def get_saturday_dates_for_month(year: int, month: int):
+    cal = calendar.monthcalendar(year, month)
+    saturdays = []
+
+    for week in cal:
+        sat_day = week[calendar.SATURDAY]
+        if sat_day != 0:
+            saturdays.append(date(year, month, sat_day))
+
+    return saturdays
+
+
+def render_home_evaluation_form_page(doc_title: str):
+    st.title(f"📄 {doc_title}")
+    st.caption("在宅評価シートの入力UIある。まだ保存はしないある。")
+
+    master_df = get_resident_master_df()
+
+    if master_df is None or master_df.empty:
+        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        return
+
+    master_df = master_df.fillna("").copy()
+
+    resident_options = []
+    resident_map = {}
+
+    for _, row in master_df.iterrows():
+        rid = str(row.get("resident_id", "")).strip()
+        rname = str(row.get("resident_name", "")).strip()
+        status = str(row.get("status", "")).strip()
+
+        if not rname:
+            continue
+
+        label = f"{rname}"
+        if rid:
+            label += f" ({rid})"
+        if status:
+            label += f" / {status}"
+
+        resident_options.append(label)
+        resident_map[label] = row.to_dict()
+
+    if not resident_options:
+        st.warning("利用者情報がまだ登録されてないある。")
+        return
+
+    st.markdown("## 基本情報")
+
+    selected_label = st.selectbox(
+        "誰の書類を入力するか",
+        resident_options,
+        key=f"{doc_title}_resident_select"
+    )
+
+    selected_row = resident_map[selected_label]
+    resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    base_cols = st.columns([6, 2, 2])
+
+    with base_cols[0]:
+        st.text_input(
+            "利用者名",
+            value=resident_name,
+            key=f"{doc_title}_resident_name",
+            disabled=True
+        )
+
+    with base_cols[1]:
+        year_val = st.text_input("年（西暦）", key=f"{doc_title}_year", placeholder="2026")
+    with base_cols[2]:
+        month_val = st.text_input("月", key=f"{doc_title}_month", placeholder="3")
+
+    st.divider()
+
+    st.markdown("## 目標")
+    goal1 = st.text_area("目標1", key=f"{doc_title}_goal1", height=80, placeholder="B7")
+    goal2 = st.text_area("目標2", key=f"{doc_title}_goal2", height=80, placeholder="B8")
+    goal3 = st.text_area("目標3", key=f"{doc_title}_goal3", height=80, placeholder="B9")
+
+    st.divider()
+
+    service_manager = st.text_input(
+        "サービス管理責任者",
+        value=st.session_state.user,
+        key=f"{doc_title}_service_manager",
+        placeholder="H11"
+    )
+
+    st.divider()
+
+    st.markdown("## 月間評価")
+    monthly1 = st.text_area("月間評価1", key=f"{doc_title}_monthly1", height=90, placeholder="B12")
+    monthly2 = st.text_area("月間評価2", key=f"{doc_title}_monthly2", height=90, placeholder="B13")
+    monthly3 = st.text_area("月間評価3", key=f"{doc_title}_monthly3", height=90, placeholder="B14")
+
+    st.divider()
+
+    st.markdown("## 週ごとの評価（週報）")
+    st.caption("土曜日の日付は、入力した年・月から自動表示するある。")
+
+    saturday_dates = []
+
+    try:
+        y = int(str(year_val).strip())
+        m = int(str(month_val).strip())
+        if 1 <= m <= 12:
+            saturday_dates = get_saturday_dates_for_month(y, m)
+    except Exception:
+        saturday_dates = []
+
+    week_rows = []
+
+    for i in range(1, 6):
+        sat_text = ""
+        if len(saturday_dates) >= i:
+            sat_text = saturday_dates[i - 1].strftime("%Y-%m-%d")
+
+        st.markdown(f"### 第{i}週")
+
+        row1 = st.columns([2, 8])
+        with row1[0]:
+            st.text_input(
+                f"第{i}週 土曜日日付",
+                value=sat_text,
+                key=f"{doc_title}_sat_{i}",
+                disabled=True
+            )
+        with row1[1]:
+            weekly_report = st.text_area(
+                f"第{i}週 週報",
+                key=f"{doc_title}_weekly_report_{i}",
+                height=80,
+                placeholder=f"C{17 + i * 2}"
+            )
+
+        row2 = st.columns([6, 4])
+        with row2[1]:
+            visit_manager = st.text_input(
+                f"第{i}週 訪問したサービス管理責任者名",
+                key=f"{doc_title}_visit_manager_{i}",
+                placeholder=f"J{18 + i * 2}"
+            )
+
+        week_rows.append({
+            "sat_date": sat_text,
+            "weekly_report": weekly_report,
+            "visit_manager": visit_manager,
+        })
+
+        st.divider()
+
+    with st.expander("入力内容確認"):
+        st.write(f"利用者名: {resident_name}")
+        st.write(f"対象年月: {year_val}年 / {month_val}月")
+        st.write(f"サービス管理責任者: {service_manager}")
+
+        st.markdown("**目標**")
+        st.write({
+            "目標1": goal1,
+            "目標2": goal2,
+            "目標3": goal3,
+        })
+
+        st.markdown("**月間評価**")
+        st.write({
+            "月間評価1": monthly1,
+            "月間評価2": monthly2,
+            "月間評価3": monthly3,
+        })
+
+        for idx, item in enumerate(week_rows, start=1):
+            st.markdown(f"**第{idx}週**")
             st.write(item)
 
     st.info(f"{doc_title} の入力UI確認用ある。保存機能は次に付けるある。")
@@ -3961,4 +4143,5 @@ elif page == "書類_個別支援計画":
     render_plan_form_page("個別支援計画")
 elif page == "書類_モニタリング":
     render_monitoring_form_page("モニタリング")
-
+elif page == "書類_在宅評価シート":
+    render_home_evaluation_form_page("在宅評価シート")
