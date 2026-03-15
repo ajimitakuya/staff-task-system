@@ -1537,11 +1537,21 @@ def render_home_evaluation_form_page(doc_title: str):
     st.markdown("## 週ごとの評価（週報）")
     st.caption("土曜日の日付は、入力した年・月から自動表示するある。")
 
-    saturday_dates = []
-
     ym_key = f"{doc_title}_auto_year_month"
     current_ym = f"{year_val}-{month_val}"
 
+    # 先に土曜日一覧を計算する
+    try:
+        y = int(str(year_val).strip())
+        m = int(str(month_val).strip())
+        if 1 <= m <= 12:
+            saturday_dates = get_saturday_dates_for_month(y, m)
+        else:
+            saturday_dates = []
+    except Exception:
+        saturday_dates = []
+
+    # 年月が変わったときだけ自動反映
     if st.session_state.get(ym_key) != current_ym:
         for i in range(1, 6):
             sat_key = f"{doc_title}_sat_{i}"
@@ -1551,7 +1561,6 @@ def render_home_evaluation_form_page(doc_title: str):
             st.session_state[sat_key] = sat_text
 
         st.session_state[ym_key] = current_ym
-
     try:
         y = int(str(year_val).strip())
         m = int(str(month_val).strip())
