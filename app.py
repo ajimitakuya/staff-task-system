@@ -1539,6 +1539,19 @@ def render_home_evaluation_form_page(doc_title: str):
 
     saturday_dates = []
 
+    ym_key = f"{doc_title}_auto_year_month"
+    current_ym = f"{year_val}-{month_val}"
+
+    if st.session_state.get(ym_key) != current_ym:
+        for i in range(1, 6):
+            sat_key = f"{doc_title}_sat_{i}"
+            sat_text = ""
+            if len(saturday_dates) >= i:
+                sat_text = saturday_dates[i - 1].strftime("%Y-%m-%d")
+            st.session_state[sat_key] = sat_text
+
+        st.session_state[ym_key] = current_ym
+
     try:
         y = int(str(year_val).strip())
         m = int(str(month_val).strip())
@@ -1550,19 +1563,15 @@ def render_home_evaluation_form_page(doc_title: str):
     week_rows = []
 
     for i in range(1, 6):
-        sat_text = ""
-        if len(saturday_dates) >= i:
-            sat_text = saturday_dates[i - 1].strftime("%Y-%m-%d")
-
         st.markdown(f"### 第{i}週")
+
+        sat_key = f"{doc_title}_sat_{i}"
 
         row1 = st.columns([2, 8])
         with row1[0]:
-            st.text_input(
+            sat_input = st.text_input(
                 f"第{i}週 土曜日日付",
-                value=sat_text,
-                key=f"{doc_title}_sat_{i}",
-                disabled=True
+                key=sat_key
             )
         with row1[1]:
             weekly_report = st.text_area(
@@ -1581,7 +1590,7 @@ def render_home_evaluation_form_page(doc_title: str):
             )
 
         week_rows.append({
-            "sat_date": sat_text,
+            "sat_date": sat_input,
             "weekly_report": weekly_report,
             "visit_manager": visit_manager,
         })
