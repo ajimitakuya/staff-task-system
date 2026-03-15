@@ -622,6 +622,25 @@ page_options = [
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
     st.session_state.current_page = "① 未着手の任務（掲示板）"
 
+import streamlit as st
+
+st.sidebar.markdown(
+"""
+<div style="display:flex;align-items:center;gap:10px;">
+    <div style="font-size:28px;">&#128029;</div>
+    <div>
+        <div style="font-weight:bold;font-size:18px;">
+        Sue for Bees
+        </div>
+        <div style="font-size:12px;color:gray;">
+        Assistance System
+        </div>
+    </div>
+</div>
+""",
+unsafe_allow_html=True
+)
+
 st.sidebar.markdown("メニューを選択してください")
 
 st.sidebar.markdown(
@@ -2250,22 +2269,6 @@ except Exception:
 
 st.sidebar.markdown(f"### 👤 ログイン中")
 
-st.sidebar.markdown(
-"""
-<div style="display:flex;align-items:center;gap:10px;">
-    <div style="font-size:28px;">&#128029;</div>
-    <div>
-        <div style="font-weight:bold;font-size:18px;">
-        Sue for Bees
-        </div>
-        <div style="font-size:12px;color:gray;">
-        Assistance System
-        </div>
-    </div>
-</div>
-""",
-unsafe_allow_html=True
-)
 if active_df is None or active_df.empty:
     st.sidebar.write("現在ログイン中の人はいないある。")
 else:
