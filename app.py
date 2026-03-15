@@ -632,7 +632,7 @@ st.sidebar.markdown(
         <div style="font-weight:bold;font-size:24px;">
         Sue for Bee
         </div>
-        <div style="font-size:12px;color:gray;">
+        <div style="font-size:16px;color:gray;">
         Assistance System
         </div>
     </div>
