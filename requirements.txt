@@ -4,3 +4,4 @@ st-gsheets-connection
 streamlit-calendar
 gspread
 gspread-formatting
+openpyxl
