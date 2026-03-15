@@ -723,6 +723,7 @@ st.sidebar.markdown(
 
 
 main_page_options = [
+    "⓪ 検索 ",
     "① 未着手の任務（掲示板）",
     "② タスクの引き受け・報告",
     "③ 稼働状況・完了履歴",
@@ -732,7 +733,7 @@ main_page_options = [
     "⑦ タスクカレンダー",
     "⑧ 緊急一覧",
     "⑨ 利用者情報",
-    "⑩ 検索",
+    "⑩ 書類アップロード",
 ]
 
 document_page_options = [
