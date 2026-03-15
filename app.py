@@ -524,6 +524,21 @@ st.sidebar.markdown(
         box-sizing: border-box;
         line-height: 1.2;
     }
+
+    /* markdown側の余白を消す */
+    section[data-testid="stSidebar"] div[data-testid="stMarkdown"] {
+        margin-bottom: 0 !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
