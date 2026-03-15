@@ -616,6 +616,7 @@ page_options = [
     "書類_個別支援計画",
     "書類_モニタリング",
     "書類_在宅評価シート",
+    "書類_アセスメント",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -742,6 +743,7 @@ document_page_options = [
     ("書類_個別支援計画", "個別支援計画"),
     ("書類_モニタリング", "モニタリング"),
     ("書類_在宅評価シート", "在宅評価シート"),
+    ("書類_アセスメント", "アセスメント"),
 ]
 
 for p in main_page_options:
@@ -795,6 +797,7 @@ TEMPLATE_FILES = {
     "サービス担当者会議": "サービス担当者会議.xlsx",
     "モニタリング": "モニタリング.xlsx",
     "在宅評価シート": "在宅評価シート.xlsx",
+    "アセスメント": "アセスメントシート.xlsx",
 }
 
 
@@ -1678,6 +1681,250 @@ def render_home_evaluation_form_page(doc_title: str):
             label="ダウンロード",
             data=file,
             file_name=f"在宅評価シート_{year_val}.{month_val}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"{doc_title}_download_excel"
+        )
+
+# ==========================================
+# 書類_アセスメント（フェイスシート・試作UI）
+# ==========================================
+def render_assessment_form_page(doc_title: str):
+    st.title("📋 アセスメントシート")
+    st.caption("フェイスシートの途中版ある。まずは入力とExcel出力までつなぐある。")
+
+    st.markdown("## 基本情報")
+
+    # 利用者選択
+    master_df = get_resident_master_df()
+
+    if master_df is None or master_df.empty:
+        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        return
+
+    master_df = master_df.fillna("").copy()
+
+    resident_options = []
+    resident_map = {}
+
+    for _, row in master_df.iterrows():
+        rid = str(row.get("resident_id", "")).strip()
+        rname = str(row.get("resident_name", "")).strip()
+        status = str(row.get("status", "")).strip()
+
+        if not rname:
+            continue
+
+        label = f"{rname}"
+        if rid:
+            label += f" ({rid})"
+        if status:
+            label += f" / {status}"
+
+        resident_options.append(label)
+        resident_map[label] = row.to_dict()
+
+    if not resident_options:
+        st.warning("利用者情報がまだ登録されてないある。")
+        return
+
+    selected_label = st.selectbox(
+        "誰の書類を入力するか",
+        resident_options,
+        key=f"{doc_title}_resident_select"
+    )
+
+    selected_row = resident_map[selected_label]
+    resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    # -----------------------------
+    # 聴き取り情報
+    # P1 / Y1 / AD1 / AG1
+    # -----------------------------
+    st.markdown("### 聴き取り情報")
+
+    hear_cols = st.columns([3, 2, 1, 1])
+    with hear_cols[0]:
+        interviewer_name = st.text_input("聴き取り者名", key=f"{doc_title}_interviewer_name")
+    with hear_cols[1]:
+        hear_year = st.text_input("聞き取り日（西暦）", key=f"{doc_title}_hear_year", placeholder="2026")
+    with hear_cols[2]:
+        hear_month = st.text_input("月", key=f"{doc_title}_hear_month", placeholder="3")
+    with hear_cols[3]:
+        hear_day = st.text_input("日", key=f"{doc_title}_hear_day", placeholder="15")
+
+    st.divider()
+
+    # -----------------------------
+    # 氏名
+    # F4 / F5
+    # -----------------------------
+    st.markdown("### 氏名")
+
+    name_cols = st.columns([3, 4])
+    with name_cols[0]:
+        furigana = st.text_input("フリガナ", key=f"{doc_title}_furigana")
+    with name_cols[1]:
+        full_name = st.text_input(
+            "氏名",
+            value=resident_name,
+            key=f"{doc_title}_full_name"
+        )
+
+    # -----------------------------
+    # 生年月日
+    # U4 / AA4 / AC4 / AG4
+    # -----------------------------
+    st.markdown("### 生年月日")
+
+    birth_cols = st.columns([2, 1, 1, 1])
+    with birth_cols[0]:
+        birth_year = st.text_input("西暦", key=f"{doc_title}_birth_year", placeholder="1980")
+    with birth_cols[1]:
+        birth_month = st.text_input("月", key=f"{doc_title}_birth_month", placeholder="1")
+    with birth_cols[2]:
+        birth_day = st.text_input("日", key=f"{doc_title}_birth_day", placeholder="1")
+    with birth_cols[3]:
+        age = st.text_input("年齢", key=f"{doc_title}_age", placeholder="45")
+
+    st.divider()
+
+    # -----------------------------
+    # 現住所
+    # H7 / K7 / F8 / AA7 / AA9
+    # -----------------------------
+    st.markdown("## 現住所")
+
+    current_top_cols = st.columns([1, 1, 2, 2])
+    with current_top_cols[0]:
+        current_zip_1 = st.text_input("郵便番号（上3桁）", key=f"{doc_title}_current_zip_1", placeholder="557")
+    with current_top_cols[1]:
+        current_zip_2 = st.text_input("郵便番号（下4桁）", key=f"{doc_title}_current_zip_2", placeholder="0000")
+    with current_top_cols[2]:
+        current_phone = st.text_input("連絡先電話番号", key=f"{doc_title}_current_phone")
+    with current_top_cols[3]:
+        nearest_station = st.text_input("最寄り駅", key=f"{doc_title}_nearest_station")
+
+    current_address = st.text_area(
+        "住所",
+        key=f"{doc_title}_current_address",
+        height=100
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 緊急連絡先
+    # H11 / K11 / F12 / AA11 / AA13
+    # -----------------------------
+    st.markdown("## 緊急連絡先")
+
+    emergency_top_cols = st.columns([1, 1, 2, 2])
+    with emergency_top_cols[0]:
+        emergency_zip_1 = st.text_input("郵便番号（上3桁）", key=f"{doc_title}_emergency_zip_1", placeholder="557")
+    with emergency_top_cols[1]:
+        emergency_zip_2 = st.text_input("郵便番号（下4桁）", key=f"{doc_title}_emergency_zip_2", placeholder="0000")
+    with emergency_top_cols[2]:
+        emergency_relation = st.text_input("続柄", key=f"{doc_title}_emergency_relation")
+    with emergency_top_cols[3]:
+        emergency_phone_fax = st.text_input("電話 / FAX", key=f"{doc_title}_emergency_phone_fax")
+
+    emergency_address = st.text_area(
+        "住所",
+        key=f"{doc_title}_emergency_address",
+        height=100
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 援護実施機関
+    # F15 / J15 / X15 / AF15
+    # -----------------------------
+    st.markdown("## 援護実施機関")
+
+    support_cols = st.columns([2, 1, 3, 2])
+    with support_cols[0]:
+        support_city = st.text_input("市区名", key=f"{doc_title}_support_city")
+    with support_cols[1]:
+        support_city_type = st.selectbox(
+            "区 / 市",
+            ["区", "市"],
+            key=f"{doc_title}_support_city_type"
+        )
+    with support_cols[2]:
+        support_office = st.text_input("相談支援事業所", key=f"{doc_title}_support_office")
+    with support_cols[3]:
+        support_worker = st.text_input("担当ワーカー", key=f"{doc_title}_support_worker")
+
+    st.divider()
+
+    with st.expander("入力内容確認"):
+        st.write({
+            "聴き取り者名": interviewer_name,
+            "聞き取り日": f"{hear_year}/{hear_month}/{hear_day}",
+            "フリガナ": furigana,
+            "氏名": full_name,
+            "生年月日": f"{birth_year}/{birth_month}/{birth_day}",
+            "年齢": age,
+            "現住所_郵便番号上3桁": current_zip_1,
+            "現住所_郵便番号下4桁": current_zip_2,
+            "現住所": current_address,
+            "現住所_電話番号": current_phone,
+            "現住所_最寄り駅": nearest_station,
+            "緊急連絡先_郵便番号上3桁": emergency_zip_1,
+            "緊急連絡先_郵便番号下4桁": emergency_zip_2,
+            "緊急連絡先_住所": emergency_address,
+            "緊急連絡先_続柄": emergency_relation,
+            "緊急連絡先_電話FAX": emergency_phone_fax,
+            "援護実施機関_市区名": support_city,
+            "援護実施機関_区市": support_city_type,
+            "援護実施機関_相談支援事業所": support_office,
+            "援護実施機関_担当ワーカー": support_worker,
+        })
+
+    st.divider()
+    st.markdown("### Excel出力")
+
+    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
+
+        cell_data = {
+            "P1": interviewer_name,
+            "Y1": hear_year,
+            "AD1": hear_month,
+            "AG1": hear_day,
+
+            "F4": furigana,
+            "F5": full_name,
+
+            "U4": birth_year,
+            "AA4": birth_month,
+            "AC4": birth_day,
+            "AG4": age,
+
+            "H7": current_zip_1,
+            "K7": current_zip_2,
+            "F8": current_address,
+            "AA7": current_phone,
+            "AA9": nearest_station,
+
+            "H11": emergency_zip_1,
+            "K11": emergency_zip_2,
+            "F12": emergency_address,
+            "AA11": emergency_relation,
+            "AA13": emergency_phone_fax,
+
+            "F15": support_city,
+            "J15": support_city_type,
+            "X15": support_office,
+            "AF15": support_worker,
+        }
+
+        file = create_excel_file("アセスメント", cell_data)
+
+        st.download_button(
+            label="ダウンロード",
+            data=file,
+            file_name=f"アセスメント_{full_name if full_name else resident_name}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key=f"{doc_title}_download_excel"
         )
@@ -4768,3 +5015,5 @@ elif page == "書類_モニタリング":
     render_monitoring_form_page("モニタリング")
 elif page == "書類_在宅評価シート":
     render_home_evaluation_form_page("在宅評価シート")
+elif page == "書類_アセスメント":
+    render_assessment_form_page("アセスメント")
