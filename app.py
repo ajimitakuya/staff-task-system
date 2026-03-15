@@ -600,6 +600,7 @@ if 'user' not in st.session_state:
 heartbeat_active_user()
 
 page_options = [
+    "⓪ 検索",
     "① 未着手の任務（掲示板）",
     "② タスクの引き受け・報告",
     "③ 稼働状況・完了履歴",
@@ -609,7 +610,7 @@ page_options = [
     "⑦ タスクカレンダー",
     "⑧ 緊急一覧",
     "⑨ 利用者情報",
-    "⑩ 検索",
+    "⑩ 書類アップロード",
     "書類_個別支援計画案",
     "書類_サービス担当者会議",
     "書類_個別支援計画",
@@ -4115,13 +4116,280 @@ elif page == "⑨ 利用者情報":
 
     show_resident_page()
 
-elif page == "⑩ 検索":
+elif page == "⓪ 検索":
 
-    st.title("🔎 検索")
+    st.title("🔍 検索")
+    st.write("利用者・関係者・書類をまとめて探せるページある。")
 
-    st.markdown("### 書類アップロード")
+    st.markdown("### 📁 書類検索")
 
-    with st.expander("＋ 書類を登録"):
+    CATEGORY1_OPTIONS = [
+        "全部",
+        "利用者関連",
+        "運営関連",
+        "外部連携",
+        "その他",
+    ]
+
+    CATEGORY2_MAP = {
+        "全部": ["全部"],
+        "利用者関連": [
+            "全部",
+            "個別支援計画案",
+            "サービス担当者会議",
+            "個別支援計画",
+            "モニタリング",
+            "在宅評価シート",
+            "アセスメント",
+            "その他",
+        ],
+        "運営関連": [
+            "全部",
+            "マニュアル",
+            "帳票",
+            "研修",
+            "行政提出",
+            "その他",
+        ],
+        "外部連携": [
+            "全部",
+            "病院",
+            "訪問看護",
+            "ケアマネ",
+            "薬局",
+            "行政",
+            "その他",
+        ],
+        "その他": [
+            "全部",
+            "その他",
+        ],
+    }
+
+    doc_df = load_db("document_master")
+
+    if doc_df is None or doc_df.empty:
+        doc_df = pd.DataFrame(columns=[
+            "document_id", "category1", "category2", "category3",
+            "title", "file_type", "url", "summary", "memo",
+            "status", "updated_at", "created_at"
+        ])
+    else:
+        for col in [
+            "document_id", "category1", "category2", "category3",
+            "title", "file_type", "url", "summary", "memo",
+            "status", "updated_at", "created_at"
+        ]:
+            if col not in doc_df.columns:
+                doc_df[col] = ""
+
+    doc_df = doc_df.fillna("").copy()
+
+    search_cols = st.columns([2, 2, 2, 3])
+
+    with search_cols[0]:
+        cat1 = st.selectbox(
+            "カテゴリ1",
+            CATEGORY1_OPTIONS,
+            key="doc_search_cat1"
+        )
+
+    with search_cols[1]:
+        cat2_options = CATEGORY2_MAP.get(cat1, ["全部"])
+        cat2 = st.selectbox(
+            "カテゴリ2",
+            cat2_options,
+            key="doc_search_cat2"
+        )
+
+    with search_cols[2]:
+        status_candidates = ["全部"]
+        if not doc_df.empty:
+            status_values = sorted([x for x in doc_df["status"].astype(str).unique().tolist() if str(x).strip()])
+            status_candidates += status_values
+        status_filter = st.selectbox(
+            "状態",
+            status_candidates,
+            key="doc_search_status"
+        )
+
+    with search_cols[3]:
+        kw = st.text_input(
+            "キーワード",
+            key="doc_search_kw",
+            placeholder="タイトル・概要・メモで検索"
+        )
+
+    view_df = doc_df.copy()
+
+    if cat1 != "全部":
+        view_df = view_df[view_df["category1"].astype(str) == cat1]
+
+    if cat2 != "全部":
+        view_df = view_df[view_df["category2"].astype(str) == cat2]
+
+    if status_filter != "全部":
+        view_df = view_df[view_df["status"].astype(str) == status_filter]
+
+    if kw.strip():
+        kw_l = kw.strip().lower()
+        view_df = view_df[
+            view_df.apply(
+                lambda row:
+                    kw_l in str(row.get("title", "")).lower()
+                    or kw_l in str(row.get("summary", "")).lower()
+                    or kw_l in str(row.get("memo", "")).lower()
+                    or kw_l in str(row.get("category1", "")).lower()
+                    or kw_l in str(row.get("category2", "")).lower()
+                    or kw_l in str(row.get("category3", "")).lower(),
+                axis=1
+            )
+        ]
+
+    if view_df.empty:
+        st.info("該当する資料はありません。")
+    else:
+        try:
+            view_df = view_df.sort_values("updated_at", ascending=False)
+        except Exception:
+            pass
+
+        st.caption(f"{len(view_df)}件見つかったある。")
+
+        for _, row in view_df.iterrows():
+            document_id = str(row.get("document_id", "")).strip()
+            category1 = str(row.get("category1", "")).strip()
+            category2 = str(row.get("category2", "")).strip()
+            category3 = str(row.get("category3", "")).strip()
+            title = str(row.get("title", "")).strip()
+            file_type = str(row.get("file_type", "")).strip()
+            url = str(row.get("url", "")).strip()
+            summary = str(row.get("summary", "")).strip()
+            memo = str(row.get("memo", "")).strip()
+            status = str(row.get("status", "")).strip()
+            updated_at = str(row.get("updated_at", "")).strip()
+
+            with st.container(border=True):
+                st.markdown(
+                    f"""
+                    <div style="
+                        border-left: 6px solid #c7ced6;
+                        background:#ffffff;
+                        padding:12px 14px;
+                        border-radius:10px;
+                        margin-bottom:10px;
+                    ">
+                        <div style="font-size:18px; font-weight:700; margin-bottom:6px;">
+                            {title if title else '無題資料'}
+                        </div>
+                        <div style="line-height:1.8;">
+                            <b>ID:</b> {document_id}<br>
+                            <b>分類:</b> {category1} / {category2} / {category3}<br>
+                            <b>種類:</b> {file_type}<br>
+                            <b>状態:</b> {status}<br>
+                            <b>更新日:</b> {updated_at}
+                        </div>
+                        <div style="margin-top:8px;">
+                            <b>概要:</b> {summary}
+                        </div>
+                        <div style="margin-top:8px; color:#555;">
+                            {memo}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                file_bytes, filename, mime = get_download_file_data(row)
+                if file_bytes:
+                    st.download_button(
+                        "ダウンロード",
+                        data=file_bytes,
+                        file_name=filename,
+                        mime=mime,
+                        key=f"download_doc_{document_id}",
+                        use_container_width=True
+                    )
+
+                if url:
+                    st.link_button("資料を開く", url, use_container_width=True)
+
+    st.divider()
+
+    # ------------------------------------------
+    # 関係者検索
+    # ------------------------------------------
+    st.markdown("### ☎️ 関係者検索")
+
+    contacts_df = get_external_contacts_df()
+    links_df = get_resident_links_df()
+    master_df = get_resident_master_df()
+
+    if contacts_df.empty:
+        st.info("関係者データはまだ登録されてないある。")
+    else:
+        contact_kw = st.text_input(
+            "関係者キーワード",
+            key="contact_search_kw",
+            placeholder="氏名・所属・電話番号など"
+        )
+
+        contact_view_df = contacts_df.copy()
+
+        if contact_kw.strip():
+            kw2 = contact_kw.strip().lower()
+            contact_view_df = contact_view_df[
+                contact_view_df.apply(
+                    lambda row:
+                        kw2 in str(row.get("name", "")).lower()
+                        or kw2 in str(row.get("organization", "")).lower()
+                        or kw2 in str(row.get("phone", "")).lower()
+                        or kw2 in str(row.get("memo", "")).lower()
+                        or kw2 in str(row.get("category1", "")).lower()
+                        or kw2 in str(row.get("category2", "")).lower(),
+                    axis=1
+                )
+            ]
+
+        if contact_view_df.empty:
+            st.info("該当する関係者はありません。")
+        else:
+            for _, row in contact_view_df.iterrows():
+                contact_id = str(row.get("contact_id", "")).strip()
+                name = str(row.get("name", "")).strip()
+                organization = str(row.get("organization", "")).strip()
+                phone = str(row.get("phone", "")).strip()
+                memo = str(row.get("memo", "")).strip()
+                category1 = str(row.get("category1", "")).strip()
+                category2 = str(row.get("category2", "")).strip()
+
+                linked_names = []
+                if not links_df.empty and not master_df.empty:
+                    target_links = links_df[links_df["contact_id"].astype(str) == contact_id]
+                    for _, lrow in target_links.iterrows():
+                        rid = str(lrow.get("resident_id", "")).strip()
+                        hit = master_df[master_df["resident_id"].astype(str) == rid]
+                        if not hit.empty:
+                            linked_name = str(hit.iloc[0].get("resident_name", "")).strip()
+                            if linked_name:
+                                linked_names.append(linked_name)
+
+                with st.container(border=True):
+                    st.markdown(f"**{name if name else '名称未設定'}**")
+                    st.write(f"{organization} / {category1} / {category2}")
+                    if phone:
+                        st.write(f"電話: {phone}")
+                    if memo:
+                        st.write(f"メモ: {memo}")
+                    if linked_names:
+                        st.write("担当利用者: " + "、".join(linked_names))
+
+elif page == "⑩ 書類アップロード":
+
+    st.title("📤 書類アップロード")
+    st.write("書類を登録するページある。検索は⓪ 検索から行ってほしいある。")
+
+    with st.expander("＋ 書類を登録", expanded=True):
         with st.form("document_upload_form", clear_on_submit=True):
 
             category1 = st.text_input("カテゴリ1")
@@ -4134,7 +4402,7 @@ elif page == "⑩ 検索":
 
             uploaded_file = st.file_uploader(
                 "ファイル",
-                type=["xlsx","xls","pdf","docx","doc"]
+                type=["xlsx", "xls", "pdf", "docx", "doc"]
             )
 
             submitted = st.form_submit_button("登録")
