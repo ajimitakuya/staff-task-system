@@ -626,7 +626,7 @@ import streamlit as st
 
 st.sidebar.markdown(
 """
-<div style="display:flex;align-items:center;gap:10px;margin-left:10px;">
+<div style="display:flex;align-items:center;gap:10px;margin-left:50px;">
     <div style="font-size:28px;">&#128029;</div>
     <div>
         <div style="font-weight:bold;font-size:18px;">
