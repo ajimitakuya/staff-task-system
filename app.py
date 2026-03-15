@@ -626,7 +626,7 @@ import streamlit as st
 
 st.sidebar.markdown(
 """
-<div style="display:flex;align-items:center;gap:10px;margin-top:-20px;">
+<div style="display:flex;align-items:center;gap:10px;">
     <div style="font-size:28px;">&#128029;</div>
     <div>
         <div style="font-weight:bold;font-size:18px;">
@@ -640,6 +640,8 @@ st.sidebar.markdown(
 """,
 unsafe_allow_html=True
 )
+
+st.sidebar.markdown("<div style='margin-top:30px;'></div>", unsafe_allow_html=True)
 
 st.sidebar.markdown("メニューを選択してください")
 
