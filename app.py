@@ -3,6 +3,11 @@ import pandas as pd
 import base64
 import time
 import random
+import os
+import shutil
+import json
+from datetime import datetime
+from openpyxl import load_workbook
 from datetime import datetime, timedelta, timezone, date
 import calendar
 from streamlit_gsheets import GSheetsConnection
@@ -820,6 +825,46 @@ def render_plan_form_page(doc_title: str):
 
     st.info(f"{doc_title} の入力UI確認用ある。保存機能は次に付けるある。")
 
+    st.divider()
+
+    st.markdown("### 保存")
+
+    root = get_storage_root()
+
+    if not root:
+
+        root_input = st.text_input(
+            "利用者書類フォルダ（最初の1回だけ）",
+            placeholder=r"Y:\利用者書類"
+        )
+
+        if st.button("保存先を登録"):
+            if os.path.exists(root_input):
+                set_storage_root(root_input)
+                st.success("保存先登録したある")
+            else:
+                st.error("そのフォルダ存在しないある")
+
+    else:
+
+        if st.button("個別支援計画案を保存"):
+
+            if not year_val or not month_val or not day_val:
+                st.error("作成年月日を入力してほしいある")
+            else:
+                success, msg = save_plan_draft(
+                    resident_name,
+                    year_val,
+                    month_val,
+                    day_val,
+                    manager_val if manager_val else st.session_state.user
+                )
+
+                if success:
+                    st.success(f"保存成功ある！\n{msg}")
+                else:
+                    st.error(msg)
+
 
 def render_meeting_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
@@ -1028,7 +1073,7 @@ def render_meeting_form_page(doc_title: str):
         st.write(f"残された課題: {issues_left}")
         st.write(f"結論: {conclusion}")
 
-    st.info(f"{doc_title} の入力UI確認用ある。保存機能は次に付けるある。")
+    st.info("保存先設定後、この書類をExcel保存できるある。")
 
 
 def render_monitoring_form_page(doc_title: str):
@@ -1327,6 +1372,76 @@ def render_home_evaluation_form_page(doc_title: str):
 
     st.info(f"{doc_title} の入力UI確認用ある。保存機能は次に付けるある。")
 
+
+CONFIG_FILE = "storage_config.json"
+
+def get_storage_root():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("root")
+    return None
+
+def set_storage_root(path):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"root": path}, f)
+
+def ensure_resident_folders(root, resident_name):
+
+    resident_folder = os.path.join(root, resident_name)
+
+    doc_types = [
+        "個別支援計画案",
+        "個別支援計画",
+        "サービス担当者会議",
+        "モニタリング",
+        "在宅評価シート"
+    ]
+
+    os.makedirs(resident_folder, exist_ok=True)
+
+    paths = {}
+
+    for d in doc_types:
+        p = os.path.join(resident_folder, d)
+        os.makedirs(p, exist_ok=True)
+        paths[d] = p
+
+    return paths
+
+def save_plan_draft(resident_name, year, month, day, creator):
+
+    root = get_storage_root()
+
+    if not root:
+        return False, "保存ルート未設定"
+
+    folders = ensure_resident_folders(root, resident_name)
+
+    dest_folder = folders["個別支援計画案"]
+
+    template = "個別支援計画案.xlsx"
+
+    date_str = f"{year}.{month}.{day}"
+
+    file_name = f"個別支援計画案 {date_str}.xlsx"
+
+    dest_path = os.path.join(dest_folder, file_name)
+
+    shutil.copy2(template, dest_path)
+
+    wb = load_workbook(dest_path)
+    ws = wb.active
+
+    ws["C4"] = resident_name
+    ws["M3"] = year
+    ws["O3"] = month
+    ws["Q3"] = day
+    ws["M4"] = creator
+
+    wb.save(dest_path)
+
+    return True, dest_path
 
 def get_next_numeric_id(df, col_name="id", start=1):
     if df is None or df.empty or col_name not in df.columns:
