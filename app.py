@@ -440,6 +440,7 @@ page_options = [
     "⑨ 利用者情報",
     "⑩ 検索",
     "書類_個別支援計画案",
+    "書類_個別支援計画",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -561,6 +562,7 @@ main_page_options = [
 
 document_page_options = [
     ("書類_個別支援計画案", "個別支援計画案"),
+    ("書類_個別支援計画", "個別支援計画"),
 ]
 
 for p in main_page_options:
@@ -607,6 +609,212 @@ st.sidebar.divider()
 st.sidebar.caption("System Version 2.0")
 
 render_urgent_banner()
+
+
+def render_plan_form_page(doc_title: str):
+    st.title(f"📄 {doc_title}")
+    st.caption("まずは入力しやすい形の試作ページある。まだ保存はしないある。")
+
+    master_df = get_resident_master_df()
+
+    if master_df is None or master_df.empty:
+        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        return
+
+    master_df = master_df.fillna("").copy()
+
+    resident_options = []
+    resident_map = {}
+
+    for _, row in master_df.iterrows():
+        rid = str(row.get("resident_id", "")).strip()
+        rname = str(row.get("resident_name", "")).strip()
+        status = str(row.get("status", "")).strip()
+
+        if not rname:
+            continue
+
+        label = f"{rname}"
+        if rid:
+            label += f" ({rid})"
+        if status:
+            label += f" / {status}"
+
+        resident_options.append(label)
+        resident_map[label] = row.to_dict()
+
+    if not resident_options:
+        st.warning("利用者情報がまだ登録されてないある。")
+        return
+
+    st.markdown("## 基本情報")
+
+    selected_label = st.selectbox(
+        "誰の書類を入力するか",
+        resident_options,
+        key=f"{doc_title}_resident_select"
+    )
+
+    selected_row = resident_map[selected_label]
+    resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    basic_cols = st.columns([7, 2, 2, 2])
+
+    with basic_cols[0]:
+        st.text_input(
+            "利用者氏名",
+            value=resident_name,
+            key=f"{doc_title}_resident_name",
+            disabled=True
+        )
+
+    with basic_cols[1]:
+        year_val = st.text_input("作成年（西暦）", key=f"{doc_title}_year", placeholder="2026")
+    with basic_cols[2]:
+        month_val = st.text_input("月", key=f"{doc_title}_month", placeholder="3")
+    with basic_cols[3]:
+        day_val = st.text_input("日", key=f"{doc_title}_day", placeholder="14")
+
+    st.divider()
+
+    st.markdown("## 本文入力")
+
+    policy_val = st.text_area(
+        "サービス等利用計画の総合的な方針",
+        key=f"{doc_title}_policy",
+        height=120,
+        placeholder="B8 に入る内容ある"
+    )
+
+    long_goal_val = st.text_area(
+        "長期目標（内容・期間等）",
+        key=f"{doc_title}_long_goal",
+        height=100,
+        placeholder="B10 に入る内容ある"
+    )
+
+    short_goal_val = st.text_area(
+        "短期目標（内容・期間等）",
+        key=f"{doc_title}_short_goal",
+        height=100,
+        placeholder="B12 に入る内容ある"
+    )
+
+    st.divider()
+    st.markdown("## 具体的達成目標（3行）")
+    st.caption("帳票の 17〜19 行に入る部分ある。")
+
+    header_cols = st.columns([5, 3, 4, 2, 2, 2])
+    with header_cols[0]:
+        st.markdown("**具体的達成目標**")
+    with header_cols[1]:
+        st.markdown("**本人の役割**")
+    with header_cols[2]:
+        st.markdown("**支援内容**")
+    with header_cols[3]:
+        st.markdown("**支援期間**")
+    with header_cols[4]:
+        st.markdown("**担当者**")
+    with header_cols[5]:
+        st.markdown("**優先順位**")
+
+    row_data = []
+
+    for i in range(1, 4):
+        st.markdown(f"### {i}行目")
+        row_cols = st.columns([5, 3, 4, 2, 2, 2])
+
+        with row_cols[0]:
+            target_val = st.text_area(
+                f"{i}行目_具体的達成目標",
+                key=f"{doc_title}_target_{i}",
+                height=90,
+                label_visibility="collapsed",
+                placeholder="C17〜C19"
+            )
+
+        with row_cols[1]:
+            role_val = st.text_area(
+                f"{i}行目_本人の役割",
+                key=f"{doc_title}_role_{i}",
+                height=90,
+                label_visibility="collapsed",
+                placeholder="G17〜G19"
+            )
+
+        with row_cols[2]:
+            support_val = st.text_area(
+                f"{i}行目_支援内容",
+                key=f"{doc_title}_support_{i}",
+                height=90,
+                label_visibility="collapsed",
+                placeholder="J17〜J19"
+            )
+
+        with row_cols[3]:
+            period_val = st.text_input(
+                f"{i}行目_支援期間",
+                key=f"{doc_title}_period_{i}",
+                label_visibility="collapsed",
+                placeholder="M17〜M19"
+            )
+
+        with row_cols[4]:
+            person_val = st.text_input(
+                f"{i}行目_担当者",
+                key=f"{doc_title}_person_{i}",
+                label_visibility="collapsed",
+                placeholder="O17〜O19"
+            )
+
+        with row_cols[5]:
+            priority_val = st.selectbox(
+                f"{i}行目_優先順位",
+                ["", "1", "2", "3"],
+                key=f"{doc_title}_priority_{i}",
+                label_visibility="collapsed"
+            )
+
+        row_data.append({
+            "target": target_val,
+            "role": role_val,
+            "support": support_val,
+            "period": period_val,
+            "person": person_val,
+            "priority": priority_val,
+        })
+
+    st.divider()
+    st.markdown("## 同意・担当者")
+
+    agree_cols = st.columns([2, 2, 2, 4])
+
+    with agree_cols[0]:
+        agree_year_val = st.text_input("同意日_西暦", key=f"{doc_title}_agree_year", placeholder="2026")
+    with agree_cols[1]:
+        agree_month_val = st.text_input("同意日_月", key=f"{doc_title}_agree_month", placeholder="3")
+    with agree_cols[2]:
+        agree_day_val = st.text_input("同意日_日", key=f"{doc_title}_agree_day", placeholder="14")
+    with agree_cols[3]:
+        manager_val = st.text_input("サービス担当責任者", key=f"{doc_title}_manager", placeholder="N21")
+
+    st.divider()
+
+    with st.expander("入力内容確認"):
+        st.write(f"利用者氏名: {resident_name}")
+        st.write(f"作成年月日: {year_val} / {month_val} / {day_val}")
+        st.write(f"総合的な方針: {policy_val}")
+        st.write(f"長期目標: {long_goal_val}")
+        st.write(f"短期目標: {short_goal_val}")
+        st.write(f"同意書日付: {agree_year_val} / {agree_month_val} / {agree_day_val}")
+        st.write(f"サービス担当責任者: {manager_val}")
+
+        for idx, item in enumerate(row_data, start=1):
+            st.markdown(f"**{idx}行目**")
+            st.write(item)
+
+    st.info(f"{doc_title} の入力UI確認用ある。保存機能は次に付けるある。")
+
 
 def get_next_numeric_id(df, col_name="id", start=1):
     if df is None or df.empty or col_name not in df.columns:
@@ -3085,6 +3293,7 @@ elif page == "⑨ 利用者情報":
 # ⑩ 検索
 # ==========================================
 elif page == "⑩ 検索":
+
     st.title("🔎 検索")
 
     # ------------------------------------------
@@ -3409,206 +3618,12 @@ elif page == "⑩ 検索":
                     st.link_button("資料を開く", url, use_container_width=True)
 
 # ==========================================
-# 利用者書類_個別支援計画案（試作UI）
+# 利用者書類
 # ==========================================
+
 elif page == "書類_個別支援計画案":
-    st.title("📄 個別支援計画案")
-    st.caption("まずは入力しやすい形の試作ページある。まだ保存はしないある。")
+    render_plan_form_page("個別支援計画案")
 
-    master_df = get_resident_master_df()
+elif page == "書類_個別支援計画":
+    render_plan_form_page("個別支援計画")
 
-    if master_df is None or master_df.empty:
-        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
-    else:
-        master_df = master_df.fillna("").copy()
-
-        resident_options = []
-        resident_map = {}
-
-        for _, row in master_df.iterrows():
-            rid = str(row.get("resident_id", "")).strip()
-            rname = str(row.get("resident_name", "")).strip()
-            status = str(row.get("status", "")).strip()
-
-            if not rname:
-                continue
-
-            label = f"{rname}"
-            if rid:
-                label += f" ({rid})"
-            if status:
-                label += f" / {status}"
-
-            resident_options.append(label)
-            resident_map[label] = row.to_dict()
-
-        if not resident_options:
-            st.warning("利用者情報がまだ登録されてないある。")
-        else:
-            st.markdown("## 基本情報")
-
-            selected_label = st.selectbox(
-                "誰の個別支援計画案を入力するか",
-                resident_options,
-                key="plan_draft_resident_select"
-            )
-
-            selected_row = resident_map[selected_label]
-            resident_name = str(selected_row.get("resident_name", "")).strip()
-
-            basic_cols = st.columns([7, 2, 2, 2])
-
-            with basic_cols[0]:
-                st.text_input(
-                    "利用者氏名",
-                    value=resident_name,
-                    key="plan_draft_resident_name",
-                    disabled=True
-                )
-
-            with basic_cols[1]:
-                year_val = st.text_input("作成年（西暦）", key="plan_draft_year", placeholder="2026")
-            with basic_cols[2]:
-                month_val = st.text_input("月", key="plan_draft_month", placeholder="3")
-            with basic_cols[3]:
-                day_val = st.text_input("日", key="plan_draft_day", placeholder="14")
-
-            st.divider()
-
-            st.markdown("## 本文入力")
-
-            policy_val = st.text_area(
-                "サービス等利用計画の総合的な方針",
-                key="plan_draft_policy",
-                height=120,
-                placeholder="B8 に入る内容ある"
-            )
-
-            long_goal_val = st.text_area(
-                "長期目標（内容・期間等）",
-                key="plan_draft_long_goal",
-                height=100,
-                placeholder="B10 に入る内容ある"
-            )
-
-            short_goal_val = st.text_area(
-                "短期目標（内容・期間等）",
-                key="plan_draft_short_goal",
-                height=100,
-                placeholder="B12 に入る内容ある"
-            )
-
-            st.divider()
-            st.markdown("## 具体的達成目標（3行）")
-            st.caption("帳票の 17〜19 行に入る部分ある。長い項目は広く、短い項目は狭くしてある。")
-
-            header_cols = st.columns([5, 3, 4, 2, 2, 2])
-            with header_cols[0]:
-                st.markdown("**具体的達成目標**")
-            with header_cols[1]:
-                st.markdown("**本人の役割**")
-            with header_cols[2]:
-                st.markdown("**支援内容**")
-            with header_cols[3]:
-                st.markdown("**支援機関**")
-            with header_cols[4]:
-                st.markdown("**担当者**")
-            with header_cols[5]:
-                st.markdown("**優先順位**")
-
-            row_data = []
-
-            for i in range(1, 4):
-                st.markdown(f"### {i}行目")
-                row_cols = st.columns([5, 3, 4, 2, 2, 2])
-
-                with row_cols[0]:
-                    target_val = st.text_area(
-                        f"{i}行目_具体的達成目標",
-                        key=f"plan_draft_target_{i}",
-                        height=90,
-                        label_visibility="collapsed",
-                        placeholder="C17〜C19"
-                    )
-
-                with row_cols[1]:
-                    role_val = st.text_area(
-                        f"{i}行目_本人の役割",
-                        key=f"plan_draft_role_{i}",
-                        height=90,
-                        label_visibility="collapsed",
-                        placeholder="G17〜G19"
-                    )
-
-                with row_cols[2]:
-                    support_val = st.text_area(
-                        f"{i}行目_支援内容",
-                        key=f"plan_draft_support_{i}",
-                        height=90,
-                        label_visibility="collapsed",
-                        placeholder="J17〜J19"
-                    )
-
-                with row_cols[3]:
-                    org_val = st.text_input(
-                        f"{i}行目_支援機関",
-                        key=f"plan_draft_org_{i}",
-                        label_visibility="collapsed",
-                        placeholder="M17〜M19"
-                    )
-
-                with row_cols[4]:
-                    person_val = st.text_input(
-                        f"{i}行目_担当者",
-                        key=f"plan_draft_person_{i}",
-                        label_visibility="collapsed",
-                        placeholder="O17〜O19"
-                    )
-
-                with row_cols[5]:
-                    priority_val = st.selectbox(
-                        f"{i}行目_優先順位",
-                        ["", "1", "2", "3"],
-                        key=f"plan_draft_priority_{i}",
-                        label_visibility="collapsed"
-                    )
-
-                row_data.append({
-                    "target": target_val,
-                    "role": role_val,
-                    "support": support_val,
-                    "org": org_val,
-                    "person": person_val,
-                    "priority": priority_val,
-                })
-
-            st.divider()
-            st.markdown("## 同意・担当者")
-
-            agree_cols = st.columns([2, 2, 2, 4])
-
-            with agree_cols[0]:
-                agree_year_val = st.text_input("同意日_西暦", key="plan_draft_agree_year", placeholder="2026")
-            with agree_cols[1]:
-                agree_month_val = st.text_input("同意日_月", key="plan_draft_agree_month", placeholder="3")
-            with agree_cols[2]:
-                agree_day_val = st.text_input("同意日_日", key="plan_draft_agree_day", placeholder="14")
-            with agree_cols[3]:
-                manager_val = st.text_input("サービス担当責任者", key="plan_draft_manager", placeholder="N21")
-
-            st.divider()
-
-            with st.expander("入力内容確認"):
-                st.write(f"利用者氏名: {resident_name}")
-                st.write(f"作成年月日: {year_val} / {month_val} / {day_val}")
-                st.write(f"総合的な方針: {policy_val}")
-                st.write(f"長期目標: {long_goal_val}")
-                st.write(f"短期目標: {short_goal_val}")
-                st.write(f"同意書日付: {agree_year_val} / {agree_month_val} / {agree_day_val}")
-                st.write(f"サービス担当責任者: {manager_val}")
-
-                for idx, item in enumerate(row_data, start=1):
-                    st.markdown(f"**{idx}行目**")
-                    st.write(item)
-
-            st.info("このページはまずUI確認用ある。配置や入力しやすさを見て、次に保存機能をつけるある。")
