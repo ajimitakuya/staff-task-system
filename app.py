@@ -4427,43 +4427,39 @@ elif page == "⑩ 書類アップロード":
                     st.rerun()
 
     st.divider()
-    """"
-    st.markdown("### 書類検索")
 
-    doc_df = get_document_master_df()
+    if False:
+        st.markdown("### 書類検索")
 
-    keyword = st.text_input("キーワード")
+        doc_df = get_document_master_df()
+        keyword = st.text_input("キーワード")
 
-    if not doc_df.empty:
+        if not doc_df.empty:
+            result_df = doc_df.copy()
 
-        result_df = doc_df.copy()
+            if keyword.strip():
+                kw = keyword.lower()
 
-        if keyword.strip():
+                result_df = result_df[
+                    result_df.apply(
+                        lambda row:
+                            kw in str(row.get("title", "")).lower()
+                            or kw in str(row.get("category1", "")).lower()
+                            or kw in str(row.get("category2", "")).lower()
+                            or kw in str(row.get("category3", "")).lower()
+                            or kw in str(row.get("summary", "")).lower()
+                            or kw in str(row.get("memo", "")).lower(),
+                        axis=1
+                    )
+                ]
 
-            kw = keyword.lower()
+            if result_df.empty:
+                st.info("該当する書類はありません")
+            else:
+                result_df = result_df.sort_values("updated_at", ascending=False)
 
-            result_df = result_df[
-                result_df.apply(
-                    lambda row:
-                        kw in str(row.get("title","")).lower()
-                        or kw in str(row.get("category1","")).lower()
-                        or kw in str(row.get("category2","")).lower()
-                        or kw in str(row.get("category3","")).lower()
-                        or kw in str(row.get("summary","")).lower()
-                        or kw in str(row.get("memo","")).lower(),
-                    axis=1
-                )
-            ]
-
-        if result_df.empty:
-
-            st.info("該当する書類はありません")
-
-        else:
-
-            result_df = result_df.sort_values("updated_at", ascending=False)
-
-            for _, row in result_df.iterrows():
+                for _, row in result_df.iterrows():
+                    st.write(row.get("title", ""))
 
                 title = row["title"]
                 cat1 = row["category1"]
@@ -4486,13 +4482,13 @@ elif page == "⑩ 書類アップロード":
                     )
 
                 st.divider()
-                """            
+                            
 
 elif page == "⓪ 検索":
 
     st.title("🔍 検索")
     st.write("利用者・関係者・資料をまとめて探せるページある。")
-
+    
     # ------------------------------------------
     # 簡易キーワード検索
     # ------------------------------------------
