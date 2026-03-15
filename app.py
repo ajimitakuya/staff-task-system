@@ -442,6 +442,7 @@ page_options = [
     "書類_個別支援計画案",
     "書類_サービス担当者会議",
     "書類_個別支援計画",
+    "書類_モニタリング",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -565,6 +566,7 @@ document_page_options = [
     ("書類_個別支援計画案", "個別支援計画案"),
     ("書類_サービス担当者会議", "サービス担当者会議"),
     ("書類_個別支援計画", "個別支援計画"),
+    ("書類_モニタリング", "モニタリング"),
 ]
 
 for p in main_page_options:
@@ -1024,6 +1026,124 @@ def render_meeting_form_page(doc_title: str):
         st.write(f"検討内容: {discussion}")
         st.write(f"残された課題: {issues_left}")
         st.write(f"結論: {conclusion}")
+
+    st.info(f"{doc_title} の入力UI確認用ある。保存機能は次に付けるある。")
+
+
+def render_monitoring_form_page(doc_title: str):
+    st.title(f"📄 {doc_title}")
+    st.caption("モニタリングの入力UIある。まだ保存はしないある。")
+
+    master_df = get_resident_master_df()
+
+    if master_df is None or master_df.empty:
+        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        return
+
+    master_df = master_df.fillna("").copy()
+
+    resident_options = []
+    resident_map = {}
+
+    for _, row in master_df.iterrows():
+        rid = str(row.get("resident_id", "")).strip()
+        rname = str(row.get("resident_name", "")).strip()
+        status = str(row.get("status", "")).strip()
+
+        if not rname:
+            continue
+
+        label = f"{rname}"
+        if rid:
+            label += f" ({rid})"
+        if status:
+            label += f" / {status}"
+
+        resident_options.append(label)
+        resident_map[label] = row.to_dict()
+
+    if not resident_options:
+        st.warning("利用者情報がまだ登録されてないある。")
+        return
+
+    st.markdown("## 基本情報")
+
+    selected_label = st.selectbox(
+        "誰の書類を入力するか",
+        resident_options,
+        key=f"{doc_title}_resident_select"
+    )
+
+    selected_row = resident_map[selected_label]
+    resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    base_cols = st.columns([6, 2, 2, 2])
+
+    with base_cols[0]:
+        st.text_input(
+            "利用者名",
+            value=resident_name,
+            key=f"{doc_title}_resident_name",
+            disabled=True
+        )
+
+    with base_cols[1]:
+        year_val = st.text_input("実施年（西暦）", key=f"{doc_title}_year", placeholder="2026")
+    with base_cols[2]:
+        month_val = st.text_input("月", key=f"{doc_title}_month", placeholder="3")
+    with base_cols[3]:
+        day_val = st.text_input("日", key=f"{doc_title}_day", placeholder="14")
+
+    st.divider()
+
+    st.markdown("## モニタリング内容")
+    st.caption("具体的達成目標番号ごとに入力するある。")
+
+    row_data = []
+
+    for i in range(1, 4):
+        st.markdown(f"### 具体的達成目標番号{i}")
+
+        row_cols = st.columns([2, 5, 5])
+
+        with row_cols[0]:
+            status_val = st.selectbox(
+                f"達成状況の評価_{i}",
+                ["", "達成", "継続", "一部達成", "終了"],
+                key=f"{doc_title}_status_{i}"
+            )
+
+        with row_cols[1]:
+            detail_val = st.text_area(
+                f"達成できている点と未達成点（要因も）_{i}",
+                key=f"{doc_title}_detail_{i}",
+                height=120,
+                placeholder=f"D{7+i}"
+            )
+
+        with row_cols[2]:
+            future_val = st.text_area(
+                f"今後の対応（支援内容・方法の変更・継続・終了）_{i}",
+                key=f"{doc_title}_future_{i}",
+                height=120,
+                placeholder=f"E{7+i}"
+            )
+
+        row_data.append({
+            "status": status_val,
+            "detail": detail_val,
+            "future": future_val,
+        })
+
+        st.divider()
+
+    with st.expander("入力内容確認"):
+        st.write(f"利用者名: {resident_name}")
+        st.write(f"実施年月日: {year_val} / {month_val} / {day_val}")
+
+        for idx, item in enumerate(row_data, start=1):
+            st.markdown(f"**具体的達成目標番号{idx}**")
+            st.write(item)
 
     st.info(f"{doc_title} の入力UI確認用ある。保存機能は次に付けるある。")
 
@@ -3839,4 +3959,6 @@ elif page == "書類_サービス担当者会議":
     render_meeting_form_page("サービス担当者会議")
 elif page == "書類_個別支援計画":
     render_plan_form_page("個別支援計画")
+elif page == "書類_モニタリング":
+    render_monitoring_form_page("モニタリング")
 
