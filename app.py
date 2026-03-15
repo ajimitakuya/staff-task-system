@@ -2250,8 +2250,10 @@ except Exception:
 
 st.sidebar.markdown(f"### 👤 ログイン中")
 
+st.sidebar.markdown(
+"""
 <div style="display:flex;align-items:center;gap:10px;">
-    <div style="font-size:28px;">🐝</div>
+    <div style="font-size:28px;">&#128029;</div>
     <div>
         <div style="font-weight:bold;font-size:18px;">
         Sue for Bees
@@ -2261,7 +2263,9 @@ st.sidebar.markdown(f"### 👤 ログイン中")
         </div>
     </div>
 </div>
-
+""",
+unsafe_allow_html=True
+)
 if active_df is None or active_df.empty:
     st.sidebar.write("現在ログイン中の人はいないある。")
 else:
