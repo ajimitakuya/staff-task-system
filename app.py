@@ -457,6 +457,7 @@ st.sidebar.markdown(
     /* 未選択メニューボタン本体 */
     section[data-testid="stSidebar"] .stButton > button {
         width: 100% !important;
+        height: 56px !important;
         min-height: 56px !important;
         border-radius: 12px !important;
         border: 1px solid #d9d9d9 !important;
@@ -465,12 +466,11 @@ st.sidebar.markdown(
         font-weight: 700 !important;
         padding: 0 !important;
         box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
-
         display: flex !important;
         align-items: center !important;
         justify-content: flex-start !important;
-
         text-align: left !important;
+        box-sizing: border-box !important;
     }
 
     section[data-testid="stSidebar"] .stButton > button:hover {
@@ -479,55 +479,63 @@ st.sidebar.markdown(
         background: #fffaf5 !important;
     }
 
-    /* buttonの中の文字コンテナを強制左寄せ */
+    /* buttonの中の文字コンテナを左寄せ */
     section[data-testid="stSidebar"] .stButton > button > div {
         width: 100% !important;
+        height: 56px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: flex-start !important;
         text-align: left !important;
-        padding: 0.78rem 1rem !important;
+        padding: 0 16px !important;
         box-sizing: border-box !important;
     }
 
-    /* さらに中の文字要素も左寄せ */
     section[data-testid="stSidebar"] .stButton > button > div p,
     section[data-testid="stSidebar"] .stButton > button > div span {
         width: 100% !important;
         margin: 0 !important;
         text-align: left !important;
         justify-content: flex-start !important;
+        line-height: 1.2 !important;
     }
 
-    /* 選択中メニュー */
+    /* 選択中メニューの外側ラッパー */
+    .menu-selected-wrap {
+        width: 100%;
+        margin: 0 0 12px 0;
+    }
+
+    /* 選択中メニュー本体 */
     .menu-selected-box {
         width: 100%;
-        min-height: 56px;
+        height: 56px;
         border-radius: 12px;
         border: 1px solid #ff9f43;
         background: linear-gradient(90deg, #fff1e8 0%, #fff7e6 100%);
         color: #d35400;
         font-weight: 700;
-        padding: 12px 14px;
-        margin-bottom: 12px;
+        padding: 0 16px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         text-align: center;
         display: flex;
         align-items: center;
         justify-content: center;
         box-sizing: border-box;
+        line-height: 1.2;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
 
+
 for p in page_options:
     is_selected = (st.session_state.current_page == p)
 
     if is_selected:
         st.sidebar.markdown(
-            f'<div class="menu-selected-box">● {p}</div>',
+            f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {p}</div></div>',
             unsafe_allow_html=True
         )
     else:
