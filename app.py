@@ -116,7 +116,8 @@ def load_db(file, retries=3, delay=0.8):
                 "document_master": [
                     "document_id", "category1", "category2", "category3",
                     "title", "file_type", "url", "summary", "memo",
-                    "status", "updated_at", "created_at"
+                    "status", "updated_at", "created_at",
+                    "original_filename", "file_data_base64"
                 ],
                 "external_contacts": [
                     "contact_id", "category1", "category2",
@@ -140,10 +141,11 @@ def load_db(file, retries=3, delay=0.8):
             else:
                 raise last_error
 
-@st.cache_data(ttl=60)
 def get_resident_master_df():
     return get_resident_master_df_cached().copy()
 
+def get_document_master_df():
+    return get_document_master_df_cached().copy()
 
 @st.cache_data(ttl=60)
 def get_resident_schedule_df_cached():
@@ -162,6 +164,109 @@ def get_resident_schedule_df_cached():
                 df[col] = ""
     return df.fillna("")
 
+def save_uploaded_document(
+    category1,
+    category2,
+    category3,
+    title,
+    summary,
+    memo,
+    uploaded_file
+):
+    df = get_document_master_df()
+
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M")
+
+    if df.empty:
+        next_id = 1
+    else:
+        ids = pd.to_numeric(df["document_id"], errors="coerce").dropna()
+        next_id = int(ids.max()) + 1 if not ids.empty else 1
+
+    file_bytes = uploaded_file.read()
+    file_data_base64 = base64.b64encode(file_bytes).decode("utf-8")
+
+    original_filename = uploaded_file.name
+    lower_name = original_filename.lower()
+
+    if lower_name.endswith(".xlsx"):
+        file_type = "xlsx"
+    elif lower_name.endswith(".xls"):
+        file_type = "xls"
+    elif lower_name.endswith(".pdf"):
+        file_type = "pdf"
+    elif lower_name.endswith(".docx"):
+        file_type = "docx"
+    elif lower_name.endswith(".doc"):
+        file_type = "doc"
+    else:
+        file_type = "other"
+
+    new_row = pd.DataFrame([{
+        "document_id": next_id,
+        "category1": category1,
+        "category2": category2,
+        "category3": category3,
+        "title": title,
+        "file_type": file_type,
+        "url": "",
+        "summary": summary,
+        "memo": memo,
+        "status": "有効",
+        "updated_at": now_str,
+        "created_at": now_str,
+        "original_filename": original_filename,
+        "file_data_base64": file_data_base64
+    }])
+
+    merged_df = pd.concat([df, new_row], ignore_index=True)
+    save_db(merged_df, "document_master")
+
+@st.cache_data(ttl=60)
+def get_document_master_df_cached():
+    df = load_db("document_master")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "document_id", "category1", "category2", "category3",
+            "title", "file_type", "url", "summary", "memo",
+            "status", "updated_at", "created_at",
+            "original_filename", "file_data_base64"
+        ])
+    else:
+        for col in [
+            "document_id", "category1", "category2", "category3",
+            "title", "file_type", "url", "summary", "memo",
+            "status", "updated_at", "created_at",
+            "original_filename", "file_data_base64"
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+def get_download_file_data(row):
+    file_data_base64 = str(row.get("file_data_base64", "")).strip()
+    original_filename = str(row.get("original_filename", "")).strip()
+
+    if not file_data_base64 or not original_filename:
+        return None, None, None
+
+    file_bytes = base64.b64decode(file_data_base64)
+
+    lower_name = original_filename.lower()
+    if lower_name.endswith(".xlsx"):
+        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif lower_name.endswith(".xls"):
+        mime = "application/vnd.ms-excel"
+    elif lower_name.endswith(".pdf"):
+        mime = "application/pdf"
+    elif lower_name.endswith(".docx"):
+        mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    elif lower_name.endswith(".doc"):
+        mime = "application/msword"
+    else:
+        mime = "application/octet-stream"
+
+    return file_bytes, original_filename, mime
 
 @st.cache_data(ttl=60)
 def get_resident_notes_df_cached():
@@ -3992,12 +4097,112 @@ elif page == "⑨ 利用者情報":
 
     show_resident_page()
 
-# ==========================================
-# ⑩ 検索
-# ==========================================
 elif page == "⑩ 検索":
 
     st.title("🔎 検索")
+
+    st.markdown("### 書類アップロード")
+
+    with st.expander("＋ 書類を登録"):
+        with st.form("document_upload_form", clear_on_submit=True):
+
+            category1 = st.text_input("カテゴリ1")
+            category2 = st.text_input("カテゴリ2")
+            category3 = st.text_input("カテゴリ3")
+
+            title = st.text_input("タイトル")
+            summary = st.text_area("概要")
+            memo = st.text_area("メモ")
+
+            uploaded_file = st.file_uploader(
+                "ファイル",
+                type=["xlsx","xls","pdf","docx","doc"]
+            )
+
+            submitted = st.form_submit_button("登録")
+
+            if submitted:
+
+                if not uploaded_file:
+                    st.error("ファイルを選択してください")
+
+                elif not title.strip():
+                    st.error("タイトルを入力してください")
+
+                else:
+                    save_uploaded_document(
+                        category1,
+                        category2,
+                        category3,
+                        title,
+                        summary,
+                        memo,
+                        uploaded_file
+                    )
+
+                    st.success("書類を登録しました")
+                    st.rerun()
+
+    st.divider()
+
+    st.markdown("### 書類検索")
+
+    doc_df = get_document_master_df()
+
+    keyword = st.text_input("キーワード")
+
+    if not doc_df.empty:
+
+        result_df = doc_df.copy()
+
+        if keyword.strip():
+
+            kw = keyword.lower()
+
+            result_df = result_df[
+                result_df.apply(
+                    lambda row:
+                        kw in str(row.get("title","")).lower()
+                        or kw in str(row.get("category1","")).lower()
+                        or kw in str(row.get("category2","")).lower()
+                        or kw in str(row.get("category3","")).lower()
+                        or kw in str(row.get("summary","")).lower()
+                        or kw in str(row.get("memo","")).lower(),
+                    axis=1
+                )
+            ]
+
+        if result_df.empty:
+
+            st.info("該当する書類はありません")
+
+        else:
+
+            result_df = result_df.sort_values("updated_at", ascending=False)
+
+            for _, row in result_df.iterrows():
+
+                title = row["title"]
+                cat1 = row["category1"]
+                cat2 = row["category2"]
+                cat3 = row["category3"]
+
+                st.markdown(f"### {title}")
+                st.caption(f"{cat1} / {cat2} / {cat3}")
+
+                file_bytes, filename, mime = get_download_file_data(row)
+
+                if file_bytes:
+
+                    st.download_button(
+                        label="ダウンロード",
+                        data=file_bytes,
+                        file_name=filename,
+                        mime=mime,
+                        key=f"doc_{row['document_id']}"
+                    )
+
+                st.divider()
 
     # ------------------------------------------
     # 関係者検索（軽量化版）
