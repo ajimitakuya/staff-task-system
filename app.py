@@ -427,8 +427,6 @@ if 'user' not in st.session_state:
 # ==========================================
 heartbeat_active_user()
 
-st.sidebar.markdown(f"### 👤 ログイン中：\n## {st.session_state.user}")
-
 page_options = [
     "① 未着手の任務（掲示板）",
     "② タスクの引き受け・報告",
@@ -1687,7 +1685,8 @@ try:
 except Exception:
     active_df = pd.DataFrame(columns=["user", "login_at", "last_seen"])
 
-st.sidebar.markdown("### 👥 ログイン中メンバー")
+st.sidebar.markdown(f"### 👤 ログイン中：\n## {st.session_state.user}")
+
 
 if active_df is None or active_df.empty:
     st.sidebar.write("現在ログイン中の人はいないある。")
