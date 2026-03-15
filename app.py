@@ -1685,7 +1685,6 @@ try:
 except Exception:
     active_df = pd.DataFrame(columns=["user", "login_at", "last_seen"])
 
-st.sidebar.markdown(f"### 👤 ログイン中：\n## {st.session_state.user}")
 
 
 if active_df is None or active_df.empty:
