@@ -141,11 +141,64 @@ def load_db(file, retries=3, delay=0.8):
             else:
                 raise last_error
 
+
 def get_resident_master_df():
     return get_resident_master_df_cached().copy()
 
 def get_document_master_df():
     return get_document_master_df_cached().copy()
+
+def get_next_numeric_id(df, col_name="id", start=1):
+    if df is None or df.empty or col_name not in df.columns:
+        return start
+    ids = pd.to_numeric(df[col_name], errors="coerce").dropna()
+    return int(ids.max()) + 1 if not ids.empty else start
+
+
+def get_next_resident_id(master_df):
+    if master_df is None or master_df.empty or "resident_id" not in master_df.columns:
+        return "R0001"
+
+    numbers = []
+    for x in master_df["resident_id"].fillna("").astype(str):
+        x = x.strip().upper()
+        if x.startswith("R"):
+            num = x[1:]
+            if num.isdigit():
+                numbers.append(int(num))
+
+    next_num = max(numbers) + 1 if numbers else 1
+    return f"R{next_num:04d}"
+
+
+@st.cache_data(ttl=60)
+def get_resident_master_df_cached():
+    df = load_db("resident_master")
+
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "resident_id", "resident_name", "status",
+            "consultant", "consultant_phone",
+            "caseworker", "caseworker_phone",
+            "hospital", "hospital_phone",
+            "nurse", "nurse_phone",
+            "care", "care_phone",
+            "created_at", "updated_at"
+        ])
+    else:
+        for col in [
+            "resident_id", "resident_name", "status",
+            "consultant", "consultant_phone",
+            "caseworker", "caseworker_phone",
+            "hospital", "hospital_phone",
+            "nurse", "nurse_phone",
+            "care", "care_phone",
+            "created_at", "updated_at"
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+
+    return df.fillna("")
 
 @st.cache_data(ttl=60)
 def get_resident_schedule_df_cached():
@@ -1711,11 +1764,10 @@ def render_home_evaluation_form_page(doc_title: str):
 # ==========================================
 def render_assessment_form_page(doc_title: str):
     st.title("📋 アセスメントシート")
-    st.caption("フェイスシートの途中版ある。まずは入力とExcel出力までつなぐある。")
+    st.caption("フェイスシート入力ページある。入力とExcel出力までつなぐある。")
 
     st.markdown("## 基本情報")
 
-    # 利用者選択
     master_df = get_resident_master_df()
 
     if master_df is None or master_df.empty:
@@ -1879,6 +1931,319 @@ def render_assessment_form_page(doc_title: str):
 
     st.divider()
 
+    # -----------------------------
+    # 手帳・福祉制度
+    # -----------------------------
+    st.markdown("## 手帳・福祉制度")
+
+    handbook_cols = st.columns([2, 2, 1, 1])
+    with handbook_cols[0]:
+        handbook_grade = st.text_input("手帳に記入されている級", key=f"{doc_title}_handbook_grade")
+    with handbook_cols[1]:
+        handbook_year = st.text_input("手帳取得年（西暦）", key=f"{doc_title}_handbook_year", placeholder="2020")
+    with handbook_cols[2]:
+        handbook_month = st.text_input("月", key=f"{doc_title}_handbook_month", placeholder="1")
+    with handbook_cols[3]:
+        handbook_day = st.text_input("日", key=f"{doc_title}_handbook_day", placeholder="1")
+
+    disability_summary = st.text_area(
+        "障害状況の概要、および手帳取得経緯",
+        key=f"{doc_title}_disability_summary",
+        height=120
+    )
+
+    welfare_cols1 = st.columns(2)
+    with welfare_cols1[0]:
+        support_level = st.selectbox(
+            "障害支援区分",
+            ["区分無し", "区分1", "区分2", "区分3", "区分4", "区分5", "区分6"],
+            key=f"{doc_title}_support_level"
+        )
+    with welfare_cols1[1]:
+        guardian_status = st.selectbox(
+            "成年後見人の有無",
+            ["なし", "あり"],
+            key=f"{doc_title}_guardian_status"
+        )
+
+    guardian_name = st.text_input(
+        "成年後見人の氏名（ありの場合）",
+        key=f"{doc_title}_guardian_name"
+    )
+
+    welfare_cols2 = st.columns(2)
+    with welfare_cols2[0]:
+        pension_status = st.selectbox(
+            "年金（種別）の有無",
+            ["なし", "あり"],
+            key=f"{doc_title}_pension_status"
+        )
+    with welfare_cols2[1]:
+        allowance_status = st.selectbox(
+            "特別児童扶養手当その他の有無",
+            ["なし", "あり"],
+            key=f"{doc_title}_allowance_status"
+        )
+
+    pension_detail = st.text_input(
+        "年金詳細（何級・月額いくら等）",
+        key=f"{doc_title}_pension_detail"
+    )
+    allowance_detail = st.text_input(
+        "特別児童扶養手当その他詳細（何級・月額いくら等）",
+        key=f"{doc_title}_allowance_detail"
+    )
+
+    welfare_cols3 = st.columns(3)
+    with welfare_cols3[0]:
+        transport_pass = st.selectbox(
+            "大阪市交通局優待乗車証",
+            ["無料", "半額", "なし"],
+            key=f"{doc_title}_transport_pass"
+        )
+    with welfare_cols3[1]:
+        welfare_status = st.selectbox(
+            "生活保護の受給状況",
+            ["あり", "なし"],
+            key=f"{doc_title}_welfare_status"
+        )
+    with welfare_cols3[2]:
+        public_support = st.text_input(
+            "公費医療・福祉用具等の利用",
+            key=f"{doc_title}_public_support"
+        )
+
+    st.divider()
+
+    # -----------------------------
+    # 家族の状況
+    # -----------------------------
+    st.markdown("## 家族の状況")
+
+    family_rows = []
+    for i in range(4):
+        st.markdown(f"### 家族{i+1}")
+        cols = st.columns([2, 1, 1, 2, 1, 2])
+
+        with cols[0]:
+            fam_name = st.text_input("氏名", key=f"{doc_title}_fam_name_{i}")
+        with cols[1]:
+            fam_relation = st.text_input("続柄", key=f"{doc_title}_fam_relation_{i}")
+        with cols[2]:
+            fam_age = st.text_input("年齢", key=f"{doc_title}_fam_age_{i}")
+        with cols[3]:
+            fam_job = st.text_input("職業等", key=f"{doc_title}_fam_job_{i}")
+        with cols[4]:
+            fam_live = st.selectbox("同居・別居", ["同居", "別居", ""], key=f"{doc_title}_fam_live_{i}")
+        with cols[5]:
+            fam_note = st.text_input("特記事項", key=f"{doc_title}_fam_note_{i}")
+
+        family_rows.append({
+            "name": fam_name,
+            "relation": fam_relation,
+            "age": fam_age,
+            "job": fam_job,
+            "live": fam_live,
+            "note": fam_note
+        })
+
+    st.divider()
+
+    # -----------------------------
+    # 住居環境等
+    # -----------------------------
+    st.markdown("## 住居環境等")
+
+    housing_cols = st.columns(2)
+    with housing_cols[0]:
+        housing_transport = st.selectbox(
+            "住居の状況（交通手段）",
+            ["電車", "バス", "自転車", "その他"],
+            key=f"{doc_title}_housing_transport"
+        )
+    with housing_cols[1]:
+        housing_transport_other = st.text_input(
+            "住居の状況（その他内容）",
+            key=f"{doc_title}_housing_transport_other"
+        )
+
+    housing_use_status = st.selectbox(
+        "住居の状況 利用する場合具体的な状況",
+        ["単独利用", "家族等の付き添い", "その他"],
+        key=f"{doc_title}_housing_use_status"
+    )
+    housing_use_status_other = st.text_input(
+        "住居の状況 利用状況（その他内容）",
+        key=f"{doc_title}_housing_use_status_other"
+    )
+
+    transport_cols = st.columns(2)
+    with transport_cols[0]:
+        available_transport = st.selectbox(
+            "利用可能な交通手段",
+            ["電車", "バス", "自転車", "その他"],
+            key=f"{doc_title}_available_transport"
+        )
+    with transport_cols[1]:
+        available_transport_other = st.text_input(
+            "利用可能な交通手段（その他内容）",
+            key=f"{doc_title}_available_transport_other"
+        )
+
+    available_use_status = st.selectbox(
+        "利用可能交通手段 利用する場合具体的な状況",
+        ["単独利用", "家族等の付き添い", "その他"],
+        key=f"{doc_title}_available_use_status"
+    )
+    available_use_status_other = st.text_input(
+        "利用可能交通手段 利用状況（その他内容）",
+        key=f"{doc_title}_available_use_status_other"
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 生活歴
+    # -----------------------------
+    st.markdown("## 生活歴")
+
+    life_rows = []
+    for i in range(3):
+        st.markdown(f"### 生活歴{i+1}")
+        cols = st.columns([1, 3])
+        with cols[0]:
+            life_date = st.text_input("西暦年月日", key=f"{doc_title}_life_date_{i}", placeholder="2000/04")
+        with cols[1]:
+            life_history = st.text_area(
+                "生活歴（学歴や転居等の経緯）",
+                key=f"{doc_title}_life_history_{i}",
+                height=80
+            )
+        life_rows.append({
+            "date": life_date,
+            "history": life_history
+        })
+
+    st.divider()
+
+    # -----------------------------
+    # 医療機関の受診状況等
+    # -----------------------------
+    st.markdown("## 医療機関の受診状況等")
+
+    medical_cols1 = st.columns([2, 3])
+    with medical_cols1[0]:
+        disease_name = st.text_input("病名（複数入力可）", key=f"{doc_title}_disease_name")
+    with medical_cols1[1]:
+        disease_symptom = st.text_input("症状（複数入力可）", key=f"{doc_title}_disease_symptom")
+
+    st.markdown("### 医療機関")
+    medical_cols2 = st.columns([2, 2, 2, 1, 2])
+    with medical_cols2[0]:
+        hospital_name = st.text_input("病院名", key=f"{doc_title}_hospital_name")
+    with medical_cols2[1]:
+        doctor_name = st.text_input("医師名", key=f"{doc_title}_doctor_name")
+    with medical_cols2[2]:
+        hospital_contact = st.text_input("連絡先", key=f"{doc_title}_hospital_contact")
+    with medical_cols2[3]:
+        visit_frequency = st.text_input("通院頻度", key=f"{doc_title}_visit_frequency")
+    with medical_cols2[4]:
+        medication_status = st.text_input("服薬状況等", key=f"{doc_title}_medication_status")
+
+    st.divider()
+
+    # -----------------------------
+    # 心身状況等
+    # -----------------------------
+    st.markdown("## 心身状況等")
+
+    mind_rows = []
+    for i in range(2):
+        st.markdown(f"### 心身状況{i+1}")
+        cols = st.columns([2, 3, 3])
+        with cols[0]:
+            mind_disease = st.text_input("障害名・病名", key=f"{doc_title}_mind_disease_{i}")
+        with cols[1]:
+            mind_symptom = st.text_input("症状など", key=f"{doc_title}_mind_symptom_{i}")
+        with cols[2]:
+            mind_support = st.text_input("必要な支援の内容", key=f"{doc_title}_mind_support_{i}")
+
+        mind_rows.append({
+            "disease": mind_disease,
+            "symptom": mind_symptom,
+            "support": mind_support
+        })
+
+    st.divider()
+
+    # -----------------------------
+    # 障害福祉サービスなどの利用状況
+    # -----------------------------
+    st.markdown("## 障害福祉サービスなどの利用状況")
+
+    service_rows = []
+    for i in range(3):
+        st.markdown(f"### サービス利用{i+1}")
+        cols = st.columns([1, 2, 1, 2])
+        with cols[0]:
+            service_date = st.text_input("利用開始日（時期）", key=f"{doc_title}_service_date_{i}")
+        with cols[1]:
+            service_name = st.text_input("サービス名", key=f"{doc_title}_service_name_{i}")
+        with cols[2]:
+            service_amount = st.text_input("利用量/月", key=f"{doc_title}_service_amount_{i}")
+        with cols[3]:
+            service_office = st.text_input("事業所名", key=f"{doc_title}_service_office_{i}")
+
+        service_rows.append({
+            "date": service_date,
+            "name": service_name,
+            "amount": service_amount,
+            "office": service_office
+        })
+
+    st.divider()
+
+    # -----------------------------
+    # 生活の流れ等
+    # -----------------------------
+    st.markdown("## 生活の流れ等")
+
+    day_flow = st.text_area(
+        "標準的な１日の生活の流れ（起床から就寝まで）",
+        key=f"{doc_title}_day_flow",
+        height=120
+    )
+    special_note = st.text_area(
+        "特記事項（１週間の過ごし方やいきがい、趣味、特技など）",
+        key=f"{doc_title}_special_note",
+        height=120
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 総合所見
+    # -----------------------------
+    st.markdown("## 総合所見")
+
+    wish_user = st.text_area(
+        "当事業所のサービス利用に対する本人の希望",
+        key=f"{doc_title}_wish_user",
+        height=100
+    )
+    wish_family = st.text_area(
+        "当事業所のサービス利用に対する保護者・関係者の希望する方向性",
+        key=f"{doc_title}_wish_family",
+        height=100
+    )
+    future_direction = st.text_area(
+        "フェイスシートからみる課題や今後の方向性",
+        key=f"{doc_title}_future_direction",
+        height=120
+    )
+
+    st.divider()
+
     with st.expander("入力内容確認"):
         st.write({
             "聴き取り者名": interviewer_name,
@@ -1901,12 +2266,49 @@ def render_assessment_form_page(doc_title: str):
             "援護実施機関_区市": support_city_type,
             "援護実施機関_相談支援事業所": support_office,
             "援護実施機関_担当ワーカー": support_worker,
+            "手帳級": handbook_grade,
+            "手帳取得日": f"{handbook_year}/{handbook_month}/{handbook_day}",
+            "障害概要・取得経緯": disability_summary,
+            "障害支援区分": support_level,
+            "成年後見人": guardian_status,
+            "成年後見人名": guardian_name,
+            "年金": pension_status,
+            "年金詳細": pension_detail,
+            "特別児童扶養手当等": allowance_status,
+            "特別児童扶養手当等詳細": allowance_detail,
+            "大阪市交通局優待乗車証": transport_pass,
+            "生活保護": welfare_status,
+            "公費医療・福祉用具等": public_support,
+            "家族状況": family_rows,
+            "住居の状況": [housing_transport, housing_transport_other, housing_use_status, housing_use_status_other],
+            "利用可能交通手段": [available_transport, available_transport_other, available_use_status, available_use_status_other],
+            "生活歴": life_rows,
+            "病名": disease_name,
+            "症状": disease_symptom,
+            "医療機関": [hospital_name, doctor_name, hospital_contact, visit_frequency, medication_status],
+            "心身状況": mind_rows,
+            "福祉サービス利用": service_rows,
+            "1日の生活": day_flow,
+            "特記事項": special_note,
+            "本人の希望": wish_user,
+            "家族・関係者の希望": wish_family,
+            "課題・今後方向": future_direction,
         })
 
     st.divider()
     st.markdown("### Excel出力")
 
     if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
+
+        guardian_value = "なし" if guardian_status == "なし" else f"あり：{guardian_name}" if guardian_name.strip() else "あり"
+        pension_value = "なし" if pension_status == "なし" else f"あり：{pension_detail}" if pension_detail.strip() else "あり"
+        allowance_value = "なし" if allowance_status == "なし" else f"あり：{allowance_detail}" if allowance_detail.strip() else "あり"
+
+        housing_transport_value = housing_transport_other.strip() if housing_transport == "その他" and housing_transport_other.strip() else housing_transport
+        housing_status_value = housing_use_status_other.strip() if housing_use_status == "その他" and housing_use_status_other.strip() else housing_use_status
+
+        available_transport_value = available_transport_other.strip() if available_transport == "その他" and available_transport_other.strip() else available_transport
+        available_status_value = available_use_status_other.strip() if available_use_status == "その他" and available_use_status_other.strip() else available_use_status
 
         cell_data = {
             "P1": interviewer_name,
@@ -1938,6 +2340,94 @@ def render_assessment_form_page(doc_title: str):
             "J15": support_city_type,
             "X15": support_office,
             "AF15": support_worker,
+
+            "G19": handbook_grade,
+            "Y19": handbook_year,
+            "AD19": handbook_month,
+            "AG19": handbook_day,
+            "G21": disability_summary,
+            "G24": support_level,
+            "X24": guardian_value,
+            "G26": pension_value,
+            "X26": allowance_value,
+            "G28": transport_pass,
+            "Q28": welfare_status,
+            "Z28": public_support,
+
+            "G33": family_rows[0]["name"],
+            "N33": family_rows[0]["relation"],
+            "Q33": family_rows[0]["age"],
+            "T33": family_rows[0]["job"],
+            "X33": family_rows[0]["live"],
+            "AB33": family_rows[0]["note"],
+
+            "G35": family_rows[1]["name"],
+            "N35": family_rows[1]["relation"],
+            "Q35": family_rows[1]["age"],
+            "T35": family_rows[1]["job"],
+            "X35": family_rows[1]["live"],
+            "AB35": family_rows[1]["note"],
+
+            "G37": family_rows[2]["name"],
+            "N37": family_rows[2]["relation"],
+            "Q37": family_rows[2]["age"],
+            "T37": family_rows[2]["job"],
+            "X37": family_rows[2]["live"],
+            "AB37": family_rows[2]["note"],
+
+            "G39": family_rows[3]["name"],
+            "N39": family_rows[3]["relation"],
+            "Q39": family_rows[3]["age"],
+            "T39": family_rows[3]["job"],
+            "X39": family_rows[3]["live"],
+            "AB39": family_rows[3]["note"],
+
+            "G43": housing_transport_value,
+            "G45": available_transport_value,
+
+            "A50": life_rows[0]["date"],
+            "G50": life_rows[0]["history"],
+            "A52": life_rows[1]["date"],
+            "G52": life_rows[1]["history"],
+            "A54": life_rows[2]["date"],
+            "G54": life_rows[2]["history"],
+
+            "A60": disease_name,
+            "M60": disease_symptom,
+            "C64": hospital_name,
+            "C65": doctor_name,
+            "C66": hospital_contact,
+            "M64": visit_frequency,
+            "R64": medication_status,
+
+            "A70": mind_rows[0]["disease"],
+            "L70": mind_rows[0]["symptom"],
+            "X70": mind_rows[0]["support"],
+            "A73": mind_rows[1]["disease"],
+            "L73": mind_rows[1]["symptom"],
+            "X73": mind_rows[1]["support"],
+
+            "A79": service_rows[0]["date"],
+            "G79": service_rows[0]["name"],
+            "Q79": service_rows[0]["amount"],
+            "Y79": service_rows[0]["office"],
+
+            "A81": service_rows[1]["date"],
+            "G81": service_rows[1]["name"],
+            "Q81": service_rows[1]["amount"],
+            "Y81": service_rows[1]["office"],
+
+            "A83": service_rows[2]["date"],
+            "G83": service_rows[2]["name"],
+            "Q83": service_rows[2]["amount"],
+            "Y83": service_rows[2]["office"],
+
+            "A88": day_flow,
+            "A94": special_note,
+
+            "M100": wish_user,
+            "M103": wish_family,
+            "M107": future_direction,
         }
 
         file = create_excel_file("アセスメント", cell_data)
@@ -1949,241 +2439,6 @@ def render_assessment_form_page(doc_title: str):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key=f"{doc_title}_download_excel"
         )
-
-        st.markdown("## 手帳・福祉制度")
-
-        col1,col2,col3 = st.columns(3)
-
-        with col1:
-            handbook_grade = st.text_input("手帳級 (G19)")
-
-        with col2:
-            handbook_year = st.number_input("取得年",1900,2100,key="Y19")
-
-        with col3:
-            handbook_month = st.number_input("取得月",1,12,key="AD19")
-
-        handbook_day = st.number_input("取得日",1,31,key="AG19")
-
-        disability_summary = st.text_area("障害状況概要・取得経緯 (G21)")
-
-        col1,col2 = st.columns(2)
-
-        with col1:
-            support_level = st.selectbox(
-                "障害支援区分 (G24)",
-                ["区分無し","区分1","区分2","区分3","区分4","区分5","区分6"]
-            )
-
-        with col2:
-            guardian = st.text_input("成年後見人 (X24)")
-
-        col1,col2 = st.columns(2)
-
-        with col1:
-            pension = st.text_input("年金 (G26)")
-
-        with col2:
-            allowance = st.text_input("特別児童扶養手当等 (X26)")
-
-
-        col1,col2,col3 = st.columns(3)
-
-        with col1:
-            transport_pass = st.selectbox(
-                "大阪市交通局優待乗車証",
-                ["なし","無料","半額"]
-            )
-
-        with col2:
-            welfare = st.selectbox(
-                "生活保護",
-                ["なし","あり"]
-            )
-
-        with col3:
-            public_support = st.text_input("公費医療・福祉用具")
-
-
-        # -----------------------------
-        # 家族状況
-        # -----------------------------
-
-        st.markdown("## 家族の状況")
-
-        family_rows = []
-
-        for i in range(4):
-
-            col1,col2,col3,col4,col5,col6 = st.columns([2,1,1,2,1,2])
-
-            name = col1.text_input("氏名",key=f"family_name_{i}")
-            relation = col2.text_input("続柄",key=f"family_rel_{i}")
-            age = col3.number_input("年齢",0,120,key=f"family_age_{i}")
-            job = col4.text_input("職業",key=f"family_job_{i}")
-            live = col5.selectbox("同居別居",["同居","別居"],key=f"family_live_{i}")
-            note = col6.text_input("特記事項",key=f"family_note_{i}")
-
-            family_rows.append([name,relation,age,job,live,note])
-
-
-        # -----------------------------
-        # 住居環境
-        # -----------------------------
-
-        st.markdown("## 住居環境")
-
-        transport = st.multiselect(
-            "利用可能交通手段",
-            ["電車","バス","自転車","その他"]
-        )
-
-        transport_status = st.selectbox(
-            "利用状況",
-            ["単独利用","家族付き添い","その他"]
-        )
-
-
-        # -----------------------------
-        # 生活歴
-        # -----------------------------
-
-        st.markdown("## 生活歴")
-
-        life_history = []
-
-        for i in range(3):
-
-            col1,col2 = st.columns([1,3])
-
-            date = col1.text_input("年月日",key=f"life_date_{i}")
-            history = col2.text_area("生活歴",key=f"life_history_{i}")
-
-            life_history.append([date,history])
-
-
-        # -----------------------------
-        # 医療機関
-        # -----------------------------
-
-        st.markdown("## 医療機関")
-
-        disease = st.text_input("病名")
-        symptom = st.text_input("症状")
-
-        col1,col2,col3 = st.columns(3)
-
-        hospital = col1.text_input("病院名")
-        doctor = col2.text_input("医師名")
-        phone = col3.text_input("連絡先")
-
-        col1,col2 = st.columns(2)
-
-        visit = col1.text_input("通院頻度")
-        medicine = col2.text_input("服薬状況")
-
-
-        # -----------------------------
-        # 心身状況
-        # -----------------------------
-
-        st.markdown("## 心身状況")
-
-        for i in range(2):
-
-            col1,col2,col3 = st.columns([2,3,3])
-
-            col1.text_input("障害名・病名",key=f"mind_dis_{i}")
-            col2.text_input("症状",key=f"mind_sym_{i}")
-            col3.text_input("必要支援",key=f"mind_support_{i}")
-
-
-        # -----------------------------
-        # 福祉サービス利用
-        # -----------------------------
-
-        st.markdown("## 障害福祉サービス利用")
-
-        for i in range(3):
-
-            col1,col2,col3,col4 = st.columns([1,2,1,2])
-
-            col1.text_input("開始日",key=f"service_date_{i}")
-            col2.text_input("サービス名",key=f"service_name_{i}")
-            col3.text_input("利用量/月",key=f"service_amount_{i}")
-            col4.text_input("事業所",key=f"service_place_{i}")
-
-
-        # -----------------------------
-        # 生活の流れ
-        # -----------------------------
-
-        st.markdown("## 生活の流れ")
-
-        day_flow = st.text_area("1日の生活")
-        week_note = st.text_area("特記事項")
-
-
-# -----------------------------
-# 総合所見
-# -----------------------------
-
-st.markdown("## 総合所見")
-
-wish_user = st.text_area("本人の希望")
-wish_family = st.text_area("家族・関係者の希望")
-future = st.text_area("課題・今後方向")
-
-def get_next_numeric_id(df, col_name="id", start=1):
-    if df is None or df.empty or col_name not in df.columns:
-        return start
-    ids = pd.to_numeric(df[col_name], errors="coerce").dropna()
-    return int(ids.max()) + 1 if not ids.empty else start
-
-
-def get_next_resident_id(master_df):
-    if master_df is None or master_df.empty or "resident_id" not in master_df.columns:
-        return "R0001"
-
-    numbers = []
-    for x in master_df["resident_id"].fillna("").astype(str):
-        x = x.strip().upper()
-        if x.startswith("R"):
-            num = x[1:]
-            if num.isdigit():
-                numbers.append(int(num))
-
-    next_num = max(numbers) + 1 if numbers else 1
-    return f"R{next_num:04d}"
-
-@st.cache_data(ttl=60)
-def get_resident_master_df_cached():
-    df = load_db("resident_master")
-
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "resident_id", "resident_name", "status",
-            "consultant", "consultant_phone",
-            "caseworker", "caseworker_phone",
-            "hospital", "hospital_phone",
-            "nurse", "nurse_phone",
-            "care", "care_phone",
-            "created_at", "updated_at"
-        ])
-    else:
-        for col in [
-            "resident_id", "resident_name", "status",
-            "consultant", "consultant_phone",
-            "caseworker", "caseworker_phone",
-            "hospital", "hospital_phone",
-            "nurse", "nurse_phone",
-            "care", "care_phone",
-            "created_at", "updated_at"
-        ]:
-            if col not in df.columns:
-                df[col] = ""
-
-    return df.fillna("")
 
 def get_resident_schedule_df():
     return get_resident_schedule_df_cached().copy()
