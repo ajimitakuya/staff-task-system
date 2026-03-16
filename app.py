@@ -2720,7 +2720,7 @@ def render_work_sheet_form_page(doc_title: str):
 
     import pandas as pd
 
-    df = pd.DataFrame({
+    criteria_df = pd.DataFrame({
         "段階": ["1", "2", "3", "4"],
         "評価基準": [
             "できる",
@@ -2736,7 +2736,7 @@ def render_work_sheet_form_page(doc_title: str):
         ]
     })
 
-    st.table(df)
+    st.dataframe(criteria_df, use_container_width=True, hide_index=True)
 
     # -----------------------------
     # 1. 健康管理
