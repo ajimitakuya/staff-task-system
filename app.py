@@ -3,6 +3,7 @@ import pandas as pd
 import base64
 import time
 import random
+import json
 from io import BytesIO
 from datetime import datetime, timedelta, timezone, date
 import calendar as py_calendar
@@ -44,8 +45,11 @@ def get_sheet_name(file):
         return "external_contacts"
     elif file == "resident_links":
         return "resident_links"
+    elif file == "saved_documents":
+        return "saved_documents"
     else:
         raise ValueError(f"未対応のシート名ある: {file}")
+
 
 def load_db(file, retries=3, delay=0.8):
     s_name = get_sheet_name(file)
@@ -125,7 +129,16 @@ def load_db(file, retries=3, delay=0.8):
                 ],
                 "resident_links": [
                     "id", "resident_id", "contact_id", "role"
-                ],                
+                ],
+                                 "saved_documents": [
+                    "record_id",
+                    "resident_id",
+                    "resident_name",
+                    "doc_type",
+                    "created_at",
+                    "updated_at",
+                    "json_data"
+                ],               
             }
 
             for col in expected_cols[file]:
@@ -147,6 +160,117 @@ def get_resident_master_df():
 
 def get_document_master_df():
     return get_document_master_df_cached().copy()
+
+def get_saved_documents_df():
+    df = load_db("saved_documents")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "record_id",
+            "resident_id",
+            "resident_name",
+            "doc_type",
+            "created_at",
+            "updated_at",
+            "json_data"
+        ])
+    else:
+        for col in [
+            "record_id",
+            "resident_id",
+            "resident_name",
+            "doc_type",
+            "created_at",
+            "updated_at",
+            "json_data"
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def save_document_record(resident_id, resident_name, doc_type, form_data):
+    df = get_saved_documents_df()
+
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M")
+
+    if df.empty:
+        next_id = 1
+    else:
+        ids = pd.to_numeric(df["record_id"], errors="coerce").dropna()
+        next_id = int(ids.max()) + 1 if not ids.empty else 1
+
+    new_row = pd.DataFrame([{
+        "record_id": next_id,
+        "resident_id": resident_id,
+        "resident_name": resident_name,
+        "doc_type": doc_type,
+        "created_at": now_str,
+        "updated_at": now_str,
+        "json_data": json.dumps(form_data, ensure_ascii=False)
+    }])
+
+    merged_df = pd.concat([df, new_row], ignore_index=True)
+    save_db(merged_df, "saved_documents")
+    return next_id
+
+
+def update_document_record(record_id, form_data):
+    df = get_saved_documents_df()
+    if df.empty:
+        return False
+
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M")
+    mask = df["record_id"].astype(str) == str(record_id)
+
+    if not mask.any():
+        return False
+
+    df.loc[mask, "updated_at"] = now_str
+    df.loc[mask, "json_data"] = json.dumps(form_data, ensure_ascii=False)
+
+    save_db(df, "saved_documents")
+    return True
+
+
+def get_document_records(doc_type, resident_id):
+    df = get_saved_documents_df()
+    if df.empty:
+        return df
+
+    df = df[
+        (df["doc_type"].astype(str) == str(doc_type)) &
+        (df["resident_id"].astype(str) == str(resident_id))
+    ].copy()
+
+    if df.empty:
+        return df
+
+    try:
+        df["record_id_num"] = pd.to_numeric(df["record_id"], errors="coerce")
+        df = df.sort_values(["record_id_num"], ascending=[False])
+    except Exception:
+        pass
+
+    return df
+
+
+def load_document_json(record_id):
+    df = get_saved_documents_df()
+    if df.empty:
+        return None
+
+    target = df[df["record_id"].astype(str) == str(record_id)]
+    if target.empty:
+        return None
+
+    json_str = str(target.iloc[0]["json_data"]).strip()
+    if not json_str:
+        return None
+
+    try:
+        return json.loads(json_str)
+    except Exception:
+        return None
 
 def get_next_numeric_id(df, col_name="id", start=1):
     if df is None or df.empty or col_name not in df.columns:
@@ -2301,6 +2425,94 @@ def render_assessment_form_page(doc_title: str):
             "課題・今後方向": future_direction,
         })
 
+    # -----------------------------
+    # 保存用データ作成
+    # -----------------------------
+    form_data = {
+        "interviewer_name": interviewer_name,
+        "hear_year": hear_year,
+        "hear_month": hear_month,
+        "hear_day": hear_day,
+        "furigana": furigana,
+        "full_name": full_name,
+        "birth_year": birth_year,
+        "birth_month": birth_month,
+        "birth_day": birth_day,
+        "age": age,
+        "current_zip_1": current_zip_1,
+        "current_zip_2": current_zip_2,
+        "current_phone": current_phone,
+        "nearest_station": nearest_station,
+        "current_address": current_address,
+        "emergency_zip_1": emergency_zip_1,
+        "emergency_zip_2": emergency_zip_2,
+        "emergency_relation": emergency_relation,
+        "emergency_phone_fax": emergency_phone_fax,
+        "emergency_address": emergency_address,
+        "support_city": support_city,
+        "support_city_type": support_city_type,
+        "support_office": support_office,
+        "support_worker": support_worker,
+        "handbook_grade": handbook_grade,
+        "handbook_year": handbook_year,
+        "handbook_month": handbook_month,
+        "handbook_day": handbook_day,
+        "disability_summary": disability_summary,
+        "support_level": support_level,
+        "guardian_status": guardian_status,
+        "guardian_name": guardian_name,
+        "pension_status": pension_status,
+        "allowance_status": allowance_status,
+        "pension_detail": pension_detail,
+        "allowance_detail": allowance_detail,
+        "transport_pass": transport_pass,
+        "welfare_status": welfare_status,
+        "public_support": public_support,
+        "family_rows": family_rows,
+        "housing_transport": housing_transport,
+        "housing_transport_other": housing_transport_other,
+        "housing_use_status": housing_use_status,
+        "housing_use_status_other": housing_use_status_other,
+        "available_transport": available_transport,
+        "available_transport_other": available_transport_other,
+        "available_use_status": available_use_status,
+        "available_use_status_other": available_use_status_other,
+        "life_rows": life_rows,
+        "disease_name": disease_name,
+        "disease_symptom": disease_symptom,
+        "hospital_name": hospital_name,
+        "doctor_name": doctor_name,
+        "hospital_contact": hospital_contact,
+        "visit_frequency": visit_frequency,
+        "medication_status": medication_status,
+        "mind_rows": mind_rows,
+        "service_rows": service_rows,
+        "day_flow": day_flow,
+        "special_note": special_note,
+        "wish_user": wish_user,
+        "wish_family": wish_family,
+        "future_direction": future_direction,
+    }
+
+    st.divider()
+    st.markdown("### 保存")
+
+    save_cols = st.columns([1, 1, 4])
+
+    with save_cols[0]:
+        if st.button("新規保存", key=f"{doc_title}_save_new"):
+            resident_id = str(selected_row.get("resident_id", "")).strip()
+            new_id = save_document_record(
+                resident_id=resident_id,
+                resident_name=resident_name,
+                doc_type="アセスメント",
+                form_data=form_data
+            )
+            st.success(f"保存したある！ record_id = {new_id}")
+
+    with save_cols[1]:
+        st.caption("まずは新規保存だけ対応ある")
+
     st.divider()
     st.markdown("### Excel出力")
 
@@ -2691,31 +2903,6 @@ def render_work_sheet_form_page(doc_title: str):
     # -----------------------------
     # 4〜8行目 表
     # -----------------------------
-    st.markdown("## 基本情報表")
-    st.caption("4〜8行目の表をソフト側でも入力できるようにしたある。")
-
-    top_rows = []
-    for i in range(5):
-        st.markdown(f"### 表 {i+1} 行目")
-        cols = st.columns([2, 2, 2, 2])
-        with cols[0]:
-            top_a = st.text_input("左項目", key=f"{doc_title}_top_a_{i}")
-        with cols[1]:
-            top_b = st.text_input("左内容", key=f"{doc_title}_top_b_{i}")
-        with cols[2]:
-            top_c = st.text_input("右項目", key=f"{doc_title}_top_c_{i}")
-        with cols[3]:
-            top_d = st.text_input("右内容", key=f"{doc_title}_top_d_{i}")
-
-        top_rows.append({
-            "a": top_a,
-            "b": top_b,
-            "c": top_c,
-            "d": top_d,
-        })
-
-    st.divider()
-
     st.markdown("### 評価基準")
 
     import pandas as pd
@@ -2918,7 +3105,6 @@ def render_work_sheet_form_page(doc_title: str):
             "利用者名": resident_name,
             "聞き取り者名": interviewer_name,
             "聞き取り日": f"{hear_year}/{hear_month}/{hear_day}",
-            "表(4〜8行目)": top_rows,
             "健康管理": [health_item1, health_item2, health_item3, health_point],
             "日常生活管理": [daily_item1, daily_item2, daily_item3, daily_item4, daily_item5, daily_point],
             "就労に関すること": [work_item1, work_item2, work_item3, work_item4, work_item5, work_point],
@@ -2938,13 +3124,6 @@ def render_work_sheet_form_page(doc_title: str):
             "Y1": hear_year,
             "AD1": hear_month,
             "AG1": hear_day,
-
-            # 4〜8行目の表
-            "A4": top_rows[0]["a"], "G4": top_rows[0]["b"], "N4": top_rows[0]["c"], "T4": top_rows[0]["d"],
-            "A5": top_rows[1]["a"], "G5": top_rows[1]["b"], "N5": top_rows[1]["c"], "T5": top_rows[1]["d"],
-            "A6": top_rows[2]["a"], "G6": top_rows[2]["b"], "N6": top_rows[2]["c"], "T6": top_rows[2]["d"],
-            "A7": top_rows[3]["a"], "G7": top_rows[3]["b"], "N7": top_rows[3]["c"], "T7": top_rows[3]["d"],
-            "A8": top_rows[4]["a"], "G8": top_rows[4]["b"], "N8": top_rows[4]["c"], "T8": top_rows[4]["d"],   
 
             # 1. 健康管理
             "M14": health_item1,
