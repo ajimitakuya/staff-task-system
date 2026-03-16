@@ -2716,6 +2716,28 @@ def render_work_sheet_form_page(doc_title: str):
 
     st.divider()
 
+    st.markdown("### 評価基準")
+
+    import pandas as pd
+
+    df = pd.DataFrame({
+        "段階": ["1", "2", "3", "4"],
+        "評価基準": [
+            "できる",
+            "少し支援が必要",
+            "支援が必要",
+            "できない"
+        ],
+        "目安": [
+            "本人の力で達成できる場合",
+            "声かけやプログラムにより達成できる場合",
+            "個別の支援や配慮など工夫が必要な場合",
+            "障がい特性上、達成が困難な場合"
+        ]
+    })
+
+    st.table(df)
+
     # -----------------------------
     # 1. 健康管理
     # -----------------------------
@@ -2922,7 +2944,7 @@ def render_work_sheet_form_page(doc_title: str):
             "A5": top_rows[1]["a"], "G5": top_rows[1]["b"], "N5": top_rows[1]["c"], "T5": top_rows[1]["d"],
             "A6": top_rows[2]["a"], "G6": top_rows[2]["b"], "N6": top_rows[2]["c"], "T6": top_rows[2]["d"],
             "A7": top_rows[3]["a"], "G7": top_rows[3]["b"], "N7": top_rows[3]["c"], "T7": top_rows[3]["d"],
-            "A8": top_rows[4]["a"], "G8": top_rows[4]["b"], "N8": top_rows[4]["c"], "T8": top_rows[4]["d"],
+            "A8": top_rows[4]["a"], "G8": top_rows[4]["b"], "N8": top_rows[4]["c"], "T8": top_rows[4]["d"],   
 
             # 1. 健康管理
             "M14": health_item1,
