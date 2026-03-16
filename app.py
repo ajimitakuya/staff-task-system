@@ -2658,6 +2658,292 @@ def render_assessment_form_page(doc_title: str):
             key=f"{doc_title}_download_excel"
         )
 
+    resident_id = str(selected_row.get("resident_id", "")).strip()
+
+    saved_df = get_document_records("アセスメント", resident_id)
+
+    saved_options = ["新規作成"]
+    saved_map = {"新規作成": None}
+
+    if saved_df is not None and not saved_df.empty:
+        for _, row in saved_df.iterrows():
+            rid = str(row.get("record_id", "")).strip()
+            updated_at = str(row.get("updated_at", "")).strip()
+            label = f"{rid} / {updated_at}"
+            saved_options.append(label)
+            saved_map[label] = rid
+
+    selected_saved_label = st.selectbox(
+        "保存済みデータ",
+        saved_options,
+        key=f"{doc_title}_saved_record_select"
+    )
+
+    selected_record_id = saved_map[selected_saved_label]
+
+    if st.button("保存済みを読み込む", key=f"{doc_title}_load_saved"):
+        if selected_record_id is not None:
+            saved_json = load_document_json(selected_record_id)
+
+            if saved_json:
+                for k, v in saved_json.items():
+                    st.session_state[f"{doc_title}_{k}"] = v
+
+                st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
+                st.success("保存済みデータを読み込んだある！")
+                st.rerun()
+            else:
+                st.warning("保存データが見つからないある。")    
+
+    basic_cols = st.columns([7, 2, 2, 2])
+
+    with basic_cols[0]:
+        st.text_input(
+            "利用者氏名",
+            value=resident_name,
+            key=f"{doc_title}_resident_name",
+            disabled=True
+        )
+
+    with basic_cols[1]:
+        year_val = st.text_input("作成年（西暦）", key=f"{doc_title}_year", placeholder="2026")
+    with basic_cols[2]:
+        month_val = st.text_input("月", key=f"{doc_title}_month", placeholder="3")
+    with basic_cols[3]:
+        day_val = st.text_input("日", key=f"{doc_title}_day", placeholder="14")
+
+    st.divider()
+
+    st.markdown("## 本文入力")
+
+    policy_val = st.text_area(
+        "サービス等利用計画の総合的な方針",
+        key=f"{doc_title}_policy",
+        height=120,
+        placeholder="B8 に入る内容ある"
+    )
+
+    long_goal_val = st.text_area(
+        "長期目標（内容・期間等）",
+        key=f"{doc_title}_long_goal",
+        height=100,
+        placeholder="B10 に入る内容ある"
+    )
+
+    short_goal_val = st.text_area(
+        "短期目標（内容・期間等）",
+        key=f"{doc_title}_short_goal",
+        height=100,
+        placeholder="B12 に入る内容ある"
+    )
+
+    st.divider()
+    st.markdown("## 具体的達成目標（3行）")
+    st.caption("帳票の 17〜19 行に入る部分ある。")
+
+    header_cols = st.columns([5, 3, 4, 2, 2, 2])
+    with header_cols[0]:
+        st.markdown("**具体的達成目標**")
+    with header_cols[1]:
+        st.markdown("**本人の役割**")
+    with header_cols[2]:
+        st.markdown("**支援内容**")
+    with header_cols[3]:
+        st.markdown("**支援期間**")
+    with header_cols[4]:
+        st.markdown("**担当者**")
+    with header_cols[5]:
+        st.markdown("**優先順位**")
+
+    row_data = []
+
+    for i in range(1, 4):
+        st.markdown(f"### {i}行目")
+        row_cols = st.columns([5, 3, 4, 2, 2, 2])
+
+        with row_cols[0]:
+            target_val = st.text_area(
+                f"{i}行目_具体的達成目標",
+                key=f"{doc_title}_target_{i}",
+                height=90,
+                label_visibility="collapsed",
+                placeholder="C17〜C19"
+            )
+
+        with row_cols[1]:
+            role_val = st.text_area(
+                f"{i}行目_本人の役割",
+                key=f"{doc_title}_role_{i}",
+                height=90,
+                label_visibility="collapsed",
+                placeholder="G17〜G19"
+            )
+
+        with row_cols[2]:
+            support_val = st.text_area(
+                f"{i}行目_支援内容",
+                key=f"{doc_title}_support_{i}",
+                height=90,
+                label_visibility="collapsed",
+                placeholder="J17〜J19"
+            )
+
+        with row_cols[3]:
+            period_val = st.text_input(
+                f"{i}行目_支援期間",
+                key=f"{doc_title}_period_{i}",
+                label_visibility="collapsed",
+                placeholder="M17〜M19"
+            )
+
+        with row_cols[4]:
+            person_val = st.text_input(
+                f"{i}行目_担当者",
+                key=f"{doc_title}_person_{i}",
+                label_visibility="collapsed",
+                placeholder="O17〜O19"
+            )
+
+        with row_cols[5]:
+            priority_val = st.selectbox(
+                f"{i}行目_優先順位",
+                ["", "1", "2", "3"],
+                key=f"{doc_title}_priority_{i}",
+                label_visibility="collapsed"
+            )
+
+        row_data.append({
+            "target": target_val,
+            "role": role_val,
+            "support": support_val,
+            "period": period_val,
+            "person": person_val,
+            "priority": priority_val,
+        })
+
+    st.divider()
+    st.markdown("## 同意・担当者")
+
+    agree_cols = st.columns([2, 2, 2, 4])
+
+    with agree_cols[0]:
+        agree_year_val = st.text_input("同意日_西暦", key=f"{doc_title}_agree_year", placeholder="2026")
+    with agree_cols[1]:
+        agree_month_val = st.text_input("同意日_月", key=f"{doc_title}_agree_month", placeholder="3")
+    with agree_cols[2]:
+        agree_day_val = st.text_input("同意日_日", key=f"{doc_title}_agree_day", placeholder="14")
+    with agree_cols[3]:
+        manager_val = st.text_input("サービス担当責任者", key=f"{doc_title}_manager", placeholder="N21")
+
+    st.divider()
+
+    form_data = {
+        "interviewer_name": interviewer_name,
+        "hear_year": hear_year,
+        "hear_month": hear_month,
+        "hear_day": hear_day,
+        "furigana": furigana,
+        "full_name": full_name,
+        "birth_year": birth_year,
+        "birth_month": birth_month,
+        "birth_day": birth_day,
+        "age": age,
+        "current_zip_1": current_zip_1,
+        "current_zip_2": current_zip_2,
+        "current_phone": current_phone,
+        "nearest_station": nearest_station,
+        "current_address": current_address,
+        "emergency_zip_1": emergency_zip_1,
+        "emergency_zip_2": emergency_zip_2,
+        "emergency_relation": emergency_relation,
+        "emergency_phone_fax": emergency_phone_fax,
+        "emergency_address": emergency_address,
+        "support_city": support_city,
+        "support_city_type": support_city_type,
+        "support_office": support_office,
+        "support_worker": support_worker,
+        "handbook_grade": handbook_grade,
+        "handbook_year": handbook_year,
+        "handbook_month": handbook_month,
+        "handbook_day": handbook_day,
+        "disability_summary": disability_summary,
+        "support_level": support_level,
+        "guardian_status": guardian_status,
+        "guardian_name": guardian_name,
+        "pension_status": pension_status,
+        "allowance_status": allowance_status,
+        "pension_detail": pension_detail,
+        "allowance_detail": allowance_detail,
+        "transport_pass": transport_pass,
+        "welfare_status": welfare_status,
+        "public_support": public_support,
+        "family_rows": family_rows,
+        "housing_transport": housing_transport,
+        "housing_transport_other": housing_transport_other,
+        "housing_use_status": housing_use_status,
+        "housing_use_status_other": housing_use_status_other,
+        "available_transport": available_transport,
+        "available_transport_other": available_transport_other,
+        "available_use_status": available_use_status,
+        "available_use_status_other": available_use_status_other,
+        "life_rows": life_rows,
+        "disease_name": disease_name,
+        "disease_symptom": disease_symptom,
+        "hospital_name": hospital_name,
+        "doctor_name": doctor_name,
+        "hospital_contact": hospital_contact,
+        "visit_frequency": visit_frequency,
+        "medication_status": medication_status,
+        "mind_rows": mind_rows,
+        "service_rows": service_rows,
+        "day_flow": day_flow,
+        "special_note": special_note,
+        "wish_user": wish_user,
+        "wish_family": wish_family,
+        "future_direction": future_direction,
+    }
+
+    with st.expander("入力内容確認"):
+        st.write(f"利用者氏名: {resident_name}")
+        st.write(f"作成年月日: {year_val} / {month_val} / {day_val}")
+        st.write(f"総合的な方針: {policy_val}")
+        st.write(f"長期目標: {long_goal_val}")
+        st.write(f"短期目標: {short_goal_val}")
+        st.write(f"同意書日付: {agree_year_val} / {agree_month_val} / {agree_day_val}")
+        st.write(f"サービス担当責任者: {manager_val}")
+
+        for idx, item in enumerate(row_data, start=1):
+            st.markdown(f"**{idx}行目**")
+            st.write(item)
+
+    st.markdown("### 保存")
+
+    loaded_record_id = st.session_state.get(f"{doc_title}_loaded_record_id")
+
+    save_cols = st.columns([1, 1, 4])
+
+    with save_cols[0]:
+        if st.button("新規保存", key=f"{doc_title}_save_new"):
+            new_id = save_document_record(
+                resident_id=resident_id,
+                resident_name=resident_name,
+                doc_type="アセスメント",
+                form_data=form_data
+            )
+            st.session_state[f"{doc_title}_loaded_record_id"] = new_id
+            st.success(f"新規保存したある！ record_id = {new_id}")
+
+    with save_cols[1]:
+        if st.button("上書き保存", key=f"{doc_title}_save_update"):
+            if loaded_record_id:
+                ok = update_document_record(loaded_record_id, form_data)
+                if ok:
+                    st.success(f"上書き保存したある！ record_id = {loaded_record_id}")
+                else:
+                    st.warning("上書き対象が見つからないある。")
+            else:
+                st.warning("先に保存済みデータを読み込むか、新規保存してほしいある。")
+
 def render_basic_sheet_form_page(doc_title: str):
     st.title("📋 基本シート")
     st.caption("基本シート入力ページある。入力とExcel出力までつなぐある。")
