@@ -671,6 +671,7 @@ page_options = [
     "書類_在宅評価シート",
     "書類_アセスメント",
     "書類_基本シート",
+    "書類_就労分野シート",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -820,6 +821,7 @@ document_page_options = [
     ("書類_在宅評価シート", "在宅評価シート"),
     ("書類_アセスメント", "アセスメント"),
     ("書類_基本シート", "基本シート"),
+    ("書類_就労分野シート", "就労分野シート"),
 ]
 
 for p in main_page_options:
@@ -875,6 +877,7 @@ TEMPLATE_FILES = {
     "在宅評価シート": "在宅評価シート.xlsx",
     "アセスメント": "アセスメントシート.xlsx",
     "基本シート": "基本シート.xlsx",
+    "就労分野シート": "就労分野シート.xlsx",    
 }
 
 
@@ -2616,6 +2619,384 @@ def render_basic_sheet_form_page(doc_title: str):
             label="ダウンロード",
             data=file,
             file_name=f"基本シート_{resident_name}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"{doc_title}_download_excel"
+        )
+
+def render_work_sheet_form_page(doc_title: str):
+    st.title("📋 就労分野シート")
+    st.caption("就労分野シート入力ページある。入力とExcel出力までつなぐある。")
+
+    st.markdown("## 基本情報")
+
+    master_df = get_resident_master_df()
+
+    if master_df is None or master_df.empty:
+        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        return
+
+    master_df = master_df.fillna("").copy()
+
+    resident_options = []
+    resident_map = {}
+
+    for _, row in master_df.iterrows():
+        rid = str(row.get("resident_id", "")).strip()
+        rname = str(row.get("resident_name", "")).strip()
+        status = str(row.get("status", "")).strip()
+
+        if not rname:
+            continue
+
+        label = f"{rname}"
+        if rid:
+            label += f" ({rid})"
+        if status:
+            label += f" / {status}"
+
+        resident_options.append(label)
+        resident_map[label] = row.to_dict()
+
+    if not resident_options:
+        st.warning("利用者情報がまだ登録されてないある。")
+        return
+
+    selected_label = st.selectbox(
+        "誰の書類を入力するか",
+        resident_options,
+        key=f"{doc_title}_resident_select"
+    )
+
+    selected_row = resident_map[selected_label]
+    resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    # -----------------------------
+    # 聞き取り情報
+    # P1 / Y1 / AD1 / AG1
+    # -----------------------------
+    st.markdown("### 聞き取り情報")
+
+    hear_cols = st.columns([4, 2, 1, 1])
+    with hear_cols[0]:
+        interviewer_name = st.text_input("聞き取り者名", key=f"{doc_title}_interviewer_name")
+    with hear_cols[1]:
+        hear_year = st.text_input("聞き取り日（西暦）", key=f"{doc_title}_hear_year", placeholder="2026")
+    with hear_cols[2]:
+        hear_month = st.text_input("月", key=f"{doc_title}_hear_month", placeholder="3")
+    with hear_cols[3]:
+        hear_day = st.text_input("日", key=f"{doc_title}_hear_day", placeholder="15")
+
+    st.divider()
+
+    # -----------------------------
+    # 4〜8行目 表
+    # -----------------------------
+    st.markdown("## 基本情報表")
+    st.caption("4〜8行目の表をソフト側でも入力できるようにしたある。")
+
+    top_rows = []
+    for i in range(5):
+        st.markdown(f"### 表 {i+1} 行目")
+        cols = st.columns([2, 2, 2, 2])
+        with cols[0]:
+            top_a = st.text_input("左項目", key=f"{doc_title}_top_a_{i}")
+        with cols[1]:
+            top_b = st.text_input("左内容", key=f"{doc_title}_top_b_{i}")
+        with cols[2]:
+            top_c = st.text_input("右項目", key=f"{doc_title}_top_c_{i}")
+        with cols[3]:
+            top_d = st.text_input("右内容", key=f"{doc_title}_top_d_{i}")
+
+        top_rows.append({
+            "a": top_a,
+            "b": top_b,
+            "c": top_c,
+            "d": top_d,
+        })
+
+    st.divider()
+
+    # -----------------------------
+    # 1. 健康管理
+    # -----------------------------
+    st.markdown("## １．健康管理")
+
+    health_item1 = st.selectbox("①体調管理　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_health_item1")
+    health_item2 = st.selectbox("②服薬管理　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_health_item2")
+    health_item3 = st.selectbox("③食事管理　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_health_item3")
+
+    health_point = st.text_area(
+        "支援ポイント等記載欄",
+        key=f"{doc_title}_health_point",
+        height=160
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 2. 日常生活管理
+    # -----------------------------
+    st.markdown("## ２．日常生活管理")
+
+    daily_item1 = st.selectbox("①生活リズム　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_daily_item1")
+    daily_item2 = st.selectbox("②みだしなみ　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_daily_item2")
+    daily_item3 = st.selectbox("③清潔保持　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_daily_item3")
+    daily_item4 = st.selectbox("④金銭管理　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_daily_item4")
+    daily_item5 = st.selectbox("⑤移動　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_daily_item5")
+
+    daily_point = st.text_area(
+        "支援ポイント等記載欄",
+        key=f"{doc_title}_daily_point",
+        height=180
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 3. 就労に関すること
+    # -----------------------------
+    st.markdown("## ３．就労に関すること")
+
+    work_item1 = st.selectbox("①就労理解　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_work_item1")
+    work_item2 = st.selectbox("②就労意識　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_work_item2")
+    work_item3 = st.selectbox("③就労意欲　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_work_item3")
+    work_item4 = st.selectbox("④体力、精神力　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_work_item4")
+    work_item5 = st.selectbox("⑤家族の支援　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_work_item5")
+
+    work_point = st.text_area(
+        "支援ポイント等記載欄",
+        key=f"{doc_title}_work_point",
+        height=180
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 5. 基本的労働習慣
+    # -----------------------------
+    st.markdown("## ５．基本的労働習慣")
+
+    labor_item1 = st.selectbox("①あいさつ　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_labor_item1")
+    labor_item2 = st.selectbox("②報告・連絡・相談　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_labor_item2")
+    labor_item3 = st.selectbox("③毎日の通所　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_labor_item3")
+    labor_item4 = st.selectbox("④規則の順守　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_labor_item4")
+
+    labor_point = st.text_area(
+        "支援ポイント等記載欄",
+        key=f"{doc_title}_labor_point",
+        height=160
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 6. 職業適性
+    # -----------------------------
+    st.markdown("## ６．職業適性")
+
+    aptitude_item1 = st.selectbox("①指示の理解　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_aptitude_item1")
+    aptitude_item2 = st.selectbox("②持続力、集中力　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_aptitude_item2")
+    aptitude_item3 = st.selectbox("③正確性　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_aptitude_item3")
+    aptitude_item4 = st.selectbox("④責任感　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_aptitude_item4")
+    aptitude_item5 = st.selectbox("⑤自己理解①　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_aptitude_item5")
+    aptitude_item6 = st.selectbox("⑥自己理解②　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_aptitude_item6")
+
+    aptitude_point = st.text_area(
+        "支援ポイント等記載欄",
+        key=f"{doc_title}_aptitude_point",
+        height=200
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 7. 利用経過及び就労歴
+    # -----------------------------
+    st.markdown("## ７．現状に至る障がい福祉サービスの利用経過及び就労歴")
+
+    history_rows = []
+    base_rows = [1, 2, 3]
+
+    for i in range(3):
+        st.markdown(f"### 就労歴 {i+1}")
+
+        col1 = st.columns([1, 2])
+        with col1[0]:
+            period = st.text_input("期間（時期）", key=f"{doc_title}_history_period_{i}")
+        with col1[1]:
+            company = st.text_input("企業・事業所名", key=f"{doc_title}_history_company_{i}")
+
+        col2 = st.columns([2, 2])
+        with col2[0]:
+            business = st.text_area("事業内容（具体的に）", key=f"{doc_title}_history_business_{i}", height=100)
+        with col2[1]:
+            condition = st.text_area("労働条件（給与、労働時間、休日など）", key=f"{doc_title}_history_condition_{i}", height=100)
+
+        note = st.text_area(
+            "特記事項（職場でのエピソード、離職理由等）",
+            key=f"{doc_title}_history_note_{i}",
+            height=120
+        )
+
+        history_rows.append({
+            "period": period,
+            "company": company,
+            "business": business,
+            "condition": condition,
+            "note": note
+        })
+
+    hope_service = st.text_area(
+        "当事業所のサービス利用に対する本人の希望",
+        key=f"{doc_title}_hope_service",
+        height=120
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 8. 総合所見
+    # -----------------------------
+    st.markdown("## ８．総合所見")
+
+    hope_work = st.text_area(
+        "本人が希望している就労内容",
+        key=f"{doc_title}_hope_work",
+        height=120
+    )
+
+    readiness = st.text_area(
+        "本人が自覚している就労準備性の状況",
+        key=f"{doc_title}_readiness",
+        height=120
+    )
+
+    suitable_work = st.text_area(
+        "本人に向いていると判断される就労内容",
+        key=f"{doc_title}_suitable_work",
+        height=120
+    )
+
+    opinion = st.text_area(
+        "聞き取り者所見",
+        key=f"{doc_title}_opinion",
+        height=120
+    )
+
+    direction = st.text_area(
+        "支援の方向性や方針",
+        key=f"{doc_title}_direction",
+        height=120
+    )
+
+    st.divider()
+
+    with st.expander("入力内容確認"):
+        st.write({
+            "利用者名": resident_name,
+            "聞き取り者名": interviewer_name,
+            "聞き取り日": f"{hear_year}/{hear_month}/{hear_day}",
+            "表(4〜8行目)": top_rows,
+            "健康管理": [health_item1, health_item2, health_item3, health_point],
+            "日常生活管理": [daily_item1, daily_item2, daily_item3, daily_item4, daily_item5, daily_point],
+            "就労に関すること": [work_item1, work_item2, work_item3, work_item4, work_item5, work_point],
+            "基本的労働習慣": [labor_item1, labor_item2, labor_item3, labor_item4, labor_point],
+            "職業適性": [aptitude_item1, aptitude_item2, aptitude_item3, aptitude_item4, aptitude_item5, aptitude_item6, aptitude_point],
+            "就労歴": history_rows,
+            "サービス利用希望": hope_service,
+            "総合所見": [hope_work, readiness, suitable_work, opinion, direction]
+        })
+
+    st.divider()
+    st.markdown("### Excel出力")
+
+    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
+        cell_data = {
+            "P1": interviewer_name,
+            "Y1": hear_year,
+            "AD1": hear_month,
+            "AG1": hear_day,
+
+            # 4〜8行目の表
+            "A4": top_rows[0]["a"], "G4": top_rows[0]["b"], "N4": top_rows[0]["c"], "T4": top_rows[0]["d"],
+            "A5": top_rows[1]["a"], "G5": top_rows[1]["b"], "N5": top_rows[1]["c"], "T5": top_rows[1]["d"],
+            "A6": top_rows[2]["a"], "G6": top_rows[2]["b"], "N6": top_rows[2]["c"], "T6": top_rows[2]["d"],
+            "A7": top_rows[3]["a"], "G7": top_rows[3]["b"], "N7": top_rows[3]["c"], "T7": top_rows[3]["d"],
+            "A8": top_rows[4]["a"], "G8": top_rows[4]["b"], "N8": top_rows[4]["c"], "T8": top_rows[4]["d"],
+
+            # 1. 健康管理
+            "M14": health_item1,
+            "M16": health_item2,
+            "M18": health_item3,
+            "P14": health_point,
+
+            # 2. 日常生活管理
+            "M22": daily_item1,
+            "M24": daily_item2,
+            "M26": daily_item3,
+            "M28": daily_item4,
+            "M30": daily_item5,
+            "P22": daily_point,
+
+            # 3. 就労に関すること
+            "M44": work_item1,
+            "M46": work_item2,
+            "M48": work_item3,
+            "M50": work_item4,
+            "M52": work_item5,
+            "P44": work_point,
+
+            # 5. 基本的労働習慣
+            "M58": labor_item1,
+            "M60": labor_item2,
+            "M62": labor_item3,
+            "M64": labor_item4,
+            "P58": labor_point,
+
+            # 6. 職業適性
+            "M68": aptitude_item1,
+            "M70": aptitude_item2,
+            "M72": aptitude_item3,
+            "M74": aptitude_item4,
+            "M76": aptitude_item5,
+            "M78": aptitude_item6,
+            "P68": aptitude_point,
+
+            # 7. 利用経過及び就労歴
+            "A84": history_rows[0]["period"],
+            "A85": history_rows[0]["company"],
+            "J84": history_rows[0]["business"],
+            "W84": history_rows[0]["condition"],
+            "A87": history_rows[0]["note"],
+
+            "A91": history_rows[1]["period"],
+            "A92": history_rows[1]["company"],
+            "J91": history_rows[1]["business"],
+            "W91": history_rows[1]["condition"],
+            "A94": history_rows[1]["note"],
+
+            "A98": history_rows[2]["period"],
+            "A99": history_rows[2]["company"],
+            "J98": history_rows[2]["business"],
+            "W98": history_rows[2]["condition"],
+            "A101": history_rows[2]["note"],
+
+            "J99": hope_service,
+
+            # 8. 総合所見
+            "J105": hope_work,
+            "J109": readiness,
+            "J112": suitable_work,
+            "J116": opinion,
+            "J121": direction,
+        }
+
+        file = create_excel_file("就労分野シート", cell_data)
+
+        st.download_button(
+            label="ダウンロード",
+            data=file,
+            file_name=f"就労分野シート_{resident_name}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key=f"{doc_title}_download_excel"
         )
@@ -5659,3 +6040,5 @@ elif page == "書類_アセスメント":
     render_assessment_form_page("アセスメント")
 elif page == "書類_基本シート":
     render_basic_sheet_form_page("基本シート")
+elif page == "書類_就労分野シート":
+    render_work_sheet_form_page("就労分野シート")
