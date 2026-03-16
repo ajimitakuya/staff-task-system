@@ -1950,6 +1950,190 @@ def render_assessment_form_page(doc_title: str):
             key=f"{doc_title}_download_excel"
         )
 
+        st.markdown("## 手帳・福祉制度")
+
+col1,col2,col3 = st.columns(3)
+
+with col1:
+    handbook_grade = st.text_input("手帳級 (G19)")
+
+with col2:
+    handbook_year = st.number_input("取得年",1900,2100,key="Y19")
+
+with col3:
+    handbook_month = st.number_input("取得月",1,12,key="AD19")
+
+handbook_day = st.number_input("取得日",1,31,key="AG19")
+
+disability_summary = st.text_area("障害状況概要・取得経緯 (G21)")
+
+col1,col2 = st.columns(2)
+
+with col1:
+    support_level = st.selectbox(
+        "障害支援区分 (G24)",
+        ["区分無し","区分1","区分2","区分3","区分4","区分5","区分6"]
+    )
+
+with col2:
+    guardian = st.text_input("成年後見人 (X24)")
+
+col1,col2 = st.columns(2)
+
+with col1:
+    pension = st.text_input("年金 (G26)")
+
+with col2:
+    allowance = st.text_input("特別児童扶養手当等 (X26)")
+
+
+col1,col2,col3 = st.columns(3)
+
+with col1:
+    transport_pass = st.selectbox(
+        "大阪市交通局優待乗車証",
+        ["なし","無料","半額"]
+    )
+
+with col2:
+    welfare = st.selectbox(
+        "生活保護",
+        ["なし","あり"]
+    )
+
+with col3:
+    public_support = st.text_input("公費医療・福祉用具")
+
+
+# -----------------------------
+# 家族状況
+# -----------------------------
+
+st.markdown("## 家族の状況")
+
+family_rows = []
+
+for i in range(4):
+
+    col1,col2,col3,col4,col5,col6 = st.columns([2,1,1,2,1,2])
+
+    name = col1.text_input("氏名",key=f"family_name_{i}")
+    relation = col2.text_input("続柄",key=f"family_rel_{i}")
+    age = col3.number_input("年齢",0,120,key=f"family_age_{i}")
+    job = col4.text_input("職業",key=f"family_job_{i}")
+    live = col5.selectbox("同居別居",["同居","別居"],key=f"family_live_{i}")
+    note = col6.text_input("特記事項",key=f"family_note_{i}")
+
+    family_rows.append([name,relation,age,job,live,note])
+
+
+# -----------------------------
+# 住居環境
+# -----------------------------
+
+st.markdown("## 住居環境")
+
+transport = st.multiselect(
+    "利用可能交通手段",
+    ["電車","バス","自転車","その他"]
+)
+
+transport_status = st.selectbox(
+    "利用状況",
+    ["単独利用","家族付き添い","その他"]
+)
+
+
+# -----------------------------
+# 生活歴
+# -----------------------------
+
+st.markdown("## 生活歴")
+
+life_history = []
+
+for i in range(3):
+
+    col1,col2 = st.columns([1,3])
+
+    date = col1.text_input("年月日",key=f"life_date_{i}")
+    history = col2.text_area("生活歴",key=f"life_history_{i}")
+
+    life_history.append([date,history])
+
+
+# -----------------------------
+# 医療機関
+# -----------------------------
+
+st.markdown("## 医療機関")
+
+disease = st.text_input("病名")
+symptom = st.text_input("症状")
+
+col1,col2,col3 = st.columns(3)
+
+hospital = col1.text_input("病院名")
+doctor = col2.text_input("医師名")
+phone = col3.text_input("連絡先")
+
+col1,col2 = st.columns(2)
+
+visit = col1.text_input("通院頻度")
+medicine = col2.text_input("服薬状況")
+
+
+# -----------------------------
+# 心身状況
+# -----------------------------
+
+st.markdown("## 心身状況")
+
+for i in range(2):
+
+    col1,col2,col3 = st.columns([2,3,3])
+
+    col1.text_input("障害名・病名",key=f"mind_dis_{i}")
+    col2.text_input("症状",key=f"mind_sym_{i}")
+    col3.text_input("必要支援",key=f"mind_support_{i}")
+
+
+# -----------------------------
+# 福祉サービス利用
+# -----------------------------
+
+st.markdown("## 障害福祉サービス利用")
+
+for i in range(3):
+
+    col1,col2,col3,col4 = st.columns([1,2,1,2])
+
+    col1.text_input("開始日",key=f"service_date_{i}")
+    col2.text_input("サービス名",key=f"service_name_{i}")
+    col3.text_input("利用量/月",key=f"service_amount_{i}")
+    col4.text_input("事業所",key=f"service_place_{i}")
+
+
+# -----------------------------
+# 生活の流れ
+# -----------------------------
+
+st.markdown("## 生活の流れ")
+
+day_flow = st.text_area("1日の生活")
+week_note = st.text_area("特記事項")
+
+
+# -----------------------------
+# 総合所見
+# -----------------------------
+
+st.markdown("## 総合所見")
+
+wish_user = st.text_area("本人の希望")
+wish_family = st.text_area("家族・関係者の希望")
+future = st.text_area("課題・今後方向")
+
 def get_next_numeric_id(df, col_name="id", start=1):
     if df is None or df.empty or col_name not in df.columns:
         return start
