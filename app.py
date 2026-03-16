@@ -670,6 +670,7 @@ page_options = [
     "書類_モニタリング",
     "書類_在宅評価シート",
     "書類_アセスメント",
+    "書類_基本シート",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -818,6 +819,7 @@ document_page_options = [
     ("書類_モニタリング", "モニタリング"),
     ("書類_在宅評価シート", "在宅評価シート"),
     ("書類_アセスメント", "アセスメント"),
+    ("書類_基本シート", "基本シート"),
 ]
 
 for p in main_page_options:
@@ -872,6 +874,7 @@ TEMPLATE_FILES = {
     "モニタリング": "モニタリング.xlsx",
     "在宅評価シート": "在宅評価シート.xlsx",
     "アセスメント": "アセスメントシート.xlsx",
+    "基本シート": "基本シート.xlsx",
 }
 
 
@@ -2436,6 +2439,183 @@ def render_assessment_form_page(doc_title: str):
             label="ダウンロード",
             data=file,
             file_name=f"アセスメント_{full_name if full_name else resident_name}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"{doc_title}_download_excel"
+        )
+
+def render_basic_sheet_form_page(doc_title: str):
+    st.title("📋 基本シート")
+    st.caption("基本シート入力ページある。入力とExcel出力までつなぐある。")
+
+    st.markdown("## 基本情報")
+
+    master_df = get_resident_master_df()
+
+    if master_df is None or master_df.empty:
+        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        return
+
+    master_df = master_df.fillna("").copy()
+
+    resident_options = []
+    resident_map = {}
+
+    for _, row in master_df.iterrows():
+        rid = str(row.get("resident_id", "")).strip()
+        rname = str(row.get("resident_name", "")).strip()
+        status = str(row.get("status", "")).strip()
+
+        if not rname:
+            continue
+
+        label = f"{rname}"
+        if rid:
+            label += f" ({rid})"
+        if status:
+            label += f" / {status}"
+
+        resident_options.append(label)
+        resident_map[label] = row.to_dict()
+
+    if not resident_options:
+        st.warning("利用者情報がまだ登録されてないある。")
+        return
+
+    selected_label = st.selectbox(
+        "誰の書類を入力するか",
+        resident_options,
+        key=f"{doc_title}_resident_select"
+    )
+
+    selected_row = resident_map[selected_label]
+    resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    # -----------------------------
+    # 聞き取り情報
+    # P1 / AB1 / AG1 / AJ1
+    # -----------------------------
+    st.markdown("### 聞き取り情報")
+
+    hear_cols = st.columns([4, 2, 1, 1])
+    with hear_cols[0]:
+        interviewer_name = st.text_input("聞き取り者名", key=f"{doc_title}_interviewer_name")
+    with hear_cols[1]:
+        hear_year = st.text_input("聞き取り日（西暦）", key=f"{doc_title}_hear_year", placeholder="2026")
+    with hear_cols[2]:
+        hear_month = st.text_input("月", key=f"{doc_title}_hear_month", placeholder="3")
+    with hear_cols[3]:
+        hear_day = st.text_input("日", key=f"{doc_title}_hear_day", placeholder="15")
+
+    st.divider()
+
+    # -----------------------------
+    # 1. 生活と家族に関すること
+    # A10
+    # -----------------------------
+    st.markdown("## １．生活と家族に関すること")
+    life_family = st.text_area(
+        "経済環境、住環境、日常の意思決定、家庭内での立ち位置や役割など",
+        key=f"{doc_title}_life_family",
+        height=220
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 2. 健康維持に関すること
+    # A29
+    # -----------------------------
+    st.markdown("## ２．健康維持に関すること")
+    health = st.text_area(
+        "服薬管理、食事管理、睡眠、病気への注意、疾病への認識、通院、具合が悪くなった時の対応、医学的管理、必要な体力の維持など",
+        key=f"{doc_title}_health",
+        height=260
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 3. 社会生活に関すること
+    # A46
+    # -----------------------------
+    st.markdown("## ３．社会生活に関すること")
+    social = st.text_area(
+        "キーパーソンの存在、人付き合い、社会参加など",
+        key=f"{doc_title}_social",
+        height=220
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 4. その他
+    # A63
+    # -----------------------------
+    st.markdown("## ４．その他")
+    other = st.text_area(
+        "日常生活動作、日常生活への支障や課題など",
+        key=f"{doc_title}_other",
+        height=220
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 5. 総合所見
+    # I74 / I80
+    # -----------------------------
+    st.markdown("## ５．総合所見")
+
+    opinion = st.text_area(
+        "聞き取り者所見",
+        key=f"{doc_title}_opinion",
+        height=140
+    )
+
+    direction = st.text_area(
+        "支援の方針・方向性など",
+        key=f"{doc_title}_direction",
+        height=140
+    )
+
+    st.divider()
+
+    with st.expander("入力内容確認"):
+        st.write({
+            "利用者名": resident_name,
+            "聞き取り者名": interviewer_name,
+            "聞き取り日": f"{hear_year}/{hear_month}/{hear_day}",
+            "生活と家族に関すること": life_family,
+            "健康維持に関すること": health,
+            "社会生活に関すること": social,
+            "その他": other,
+            "聞き取り者所見": opinion,
+            "支援の方針・方向性など": direction,
+        })
+
+    st.divider()
+    st.markdown("### Excel出力")
+
+    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
+        cell_data = {
+            "P1": interviewer_name,
+            "AB1": hear_year,
+            "AG1": hear_month,
+            "AJ1": hear_day,
+            "A10": life_family,
+            "A29": health,
+            "A46": social,
+            "A63": other,
+            "I74": opinion,
+            "I80": direction,
+        }
+
+        file = create_excel_file("基本シート", cell_data)
+
+        st.download_button(
+            label="ダウンロード",
+            data=file,
+            file_name=f"基本シート_{resident_name}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key=f"{doc_title}_download_excel"
         )
@@ -5477,3 +5657,5 @@ elif page == "書類_在宅評価シート":
     render_home_evaluation_form_page("在宅評価シート")
 elif page == "書類_アセスメント":
     render_assessment_form_page("アセスメント")
+elif page == "書類_基本シート":
+    render_basic_sheet_form_page("基本シート")
