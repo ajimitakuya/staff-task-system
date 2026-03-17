@@ -2654,19 +2654,6 @@ def render_assessment_form_page(doc_title: str):
             saved_options.append(label)
             saved_map[label] = rid
 
-        if selected_record_id is not None:
-            saved_json = load_document_json(selected_record_id)
-
-            if saved_json:
-                for k, v in saved_json.items():
-                    st.session_state[f"{doc_title}_{k}"] = v
-
-                st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
-                st.success("保存済みデータを読み込んだある！")
-                st.rerun()
-            else:
-                st.warning("保存データが見つからないある。")    
-
     basic_cols = st.columns([7, 2, 2, 2])
 
     with basic_cols[0]:
@@ -2944,7 +2931,7 @@ def render_assessment_form_page(doc_title: str):
 
 def render_basic_sheet_form_page(doc_title: str):
     st.title("📋 基本シート")
-    st.caption("基本シート入力ページある。入力とExcel出力までつなぐある。")
+    st.caption("基本シート入力ページある。入力と保存とExcel出力までつなぐある。")
 
     st.markdown("## 基本情報")
 
@@ -2987,7 +2974,24 @@ def render_basic_sheet_form_page(doc_title: str):
     )
 
     selected_row = resident_map[selected_label]
+    resident_id = str(selected_row.get("resident_id", "")).strip()
     resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    # -----------------------------
+    # 保存済み一覧の準備
+    # -----------------------------
+    saved_df = get_document_records("基本シート", resident_id)
+
+    saved_options = ["新規作成"]
+    saved_map = {"新規作成": None}
+
+    if saved_df is not None and not saved_df.empty:
+        for _, row in saved_df.iterrows():
+            rid = str(row.get("record_id", "")).strip()
+            updated_at = str(row.get("updated_at", "")).strip()
+            label = f"{rid} / {updated_at}"
+            saved_options.append(label)
+            saved_map[label] = rid
 
     # -----------------------------
     # 聞き取り情報
@@ -3079,6 +3083,22 @@ def render_basic_sheet_form_page(doc_title: str):
 
     st.divider()
 
+    # -----------------------------
+    # 保存用データ作成
+    # -----------------------------
+    form_data = {
+        "interviewer_name": interviewer_name,
+        "hear_year": hear_year,
+        "hear_month": hear_month,
+        "hear_day": hear_day,
+        "life_family": life_family,
+        "health": health,
+        "social": social,
+        "other": other,
+        "opinion": opinion,
+        "direction": direction,
+    }
+
     with st.expander("入力内容確認"):
         st.write({
             "利用者名": resident_name,
@@ -3091,6 +3111,60 @@ def render_basic_sheet_form_page(doc_title: str):
             "聞き取り者所見": opinion,
             "支援の方針・方向性など": direction,
         })
+
+    st.markdown("### 保存済みデータ呼び出し")
+
+    selected_saved_label = st.selectbox(
+        "保存済みデータ",
+        saved_options,
+        key=f"{doc_title}_saved_record_select"
+    )
+
+    selected_record_id = saved_map[selected_saved_label]
+
+    if st.button("保存済みを読み込む", key=f"{doc_title}_load_saved"):
+        if selected_record_id is not None:
+            saved_json = load_document_json(selected_record_id)
+
+            if saved_json:
+                for k, v in saved_json.items():
+                    st.session_state[f"{doc_title}_{k}"] = v
+
+                st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
+                st.success("保存済みデータを読み込んだある！")
+                st.rerun()
+            else:
+                st.warning("保存データが見つからないある。")
+        else:
+            st.info("まだ保存済みデータがないので、新規保存してほしいある。")
+
+    st.markdown("### 保存")
+
+    loaded_record_id = st.session_state.get(f"{doc_title}_loaded_record_id")
+
+    save_cols = st.columns([1, 1, 4])
+
+    with save_cols[0]:
+        if st.button("新規保存", key=f"{doc_title}_save_new"):
+            new_id = save_document_record(
+                resident_id=resident_id,
+                resident_name=resident_name,
+                doc_type="基本シート",
+                form_data=form_data
+            )
+            st.session_state[f"{doc_title}_loaded_record_id"] = new_id
+            st.success(f"新規保存したある！ record_id = {new_id}")
+
+    with save_cols[1]:
+        if st.button("上書き保存", key=f"{doc_title}_save_update"):
+            if loaded_record_id:
+                ok = update_document_record(loaded_record_id, form_data)
+                if ok:
+                    st.success(f"上書き保存したある！ record_id = {loaded_record_id}")
+                else:
+                    st.warning("上書き対象が見つからないある。")
+            else:
+                st.warning("先に保存済みデータを読み込むか、新規保存してほしいある。")
 
     st.divider()
     st.markdown("### Excel出力")
@@ -3118,10 +3192,10 @@ def render_basic_sheet_form_page(doc_title: str):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key=f"{doc_title}_download_excel"
         )
-
+    
 def render_work_sheet_form_page(doc_title: str):
     st.title("📋 就労分野シート")
-    st.caption("就労分野シート入力ページある。入力とExcel出力までつなぐある。")
+    st.caption("就労分野シート入力ページある。入力・保存・呼び出し・Excel出力まで対応版ある。")
 
     st.markdown("## 基本情報")
 
@@ -3164,7 +3238,24 @@ def render_work_sheet_form_page(doc_title: str):
     )
 
     selected_row = resident_map[selected_label]
+    resident_id = str(selected_row.get("resident_id", "")).strip()
     resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    # ---------------------------------
+    # 保存済みデータ一覧
+    # ---------------------------------
+    saved_df = get_document_records("就労分野シート", resident_id)
+
+    saved_options = ["新規作成"]
+    saved_map = {"新規作成": None}
+
+    if saved_df is not None and not saved_df.empty:
+        for _, row in saved_df.iterrows():
+            rid = str(row.get("record_id", "")).strip()
+            updated_at = str(row.get("updated_at", "")).strip()
+            label = f"{rid} / {updated_at}"
+            saved_options.append(label)
+            saved_map[label] = rid
 
     # -----------------------------
     # 聞き取り情報
@@ -3308,10 +3399,9 @@ def render_work_sheet_form_page(doc_title: str):
     st.markdown("## ７．現状に至る障がい福祉サービスの利用経過及び就労歴")
 
     history_rows = []
-    base_rows = [1, 2, 3]
 
     for i in range(3):
-        st.markdown(f"### 就労歴 {i+1}")
+        st.markdown(f"### 就労歴 {i + 1}")
 
         col1 = st.columns([1, 2])
         with col1[0]:
@@ -3321,9 +3411,17 @@ def render_work_sheet_form_page(doc_title: str):
 
         col2 = st.columns([2, 2])
         with col2[0]:
-            business = st.text_area("事業内容（具体的に）", key=f"{doc_title}_history_business_{i}", height=100)
+            business = st.text_area(
+                "事業内容（具体的に）",
+                key=f"{doc_title}_history_business_{i}",
+                height=100
+            )
         with col2[1]:
-            condition = st.text_area("労働条件（給与、労働時間、休日など）", key=f"{doc_title}_history_condition_{i}", height=100)
+            condition = st.text_area(
+                "労働条件（給与、労働時間、休日など）",
+                key=f"{doc_title}_history_condition_{i}",
+                height=100
+            )
 
         note = st.text_area(
             "特記事項（職場でのエピソード、離職理由等）",
@@ -3336,7 +3434,7 @@ def render_work_sheet_form_page(doc_title: str):
             "company": company,
             "business": business,
             "condition": condition,
-            "note": note
+            "note": note,
         })
 
     hope_service = st.text_area(
@@ -3384,6 +3482,51 @@ def render_work_sheet_form_page(doc_title: str):
 
     st.divider()
 
+    # ---------------------------------
+    # 保存用データ
+    # ---------------------------------
+    form_data = {
+        "interviewer_name": interviewer_name,
+        "hear_year": hear_year,
+        "hear_month": hear_month,
+        "hear_day": hear_day,
+        "health_item1": health_item1,
+        "health_item2": health_item2,
+        "health_item3": health_item3,
+        "health_point": health_point,
+        "daily_item1": daily_item1,
+        "daily_item2": daily_item2,
+        "daily_item3": daily_item3,
+        "daily_item4": daily_item4,
+        "daily_item5": daily_item5,
+        "daily_point": daily_point,
+        "work_item1": work_item1,
+        "work_item2": work_item2,
+        "work_item3": work_item3,
+        "work_item4": work_item4,
+        "work_item5": work_item5,
+        "work_point": work_point,
+        "labor_item1": labor_item1,
+        "labor_item2": labor_item2,
+        "labor_item3": labor_item3,
+        "labor_item4": labor_item4,
+        "labor_point": labor_point,
+        "aptitude_item1": aptitude_item1,
+        "aptitude_item2": aptitude_item2,
+        "aptitude_item3": aptitude_item3,
+        "aptitude_item4": aptitude_item4,
+        "aptitude_item5": aptitude_item5,
+        "aptitude_item6": aptitude_item6,
+        "aptitude_point": aptitude_point,
+        "history_rows": history_rows,
+        "hope_service": hope_service,
+        "hope_work": hope_work,
+        "readiness": readiness,
+        "suitable_work": suitable_work,
+        "opinion": opinion,
+        "direction": direction,
+    }
+
     with st.expander("入力内容確認"):
         st.write({
             "利用者名": resident_name,
@@ -3396,8 +3539,62 @@ def render_work_sheet_form_page(doc_title: str):
             "職業適性": [aptitude_item1, aptitude_item2, aptitude_item3, aptitude_item4, aptitude_item5, aptitude_item6, aptitude_point],
             "就労歴": history_rows,
             "サービス利用希望": hope_service,
-            "総合所見": [hope_work, readiness, suitable_work, opinion, direction]
+            "総合所見": [hope_work, readiness, suitable_work, opinion, direction],
         })
+
+    st.markdown("### 保存済みデータ呼び出し")
+
+    selected_saved_label = st.selectbox(
+        "保存済みデータ",
+        saved_options,
+        key=f"{doc_title}_saved_record_select"
+    )
+
+    selected_record_id = saved_map[selected_saved_label]
+
+    if st.button("保存済みを読み込む", key=f"{doc_title}_load_saved"):
+        if selected_record_id is not None:
+            saved_json = load_document_json(selected_record_id)
+
+            if saved_json:
+                for k, v in saved_json.items():
+                    st.session_state[f"{doc_title}_{k}"] = v
+
+                st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
+                st.success("保存済みデータを読み込んだある！")
+                st.rerun()
+            else:
+                st.warning("保存データが見つからないある。")
+        else:
+            st.info("まだ保存済みデータがないので、新規保存してほしいある。")
+
+    st.markdown("### 保存")
+
+    loaded_record_id = st.session_state.get(f"{doc_title}_loaded_record_id")
+
+    save_cols = st.columns([1, 1, 4])
+
+    with save_cols[0]:
+        if st.button("新規保存", key=f"{doc_title}_save_new"):
+            new_id = save_document_record(
+                resident_id=resident_id,
+                resident_name=resident_name,
+                doc_type="就労分野シート",
+                form_data=form_data
+            )
+            st.session_state[f"{doc_title}_loaded_record_id"] = new_id
+            st.success(f"新規保存したある！ record_id = {new_id}")
+
+    with save_cols[1]:
+        if st.button("上書き保存", key=f"{doc_title}_save_update"):
+            if loaded_record_id:
+                ok = update_document_record(loaded_record_id, form_data)
+                if ok:
+                    st.success(f"上書き保存したある！ record_id = {loaded_record_id}")
+                else:
+                    st.warning("上書き対象が見つからないある。")
+            else:
+                st.warning("先に保存済みデータを読み込むか、新規保存してほしいある。")
 
     st.divider()
     st.markdown("### Excel出力")
