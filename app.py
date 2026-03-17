@@ -986,7 +986,31 @@ if st.sidebar.button("ログアウト"):
         del st.session_state.last_active_ping
     if "current_page" in st.session_state:
         del st.session_state.current_page
+    if "bee_menu_unlocked" in st.session_state:
+        del st.session_state.bee_menu_unlocked
+    if "secret_bee_cmd" in st.session_state:
+        del st.session_state.secret_bee_cmd
     st.rerun()
+
+if "bee_menu_unlocked" not in st.session_state:
+    st.session_state["bee_menu_unlocked"] = False
+
+with st.sidebar:
+    secret_cmd = st.text_input(
+        " ",
+        key="secret_bee_cmd",
+        placeholder="",
+        label_visibility="collapsed"
+    )
+
+    if secret_cmd == "🐝":
+        st.session_state["bee_menu_unlocked"] = True
+        st.success("🐝裏メニューを解放したある！")
+
+    if st.session_state["bee_menu_unlocked"]:
+        if st.button("🐝knowbe日誌入力🐝", use_container_width=True):
+            st.session_state.current_page = "🐝knowbe日誌入力🐝"
+            st.rerun()
 
 st.sidebar.divider()
 st.sidebar.caption("System Version 2.0")
@@ -3682,6 +3706,113 @@ def render_work_sheet_form_page(doc_title: str):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key=f"{doc_title}_download_excel"
         )
+
+def render_bee_journal_page():
+    st.title("🐝knowbe日誌入力🐝")
+    st.caption("Sue for Bee Assistance 専用の裏メニューある。")
+
+    st.markdown("## 利用者選択")
+
+    master_df = get_resident_master_df()
+    if master_df is None or master_df.empty:
+        st.warning("利用者情報がまだ登録されてないある。")
+        return
+
+    master_df = master_df.fillna("").copy()
+
+    resident_options = []
+    resident_map = {}
+
+    for _, row in master_df.iterrows():
+        rid = str(row.get("resident_id", "")).strip()
+        rname = str(row.get("resident_name", "")).strip()
+
+        if not rname:
+            continue
+
+        label = f"{rname}"
+        if rid:
+            label += f" ({rid})"
+
+        resident_options.append(label)
+        resident_map[label] = row.to_dict()
+
+    if not resident_options:
+        st.warning("利用者がいないある。")
+        return
+
+    selected_label = st.selectbox(
+        "利用者を選ぶ",
+        resident_options,
+        key="bee_resident_select"
+    )
+
+    selected_row = resident_map[selected_label]
+    resident_id = str(selected_row.get("resident_id", "")).strip()
+    resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    st.markdown("## 基本入力")
+
+    input_cols = st.columns([2, 2, 2])
+
+    with input_cols[0]:
+        target_date = st.date_input("日付", key="bee_target_date")
+    with input_cols[1]:
+        start_time = st.text_input("開始時間", key="bee_start_time", placeholder="09:30")
+    with input_cols[2]:
+        end_time = st.text_input("終了時間", key="bee_end_time", placeholder="15:30")
+
+    meal_flag = st.selectbox(
+        "食事提供",
+        ["あり", "なし"],
+        key="bee_meal_flag"
+    )
+
+    note = st.text_area(
+        "備考（選択文でも自由入力でもOK）",
+        key="bee_note",
+        height=100
+    )
+
+    start_memo = st.text_area(
+        "作業開始連絡メモ",
+        key="bee_start_memo",
+        height=120
+    )
+
+    end_memo = st.text_area(
+        "作業終了連絡メモ",
+        key="bee_end_memo",
+        height=120
+    )
+
+    staff_name = st.text_input(
+        "日誌入力者",
+        value=st.session_state.get("user", ""),
+        key="bee_staff_name"
+    )
+
+    use_plan = st.checkbox("支援計画を生成に含める", key="bee_use_plan")
+
+    st.divider()
+
+    st.markdown("## 確認")
+
+    st.write({
+        "resident_id": resident_id,
+        "resident_name": resident_name,
+        "date": str(target_date),
+        "start_time": start_time,
+        "end_time": end_time,
+        "meal_flag": meal_flag,
+        "note": note,
+        "start_memo": start_memo,
+        "end_memo": end_memo,
+        "staff_name": staff_name,
+        "use_plan": use_plan,
+    })
+
+    st.info("次はここに『保存』『例文チェック』『Gemini生成』『Knowbe送信』を足していくある。")
 
 def get_resident_schedule_df():
     return get_resident_schedule_df_cached().copy()
@@ -6724,3 +6855,5 @@ elif page == "書類_基本シート":
     render_basic_sheet_form_page("基本シート")
 elif page == "書類_就労分野シート":
     render_work_sheet_form_page("就労分野シート")
+elif page == "🐝knowbe日誌入力🐝":
+    render_bee_journal_page()
