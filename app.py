@@ -2654,15 +2654,6 @@ def render_assessment_form_page(doc_title: str):
             saved_options.append(label)
             saved_map[label] = rid
 
-    selected_saved_label = st.selectbox(
-        "保存済みデータ",
-        saved_options,
-        key=f"{doc_title}_saved_record_select"
-    )
-
-    selected_record_id = saved_map[selected_saved_label]
-
-    if st.button("保存済みを読み込む", key=f"{doc_title}_load_saved"):
         if selected_record_id is not None:
             saved_json = load_document_json(selected_record_id)
 
@@ -2896,6 +2887,32 @@ def render_assessment_form_page(doc_title: str):
         for idx, item in enumerate(row_data, start=1):
             st.markdown(f"**{idx}行目**")
             st.write(item)
+
+    st.markdown("### 保存済みデータ呼び出し")
+
+    selected_saved_label = st.selectbox(
+        "保存済みデータ",
+        saved_options,
+        key=f"{doc_title}_saved_record_select"
+    )
+
+    selected_record_id = saved_map[selected_saved_label]
+
+    if st.button("保存済みを読み込む", key=f"{doc_title}_load_saved"):
+        if selected_record_id is not None:
+            saved_json = load_document_json(selected_record_id)
+
+            if saved_json:
+                for k, v in saved_json.items():
+                    st.session_state[f"{doc_title}_{k}"] = v
+
+                st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
+                st.success("保存済みデータを読み込んだある！")
+                st.rerun()
+            else:
+                st.warning("保存データが見つからないある。")
+        else:
+            st.info("まだ保存済みデータがないので、新規保存してほしいある。")
 
     st.markdown("### 保存")
 
