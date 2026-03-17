@@ -195,21 +195,24 @@ def get_gspread_client():
     creds_dict = st.secrets["gcp_service_account"]
     creds = Credentials.from_service_account_info(
         creds_dict,
-        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
     )
     return gspread.authorize(creds)
 
-def get_gspread_worksheet(sheet_name):
-    client = get_gspread_client()
-    spreadsheet = client.open("Sue_for_Bee_Assistance_DB")
-    return spreadsheet.worksheet(sheet_name)
 
 def get_gspread_worksheet(sheet_name):
     try:
         client = get_gspread_client()
-        spreadsheet = client.open("Sue_for_Bee_Assistance_DB")
+
+        # 👇ここが超重要（名前 → IDに変更）
+        spreadsheet = client.open_by_key("1vjB0_tyXM9P_9kp6q6HjY9xEY7zpRC7dG41pnaPMYrw")
+
         worksheet = spreadsheet.worksheet(sheet_name)
         return worksheet
+
     except Exception as e:
         st.error(f"シート取得エラー: {e}")
         return None
