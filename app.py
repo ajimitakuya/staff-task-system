@@ -2495,25 +2495,6 @@ def render_assessment_form_page(doc_title: str):
     }
 
     st.divider()
-    st.markdown("### 保存")
-
-    save_cols = st.columns([1, 1, 4])
-
-    with save_cols[0]:
-        if st.button("新規保存", key=f"{doc_title}_save_new"):
-            resident_id = str(selected_row.get("resident_id", "")).strip()
-            new_id = save_document_record(
-                resident_id=resident_id,
-                resident_name=resident_name,
-                doc_type="アセスメント",
-                form_data=form_data
-            )
-            st.success(f"保存したある！ record_id = {new_id}")
-
-    with save_cols[1]:
-        st.caption("まずは新規保存だけ対応ある")
-
-    st.divider()
     st.markdown("### Excel出力")
 
     if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
