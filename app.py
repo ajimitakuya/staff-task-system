@@ -202,6 +202,26 @@ def get_gspread_client():
     )
     return gspread.authorize(creds)
 
+def debug_open_spreadsheets():
+    try:
+        client = get_gspread_client()
+
+        st.write("DEBUG client_email:", st.secrets["gcp_service_account"]["client_email"])
+
+        try:
+            old_ss = client.open_by_key("1UZ0O6Rtfu127YClAYrAoU3us8aneudnO-gFVkjndtaQ")
+            st.write("DEBUG old spreadsheet opened:", old_ss.title)
+        except Exception as e:
+            st.write("DEBUG old spreadsheet NG:", type(e).__name__, str(e))
+
+        try:
+            bee_ss = client.open_by_key("1vjB0_tyXM9P_9kp6q6HjY9xEY7zpRC7dG41pnaPMYrw")
+            st.write("DEBUG bee spreadsheet opened:", bee_ss.title)
+        except Exception as e:
+            st.write("DEBUG bee spreadsheet NG:", type(e).__name__, str(e))
+
+    except Exception as e:
+        st.write("DEBUG client NG:", type(e).__name__, str(e))
 
 def get_gspread_worksheet(sheet_name):
     try:
@@ -3822,6 +3842,8 @@ def render_bee_journal_page():
     if master_df is None or master_df.empty:
         st.warning("利用者情報がまだ登録されてないある。")
         return
+
+    debug_open_spreadsheets()
 
     master_df = master_df.fillna("").copy()
 
