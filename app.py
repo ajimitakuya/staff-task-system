@@ -206,9 +206,17 @@ def get_gspread_client():
 def get_gspread_worksheet(sheet_name):
     try:
         client = get_gspread_client()
-        spreadsheet = client.open_by_key("1vjB0_tyXM9P_9kp6q6HjY9xEY7zpRC7dG41pnaPMYrw")
+        sheet_id = "1vjB0_tyXM9P_9kp6q6HjY9xEY7zpRC7dG41pnaPMYrw"
+        st.write("DEBUG sheet_id:", sheet_id)
+        st.write("DEBUG client_email:", st.secrets["gcp_service_account"]["client_email"])
+
+        spreadsheet = client.open_by_key(sheet_id)
+        st.write("DEBUG spreadsheet opened:", spreadsheet.title)
+
         worksheet = spreadsheet.worksheet(sheet_name)
+        st.write("DEBUG worksheet opened:", worksheet.title)
         return worksheet
+
     except Exception as e:
         st.error(f"シート取得エラー: {type(e).__name__}: {e}")
         return None
