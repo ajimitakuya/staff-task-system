@@ -47,6 +47,14 @@ def get_sheet_name(file):
         return "resident_links"
     elif file == "saved_documents":
         return "saved_documents"
+    elif file == "diary_input_rules":
+        return "diary_input_rules"
+    elif file == "staff_examples":
+        return "staff_examples"
+    elif file == "personal_rules":
+        return "personal_rules"
+    elif file == "assistant_plans":
+        return "assistant_plans"
     else:
         raise ValueError(f"未対応のシート名ある: {file}")
 
