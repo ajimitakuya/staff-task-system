@@ -206,13 +206,9 @@ def get_gspread_client():
 def get_gspread_worksheet(sheet_name):
     try:
         client = get_gspread_client()
-
-        # 👇ここが超重要（名前 → IDに変更）
         spreadsheet = client.open_by_key("1vjB0_tyXM9P_9kp6q6HjY9xEY7zpRC7dG41pnaPMYrw")
-
         worksheet = spreadsheet.worksheet(sheet_name)
         return worksheet
-
     except Exception as e:
         st.error(f"シート取得エラー: {e}")
         return None
