@@ -152,10 +152,15 @@ def load_db(file, retries=3, delay=0.8):
                     "start_time", "end_time", "meal_flag", "note",
                     "start_memo", "end_memo", "staff_name",
                     "generated_status", "generated_support", "created_at",
-                    "knowbe_target", "send_status", "sent_at", "send_error"
+                    "service_type", "knowbe_target", "send_status", "sent_at", "send_error",
+                    "record_mode"
                 ],
                 "staff_examples": [
-                    "staff_name", "example_text", "updated_at"
+                    "staff_name",
+                    "home_start_example", "home_end_example",
+                    "day_start_example", "day_end_example",
+                    "outside_start_example", "outside_end_example",
+                    "updated_at"
                 ],
                 "personal_rules": [
                     "staff_name", "rule_text", "updated_at"
@@ -245,10 +250,12 @@ def save_diary_input_record(
     staff_name,
     generated_status="",
     generated_support="",
+    service_type="在宅",
     knowbe_target="support",
     send_status="draft",
     sent_at="",
-    send_error=""
+    send_error="",
+    record_mode="gemini"
 ):
     df = get_diary_input_rules_df()
 
@@ -279,6 +286,12 @@ def save_diary_input_record(
         "send_status": str(send_status),
         "sent_at": str(sent_at),
         "send_error": str(send_error),
+        "service_type": str(service_type),
+        "knowbe_target": str(knowbe_target),
+        "send_status": str(send_status),
+        "sent_at": str(sent_at),
+        "send_error": str(send_error),
+        "record_mode": str(record_mode),
     }])
 
     df = pd.concat([df, new_row], ignore_index=True)
@@ -3888,6 +3901,23 @@ def render_bee_journal_page():
             key="bee_knowbe_target"
         )
 
+    setting_cols = st.columns([2, 2])
+
+    with setting_cols[0]:
+        service_type = st.selectbox(
+            "サービス種別",
+            ["在宅", "通所", "施設外"],
+            key="bee_service_type"
+        )
+
+    with setting_cols[1]:
+        record_mode = st.selectbox(
+            "記録方法",
+            ["gemini", "raw"],
+            key="bee_record_mode",
+            help="gemini=AIで整える / raw=メモをそのまま記録する"
+        )    
+
     note_mode = st.radio(
         "備考入力方法",
         ["候補から選ぶ", "手入力"],
@@ -3897,11 +3927,10 @@ def render_bee_journal_page():
 
     preset_notes = [
         "",
-        "特記事項なし",
         "在宅利用",
-        "施設外就労",
-        "体調に配慮しながら実施",
-        "無理のない範囲で作業実施",
+        "施設外就労(実施報告書等添付)",
+        "欠席時対応加算",
+        "特記事項無し",
     ]
 
     if note_mode == "候補から選ぶ":
@@ -3934,6 +3963,34 @@ def render_bee_journal_page():
     use_plan = st.checkbox("支援計画を生成に含める", key="bee_use_plan")
 
     st.divider()
+    st.markdown("## スタッフ例文・個人ルール")
+
+    ex_cols1 = st.columns(2)
+    with ex_cols1[0]:
+        home_start_example = st.text_area("在宅作業開始例文", key="bee_home_start_example", height=100)
+    with ex_cols1[1]:
+        home_end_example = st.text_area("在宅作業終了例文", key="bee_home_end_example", height=100)
+
+    ex_cols2 = st.columns(2)
+    with ex_cols2[0]:
+        day_start_example = st.text_area("通所作業開始例文", key="bee_day_start_example", height=100)
+    with ex_cols2[1]:
+        day_end_example = st.text_area("通所作業終了例文", key="bee_day_end_example", height=100)
+
+    ex_cols3 = st.columns(2)
+    with ex_cols3[0]:
+        outside_start_example = st.text_area("施設外作業開始例文", key="bee_outside_start_example", height=100)
+    with ex_cols3[1]:
+        outside_end_example = st.text_area("施設外作業終了例文", key="bee_outside_end_example", height=100)
+
+    rule_text = st.text_area(
+        "個人ルール",
+        key="bee_rule_text",
+        height=160,
+        placeholder="- 日誌は3文から5文程度で書く\n- 必ずセリフを入れる\n- 食事提供無しは伝聞調にする"
+    )
+
+    st.divider()
     st.markdown("## 入力内容確認")
 
     preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
@@ -3951,6 +4008,9 @@ def render_bee_journal_page():
         "staff_name": staff_name,
         "knowbe_target": knowbe_target,
         "use_plan": use_plan,
+        "service_type": service_type,
+        "record_mode": record_mode,
+        "knowbe_target": knowbe_target,
     })
 
     st.divider()
@@ -3985,10 +4045,12 @@ def render_bee_journal_page():
                 staff_name=staff_name,
                 generated_status="",
                 generated_support="",
+                service_type=service_type,
                 knowbe_target=knowbe_target,
                 send_status="draft",
                 sent_at="",
-                send_error=""
+                send_error="",
+                record_mode=record_mode
             )
 
             if record_id is not None:
