@@ -138,7 +138,7 @@ def load_db(file, retries=3, delay=0.8):
                 "resident_links": [
                     "id", "resident_id", "contact_id", "role"
                 ],
-                                 "saved_documents": [
+                "saved_documents": [
                     "record_id",
                     "resident_id",
                     "resident_name",
@@ -151,7 +151,8 @@ def load_db(file, retries=3, delay=0.8):
                     "record_id", "date", "resident_id", "resident_name",
                     "start_time", "end_time", "meal_flag", "note",
                     "start_memo", "end_memo", "staff_name",
-                    "generated_status", "generated_support", "created_at"
+                    "generated_status", "generated_support", "created_at",
+                    "knowbe_target", "send_status", "sent_at", "send_error"
                 ],
                 "staff_examples": [
                     "staff_name", "example_text", "updated_at"
@@ -243,7 +244,11 @@ def save_diary_input_record(
     end_memo,
     staff_name,
     generated_status="",
-    generated_support=""
+    generated_support="",
+    knowbe_target="support",
+    send_status="draft",
+    sent_at="",
+    send_error=""
 ):
     df = get_diary_input_rules_df()
 
@@ -270,6 +275,10 @@ def save_diary_input_record(
         "generated_status": str(generated_status),
         "generated_support": str(generated_support),
         "created_at": created_at,
+        "knowbe_target": str(knowbe_target),
+        "send_status": str(send_status),
+        "sent_at": str(sent_at),
+        "send_error": str(send_error),
     }])
 
     df = pd.concat([df, new_row], ignore_index=True)
@@ -3870,6 +3879,15 @@ def render_bee_journal_page():
             key="bee_staff_name"
         )
 
+    target_cols = st.columns([2, 3])
+
+    with target_cols[0]:
+        knowbe_target = st.selectbox(
+            "送信先",
+            ["support", "home"],
+            key="bee_knowbe_target"
+        )
+
     note_mode = st.radio(
         "備考入力方法",
         ["候補から選ぶ", "手入力"],
@@ -3931,6 +3949,7 @@ def render_bee_journal_page():
         "start_memo": start_memo,
         "end_memo": end_memo,
         "staff_name": staff_name,
+        "knowbe_target": knowbe_target,
         "use_plan": use_plan,
     })
 
@@ -3965,7 +3984,11 @@ def render_bee_journal_page():
                 end_memo=end_memo,
                 staff_name=staff_name,
                 generated_status="",
-                generated_support=""
+                generated_support="",
+                knowbe_target=knowbe_target,
+                send_status="draft",
+                sent_at="",
+                send_error=""
             )
 
             if record_id is not None:
