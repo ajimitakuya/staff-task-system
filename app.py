@@ -138,7 +138,22 @@ def load_db(file, retries=3, delay=0.8):
                     "created_at",
                     "updated_at",
                     "json_data"
-                ],               
+                ],
+                "diary_input_rules": [
+                    "record_id", "date", "resident_id", "resident_name",
+                    "start_time", "end_time", "meal_flag", "note",
+                    "start_memo", "end_memo", "staff_name",
+                    "generated_status", "generated_support", "created_at"
+                ],
+                "staff_examples": [
+                    "staff_name", "example_text", "updated_at"
+                ],
+                "personal_rules": [
+                    "staff_name", "rule_text", "updated_at"
+                ],
+                "assistant_plans": [
+                    "resident_id", "long_term_goal", "short_term_goal", "updated_at"
+                ],
             }
 
             for col in expected_cols[file]:
@@ -187,81 +202,26 @@ def get_saved_documents_df():
                 df[col] = ""
     return df.fillna("")
 
-import gspread
-from google.oauth2.service_account import Credentials
-
-@st.cache_resource
-def get_gspread_client():
-    creds_dict = st.secrets["gcp_service_account"]
-    creds = Credentials.from_service_account_info(
-        creds_dict,
-        scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
-    )
-    return gspread.authorize(creds)
-
-def debug_open_spreadsheets():
-    try:
-        client = get_gspread_client()
-
-        st.write("DEBUG client_email:", st.secrets["gcp_service_account"]["client_email"])
-
-        try:
-            old_ss = client.open_by_key("1UZ0O6Rtfu127YClAYrAoU3us8aneudnO-gFVkjndtaQ")
-            st.write("DEBUG old spreadsheet opened:", old_ss.title)
-        except Exception as e:
-            st.write("DEBUG old spreadsheet NG:", type(e).__name__, str(e))
-
-        try:
-            bee_ss = client.open_by_key("1vjB0_tyXM9P_9kp6q6HjY9xEY7zpRC7dG41pnaPMYrw")
-            st.write("DEBUG bee spreadsheet opened:", bee_ss.title)
-        except Exception as e:
-            st.write("DEBUG bee spreadsheet NG:", type(e).__name__, str(e))
-
-    except Exception as e:
-        st.write("DEBUG client NG:", type(e).__name__, str(e))
-
-def get_gspread_worksheet(sheet_name):
-    try:
-        client = get_gspread_client()
-        sheet_id = "1vjB0_tyXM9P_9kp6q6HjY9xEY7zpRC7dG41pnaPMYrw"
-        st.write("DEBUG sheet_id:", sheet_id)
-        st.write("DEBUG client_email:", st.secrets["gcp_service_account"]["client_email"])
-
-        spreadsheet = client.open_by_key(sheet_id)
-        st.write("DEBUG spreadsheet opened:", spreadsheet.title)
-
-        worksheet = spreadsheet.worksheet(sheet_name)
-        st.write("DEBUG worksheet opened:", worksheet.title)
-        return worksheet
-
-    except Exception as e:
-        st.error(f"シート取得エラー: {type(e).__name__}: {e}")
-        return None
-
-def get_diary_input_rules_df():
-    ws = get_gspread_worksheet("diary_input_rules")
-    if ws is None:
-        return pd.DataFrame(columns=[
+@st.cache_data(ttl=60)
+def get_diary_input_rules_df_cached():
+    df = load_db("diary_input_rules")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
             "record_id", "date", "resident_id", "resident_name",
             "start_time", "end_time", "meal_flag", "note",
             "start_memo", "end_memo", "staff_name",
             "generated_status", "generated_support", "created_at"
         ])
-
-    values = ws.get_all_records()
-    if not values:
-        return pd.DataFrame(columns=[
+    else:
+        for col in [
             "record_id", "date", "resident_id", "resident_name",
             "start_time", "end_time", "meal_flag", "note",
             "start_memo", "end_memo", "staff_name",
             "generated_status", "generated_support", "created_at"
-        ])
-
-    return pd.DataFrame(values)
-
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
 
 def save_diary_input_record(
     date,
@@ -277,39 +237,39 @@ def save_diary_input_record(
     generated_status="",
     generated_support=""
 ):
-    ws = get_gspread_worksheet("diary_input_rules")
-    if ws is None:
-        return None
-
     df = get_diary_input_rules_df()
 
-    next_id = 1
-    if df is not None and not df.empty and "record_id" in df.columns:
+    if df.empty:
+        next_id = 1
+    else:
         nums = pd.to_numeric(df["record_id"], errors="coerce").dropna()
-        if not nums.empty:
-            next_id = int(nums.max()) + 1
+        next_id = int(nums.max()) + 1 if not nums.empty else 1
 
     created_at = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
-    row = [
-        next_id,
-        str(date),
-        str(resident_id),
-        str(resident_name),
-        str(start_time),
-        str(end_time),
-        str(meal_flag),
-        str(note),
-        str(start_memo),
-        str(end_memo),
-        str(staff_name),
-        str(generated_status),
-        str(generated_support),
-        created_at,
-    ]
+    new_row = pd.DataFrame([{
+        "record_id": next_id,
+        "date": str(date),
+        "resident_id": str(resident_id),
+        "resident_name": str(resident_name),
+        "start_time": str(start_time),
+        "end_time": str(end_time),
+        "meal_flag": str(meal_flag),
+        "note": str(note),
+        "start_memo": str(start_memo),
+        "end_memo": str(end_memo),
+        "staff_name": str(staff_name),
+        "generated_status": str(generated_status),
+        "generated_support": str(generated_support),
+        "created_at": created_at,
+    }])
 
-    ws.append_row(row, value_input_option="USER_ENTERED")
+    df = pd.concat([df, new_row], ignore_index=True)
+    save_db(df, "diary_input_rules")
     return next_id
+
+def get_diary_input_rules_df():
+    return get_diary_input_rules_df_cached().copy()    
 
 def save_document_record(resident_id, resident_name, doc_type, form_data):
     df = get_saved_documents_df()
@@ -3843,7 +3803,7 @@ def render_bee_journal_page():
         st.warning("利用者情報がまだ登録されてないある。")
         return
 
-    debug_open_spreadsheets()
+    # debug_open_spreadsheets()
 
     master_df = master_df.fillna("").copy()
 
