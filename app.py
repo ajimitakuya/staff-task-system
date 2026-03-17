@@ -190,20 +190,19 @@ def get_saved_documents_df():
 import gspread
 from google.oauth2.service_account import Credentials
 
-
+@st.cache_resource
 def get_gspread_client():
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-
-    credentials = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=scopes
+    creds_dict = st.secrets["gcp_service_account"]
+    creds = Credentials.from_service_account_info(
+        creds_dict,
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
+    return gspread.authorize(creds)
 
-    return gspread.authorize(credentials)
-
+def get_gspread_worksheet(sheet_name):
+    client = get_gspread_client()
+    spreadsheet = client.open("Sue_for_Bee_Assistance_DB")
+    return spreadsheet.worksheet(sheet_name)
 
 def get_gspread_worksheet(sheet_name):
     try:
