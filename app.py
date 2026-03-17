@@ -996,8 +996,7 @@ if "bee_menu_unlocked" not in st.session_state:
     st.session_state["bee_menu_unlocked"] = False
 
 with st.sidebar:
-    secret_col1, secret_col2 = st.columns([1, 4])
-    with secret_col1:
+    if not st.session_state["bee_menu_unlocked"]:
         secret_cmd = st.text_input(
             "",
             key="secret_bee_cmd",
@@ -1005,9 +1004,9 @@ with st.sidebar:
             label_visibility="collapsed"
         )
 
-    if secret_cmd == "🐝":
-        st.session_state["bee_menu_unlocked"] = True
-        st.success("🐝裏メニューを解放したある！")
+        if secret_cmd == "🐝":
+            st.session_state["bee_menu_unlocked"] = True
+            st.rerun()
 
     if st.session_state["bee_menu_unlocked"]:
         if st.button("🐝knowbe日誌入力🐝", use_container_width=True):
