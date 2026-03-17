@@ -10,10 +10,12 @@ import calendar as py_calendar
 from openpyxl import load_workbook
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar as st_calendar
-from google import genai
+import google.generativeai as genai
 JST = timezone(timedelta(hours=9))
 def now_jst():
     return datetime.now(JST)
+
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
