@@ -10,6 +10,7 @@ import calendar as py_calendar
 from openpyxl import load_workbook
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar as st_calendar
+from google import genai
 JST = timezone(timedelta(hours=9))
 def now_jst():
     return datetime.now(JST)
@@ -3822,6 +3823,230 @@ def render_work_sheet_form_page(doc_title: str):
             key=f"{doc_title}_download_excel"
         )
 
+@st.cache_data(ttl=60)
+def get_staff_examples_df_cached():
+    df = load_db("staff_examples")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "staff_name",
+            "home_start_example", "home_end_example",
+            "day_start_example", "day_end_example",
+            "outside_start_example", "outside_end_example",
+            "updated_at"
+        ])
+    else:
+        for col in [
+            "staff_name",
+            "home_start_example", "home_end_example",
+            "day_start_example", "day_end_example",
+            "outside_start_example", "outside_end_example",
+            "updated_at"
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_staff_examples_df():
+    return get_staff_examples_df_cached().copy()
+
+
+@st.cache_data(ttl=60)
+def get_personal_rules_df_cached():
+    df = load_db("personal_rules")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["staff_name", "rule_text", "updated_at"])
+    else:
+        for col in ["staff_name", "rule_text", "updated_at"]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_personal_rules_df():
+    return get_personal_rules_df_cached().copy()
+
+
+@st.cache_data(ttl=60)
+def get_assistant_plans_df_cached():
+    df = load_db("assistant_plans")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["resident_id", "long_term_goal", "short_term_goal", "updated_at"])
+    else:
+        for col in ["resident_id", "long_term_goal", "short_term_goal", "updated_at"]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_assistant_plans_df():
+    return get_assistant_plans_df_cached().copy()
+
+
+def save_staff_examples_record(
+    staff_name,
+    home_start_example,
+    home_end_example,
+    day_start_example,
+    day_end_example,
+    outside_start_example,
+    outside_end_example,
+):
+    df = get_staff_examples_df()
+
+    updated_at = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    hit_idx = df.index[df["staff_name"].astype(str) == str(staff_name)].tolist()
+
+    row_data = {
+        "staff_name": str(staff_name),
+        "home_start_example": str(home_start_example),
+        "home_end_example": str(home_end_example),
+        "day_start_example": str(day_start_example),
+        "day_end_example": str(day_end_example),
+        "outside_start_example": str(outside_start_example),
+        "outside_end_example": str(outside_end_example),
+        "updated_at": updated_at,
+    }
+
+    if hit_idx:
+        idx = hit_idx[0]
+        for k, v in row_data.items():
+            df.at[idx, k] = v
+    else:
+        df = pd.concat([df, pd.DataFrame([row_data])], ignore_index=True)
+
+    save_db(df, "staff_examples")
+    return True
+
+
+def save_personal_rules_record(staff_name, rule_text):
+    df = get_personal_rules_df()
+
+    updated_at = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    hit_idx = df.index[df["staff_name"].astype(str) == str(staff_name)].tolist()
+
+    row_data = {
+        "staff_name": str(staff_name),
+        "rule_text": str(rule_text),
+        "updated_at": updated_at,
+    }
+
+    if hit_idx:
+        idx = hit_idx[0]
+        for k, v in row_data.items():
+            df.at[idx, k] = v
+    else:
+        df = pd.concat([df, pd.DataFrame([row_data])], ignore_index=True)
+
+    save_db(df, "personal_rules")
+    return True
+
+
+def get_staff_example_row(staff_name):
+    df = get_staff_examples_df()
+    hit = df[df["staff_name"].astype(str) == str(staff_name)]
+    if hit.empty:
+        return None
+    return hit.iloc[0].to_dict()
+
+
+def get_personal_rule_row(staff_name):
+    df = get_personal_rules_df()
+    hit = df[df["staff_name"].astype(str) == str(staff_name)]
+    if hit.empty:
+        return None
+    return hit.iloc[0].to_dict()
+
+
+def get_plan_row(resident_id):
+    df = get_assistant_plans_df()
+    hit = df[df["resident_id"].astype(str) == str(resident_id)]
+    if hit.empty:
+        return None
+    return hit.iloc[0].to_dict()
+
+
+def build_examples_text(service_type, example_row):
+    if not example_row:
+        return ""
+
+    if service_type == "在宅":
+        return (
+            f"在宅作業開始例文:\n{example_row.get('home_start_example', '')}\n\n"
+            f"在宅作業終了例文:\n{example_row.get('home_end_example', '')}"
+        )
+    elif service_type == "通所":
+        return (
+            f"通所作業開始例文:\n{example_row.get('day_start_example', '')}\n\n"
+            f"通所作業終了例文:\n{example_row.get('day_end_example', '')}"
+        )
+    else:
+        return (
+            f"施設外作業開始例文:\n{example_row.get('outside_start_example', '')}\n\n"
+            f"施設外作業終了例文:\n{example_row.get('outside_end_example', '')}"
+        )
+
+
+def generate_status_support_with_gemini(
+    service_type,
+    meal_flag,
+    note,
+    start_memo,
+    end_memo,
+    examples_text,
+    rule_text,
+    plan_text=""
+):
+    prompt = f"""
+あなたは障害福祉サービスのKnowbe日誌入力を補助するアシスタントです。
+
+以下の条件で、必ずJSON形式のみで返してください。
+キーは "generated_status" と "generated_support" の2つです。
+
+【前提】
+- service_type: {service_type}
+- meal_flag: {meal_flag}
+- 備考: {note}
+
+【利用者状態メモ（そのままの意味を尊重）】
+{start_memo}
+
+【職員考察メモ（そのままの意味を尊重）】
+{end_memo}
+
+【スタッフ例文】
+{examples_text}
+
+【個人ルール】
+{rule_text}
+
+【支援計画】
+{plan_text}
+
+【絶対ルール】
+- generated_status は「利用者状態」に入れる文章
+- generated_support は「職員考察」に入れる文章
+- start_memo の内容は generated_status に反映
+- end_memo の内容は generated_support に反映
+- 事実を勝手に増やさない
+- 余計な見出しはつけない
+- JSON以外は返さない
+"""
+
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    response = model.generate_content(prompt)
+    text = response.text.strip()
+
+    text = text.replace("```json", "").replace("```", "").strip()
+    data = json.loads(text)
+
+    return (
+        str(data.get("generated_status", "")).strip(),
+        str(data.get("generated_support", "")).strip(),
+    )
+
 def render_bee_journal_page():
     st.title("🐝knowbe日誌入力🐝")
     st.caption("Sue for Bee Assistance 専用の裏メニューある。")
@@ -3962,6 +4187,81 @@ def render_bee_journal_page():
 
     use_plan = st.checkbox("支援計画を生成に含める", key="bee_use_plan")
 
+    example_row = get_staff_example_row(staff_name)
+    rule_row = get_personal_rule_row(staff_name)
+
+    default_home_start = example_row.get("home_start_example", "") if example_row else ""
+    default_home_end = example_row.get("home_end_example", "") if example_row else ""
+    default_day_start = example_row.get("day_start_example", "") if example_row else ""
+    default_day_end = example_row.get("day_end_example", "") if example_row else ""
+    default_outside_start = example_row.get("outside_start_example", "") if example_row else ""
+    default_outside_end = example_row.get("outside_end_example", "") if example_row else ""
+    default_rule_text = rule_row.get("rule_text", "") if rule_row else ""
+
+    st.divider()
+    st.markdown("## スタッフ例文・個人ルール")
+
+    home_start_example = st.text_area(
+        "在宅作業開始例文",
+        value=default_home_start,
+        key="bee_home_start_example",
+        height=100
+    )
+    home_end_example = st.text_area(
+        "在宅作業終了例文",
+        value=default_home_end,
+        key="bee_home_end_example",
+        height=100
+    )
+    day_start_example = st.text_area(
+        "通所作業開始例文",
+        value=default_day_start,
+        key="bee_day_start_example",
+        height=100
+    )
+    day_end_example = st.text_area(
+        "通所作業終了例文",
+        value=default_day_end,
+        key="bee_day_end_example",
+        height=100
+    )
+    outside_start_example = st.text_area(
+        "施設外作業開始例文",
+        value=default_outside_start,
+        key="bee_outside_start_example",
+        height=100
+    )
+    outside_end_example = st.text_area(
+        "施設外作業終了例文",
+        value=default_outside_end,
+        key="bee_outside_end_example",
+        height=100
+    )
+
+    rule_text = st.text_area(
+        "個人ルール",
+        value=default_rule_text,
+        key="bee_rule_text",
+        height=140,
+        placeholder="- 日誌は3文から5文程度で書く\n- 必ずセリフを入れる\n- 食事提供無しは伝聞調にする"
+    )
+
+    if st.button("例文・ルールを保存", key="bee_save_examples_rules"):
+        save_staff_examples_record(
+            staff_name=staff_name,
+            home_start_example=home_start_example,
+            home_end_example=home_end_example,
+            day_start_example=day_start_example,
+            day_end_example=day_end_example,
+            outside_start_example=outside_start_example,
+            outside_end_example=outside_end_example,
+        )
+        save_personal_rules_record(
+            staff_name=staff_name,
+            rule_text=rule_text
+        )
+        st.success("例文・個人ルールを保存したある！")
+
     st.divider()
     st.markdown("## スタッフ例文・個人ルール")
 
@@ -4014,23 +4314,35 @@ def render_bee_journal_page():
     })
 
     st.divider()
-    st.markdown("## 保存")
+    st.markdown("## 保存・送信")
 
-    save_cols = st.columns([1, 4])
+    preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
 
-    with save_cols[0]:
-        if st.button("保存する", key="bee_save_record"):
+    plan_row = get_plan_row(resident_id)
+    plan_text = ""
+    if use_plan and plan_row:
+        plan_text = (
+            f"長期目標: {plan_row.get('long_term_goal', '')}\n"
+            f"短期目標: {plan_row.get('short_term_goal', '')}"
+        )
+
+    examples_text = build_examples_text(service_type, get_staff_example_row(staff_name))
+    rule_row = get_personal_rule_row(staff_name)
+    loaded_rule_text = rule_row.get("rule_text", "") if rule_row else ""
+
+    send_cols = st.columns([1, 1, 1, 4])
+
+    with send_cols[0]:
+        if st.button("下書きを保存", key="bee_save_draft"):
             if not start_time.strip():
                 st.warning("開始時間を入れてほしいある。")
-                return
-
+                st.stop()
             if not end_time.strip():
                 st.warning("終了時間を入れてほしいある。")
-                return
-
+                st.stop()
             if not staff_name.strip():
                 st.warning("日誌入力者を入れてほしいある。")
-                return
+                st.stop()
 
             record_id = save_diary_input_record(
                 date=target_date,
@@ -4052,11 +4364,148 @@ def render_bee_journal_page():
                 send_error="",
                 record_mode=record_mode
             )
+            st.success(f"下書きを保存したある！ record_id = {record_id}")
 
-            if record_id is not None:
-                st.success(f"保存したある！ record_id = {record_id}")
-            else:
-                st.error("保存に失敗したある。シート名や接続を確認してほしいある。")
+    with send_cols[1]:
+        if st.button("Gemini編集なしでそのまま記録する", key="bee_send_raw"):
+            if not start_time.strip():
+                st.warning("開始時間を入れてほしいある。")
+                st.stop()
+            if not end_time.strip():
+                st.warning("終了時間を入れてほしいある。")
+                st.stop()
+            if not staff_name.strip():
+                st.warning("日誌入力者を入れてほしいある。")
+                st.stop()
+
+            generated_status = start_memo
+            generated_support = end_memo
+
+            try:
+                # TODO: ここで knowbe_target に応じて support/home の送信関数を呼ぶ
+                # いったん送信成功扱いでDB保存だけ先に完成させる
+                record_id = save_diary_input_record(
+                    date=target_date,
+                    resident_id=resident_id,
+                    resident_name=resident_name,
+                    start_time=start_time,
+                    end_time=end_time,
+                    meal_flag=meal_flag,
+                    note=preview_note,
+                    start_memo=start_memo,
+                    end_memo=end_memo,
+                    staff_name=staff_name,
+                    generated_status=generated_status,
+                    generated_support=generated_support,
+                    service_type=service_type,
+                    knowbe_target=knowbe_target,
+                    send_status="sent",
+                    sent_at=now_jst().strftime("%Y-%m-%d %H:%M:%S"),
+                    send_error="",
+                    record_mode="raw"
+                )
+                st.success(f"Gemini編集なしでそのまま記録データを作成したある！ record_id = {record_id}")
+            except Exception as e:
+                record_id = save_diary_input_record(
+                    date=target_date,
+                    resident_id=resident_id,
+                    resident_name=resident_name,
+                    start_time=start_time,
+                    end_time=end_time,
+                    meal_flag=meal_flag,
+                    note=preview_note,
+                    start_memo=start_memo,
+                    end_memo=end_memo,
+                    staff_name=staff_name,
+                    generated_status=generated_status,
+                    generated_support=generated_support,
+                    service_type=service_type,
+                    knowbe_target=knowbe_target,
+                    send_status="error",
+                    sent_at="",
+                    send_error=str(e),
+                    record_mode="raw"
+                )
+                st.error(f"送信エラーある: {e}")
+
+    with send_cols[2]:
+        if st.button("Geminiで整えて記録する", key="bee_send_gemini"):
+            if not start_time.strip():
+                st.warning("開始時間を入れてほしいある。")
+                st.stop()
+            if not end_time.strip():
+                st.warning("終了時間を入れてほしいある。")
+                st.stop()
+            if not staff_name.strip():
+                st.warning("日誌入力者を入れてほしいある。")
+                st.stop()
+
+            if not examples_text.strip():
+                st.warning("スタッフ例文が未登録ある。先に例文を保存してほしいある。")
+                st.stop()
+
+            if not loaded_rule_text.strip():
+                st.warning("個人ルールが未登録ある。先にルールを保存してほしいある。")
+                st.stop()
+
+            try:
+                generated_status, generated_support = generate_status_support_with_gemini(
+                    service_type=service_type,
+                    meal_flag=meal_flag,
+                    note=preview_note,
+                    start_memo=start_memo,
+                    end_memo=end_memo,
+                    examples_text=examples_text,
+                    rule_text=loaded_rule_text,
+                    plan_text=plan_text
+                )
+
+                # TODO: ここで knowbe_target に応じて support/home の送信関数を呼ぶ
+                # いったん送信成功扱いでDB保存だけ先に完成させる
+                record_id = save_diary_input_record(
+                    date=target_date,
+                    resident_id=resident_id,
+                    resident_name=resident_name,
+                    start_time=start_time,
+                    end_time=end_time,
+                    meal_flag=meal_flag,
+                    note=preview_note,
+                    start_memo=start_memo,
+                    end_memo=end_memo,
+                    staff_name=staff_name,
+                    generated_status=generated_status,
+                    generated_support=generated_support,
+                    service_type=service_type,
+                    knowbe_target=knowbe_target,
+                    send_status="sent",
+                    sent_at=now_jst().strftime("%Y-%m-%d %H:%M:%S"),
+                    send_error="",
+                    record_mode="gemini"
+                )
+                st.success(f"Geminiで整えて記録データを作成したある！ record_id = {record_id}")
+
+            except Exception as e:
+                record_id = save_diary_input_record(
+                    date=target_date,
+                    resident_id=resident_id,
+                    resident_name=resident_name,
+                    start_time=start_time,
+                    end_time=end_time,
+                    meal_flag=meal_flag,
+                    note=preview_note,
+                    start_memo=start_memo,
+                    end_memo=end_memo,
+                    staff_name=staff_name,
+                    generated_status="",
+                    generated_support="",
+                    service_type=service_type,
+                    knowbe_target=knowbe_target,
+                    send_status="error",
+                    sent_at="",
+                    send_error=str(e),
+                    record_mode="gemini"
+                )
+                st.error(f"Gemini生成エラーある: {e}")
 
     st.divider()
     st.markdown("## 最近の保存データ")
