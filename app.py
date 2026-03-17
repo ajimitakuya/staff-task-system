@@ -207,10 +207,12 @@ def get_gspread_worksheet(sheet_name):
     try:
         client = get_gspread_client()
         spreadsheet = client.open_by_key("1vjB0_tyXM9P_9kp6q6HjY9xEY7zpRC7dG41pnaPMYrw")
+        st.write("opened spreadsheet:", spreadsheet.title)
         worksheet = spreadsheet.worksheet(sheet_name)
+        st.write("opened worksheet:", worksheet.title)
         return worksheet
     except Exception as e:
-        st.error(f"シート取得エラー: {e}")
+        st.error(f"シート取得エラー: {type(e).__name__}: {e}")
         return None
 
 def get_diary_input_rules_df():
