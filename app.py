@@ -187,6 +187,103 @@ def get_saved_documents_df():
                 df[col] = ""
     return df.fillna("")
 
+import gspread
+from google.oauth2.service_account import Credentials
+
+
+def get_gspread_client():
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    credentials = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scopes
+    )
+
+    return gspread.authorize(credentials)
+
+
+def get_gspread_worksheet(sheet_name):
+    try:
+        client = get_gspread_client()
+        spreadsheet = client.open("Sue_for_Bee_Assistance_DB")
+        worksheet = spreadsheet.worksheet(sheet_name)
+        return worksheet
+    except Exception as e:
+        st.error(f"シート取得エラー: {e}")
+        return None
+
+def get_diary_input_rules_df():
+    ws = get_gspread_worksheet("diary_input_rules")
+    if ws is None:
+        return pd.DataFrame(columns=[
+            "record_id", "date", "resident_id", "resident_name",
+            "start_time", "end_time", "meal_flag", "note",
+            "start_memo", "end_memo", "staff_name",
+            "generated_status", "generated_support", "created_at"
+        ])
+
+    values = ws.get_all_records()
+    if not values:
+        return pd.DataFrame(columns=[
+            "record_id", "date", "resident_id", "resident_name",
+            "start_time", "end_time", "meal_flag", "note",
+            "start_memo", "end_memo", "staff_name",
+            "generated_status", "generated_support", "created_at"
+        ])
+
+    return pd.DataFrame(values)
+
+
+def save_diary_input_record(
+    date,
+    resident_id,
+    resident_name,
+    start_time,
+    end_time,
+    meal_flag,
+    note,
+    start_memo,
+    end_memo,
+    staff_name,
+    generated_status="",
+    generated_support=""
+):
+    ws = get_gspread_worksheet("diary_input_rules")
+    if ws is None:
+        return None
+
+    df = get_diary_input_rules_df()
+
+    next_id = 1
+    if df is not None and not df.empty and "record_id" in df.columns:
+        nums = pd.to_numeric(df["record_id"], errors="coerce").dropna()
+        if not nums.empty:
+            next_id = int(nums.max()) + 1
+
+    created_at = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    row = [
+        next_id,
+        str(date),
+        str(resident_id),
+        str(resident_name),
+        str(start_time),
+        str(end_time),
+        str(meal_flag),
+        str(note),
+        str(start_memo),
+        str(end_memo),
+        str(staff_name),
+        str(generated_status),
+        str(generated_support),
+        created_at,
+    ]
+
+    ws.append_row(row, value_input_option="USER_ENTERED")
+    return next_id
 
 def save_document_record(resident_id, resident_name, doc_type, form_data):
     df = get_saved_documents_df()
@@ -796,6 +893,7 @@ page_options = [
     "書類_アセスメント",
     "書類_基本シート",
     "書類_就労分野シート",
+    "🐝knowbe日誌入力🐝",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -3752,68 +3850,144 @@ def render_bee_journal_page():
     resident_id = str(selected_row.get("resident_id", "")).strip()
     resident_name = str(selected_row.get("resident_name", "")).strip()
 
-    st.markdown("## 基本入力")
+    st.markdown("## 日誌入力")
 
-    input_cols = st.columns([2, 2, 2])
+    row1 = st.columns([2, 1.5, 1.5])
+    with row1[0]:
+        target_date = st.date_input("日付", value=now_jst().date(), key="bee_target_date")
+    with row1[1]:
+        start_time = st.text_input("開始時間", key="bee_start_time", placeholder="10:00")
+    with row1[2]:
+        end_time = st.text_input("終了時間", key="bee_end_time", placeholder="15:00")
 
-    with input_cols[0]:
-        target_date = st.date_input("日付", key="bee_target_date")
-    with input_cols[1]:
-        start_time = st.text_input("開始時間", key="bee_start_time", placeholder="09:30")
-    with input_cols[2]:
-        end_time = st.text_input("終了時間", key="bee_end_time", placeholder="15:30")
+    row2 = st.columns([2, 3])
+    with row2[0]:
+        meal_flag = st.selectbox(
+            "食事提供",
+            ["あり", "なし"],
+            key="bee_meal_flag"
+        )
+    with row2[1]:
+        staff_name = st.text_input(
+            "日誌入力者",
+            value=st.session_state.get("user", ""),
+            key="bee_staff_name"
+        )
 
-    meal_flag = st.selectbox(
-        "食事提供",
-        ["あり", "なし"],
-        key="bee_meal_flag"
+    note_mode = st.radio(
+        "備考入力方法",
+        ["候補から選ぶ", "手入力"],
+        horizontal=True,
+        key="bee_note_mode"
     )
 
-    note = st.text_area(
-        "備考（選択文でも自由入力でもOK）",
-        key="bee_note",
-        height=100
-    )
+    preset_notes = [
+        "",
+        "特記事項なし",
+        "在宅利用",
+        "施設外就労",
+        "体調に配慮しながら実施",
+        "無理のない範囲で作業実施",
+    ]
+
+    if note_mode == "候補から選ぶ":
+        note = st.selectbox(
+            "備考候補",
+            preset_notes,
+            key="bee_note_select"
+        )
+    else:
+        note = st.text_area(
+            "備考",
+            key="bee_note_text",
+            height=80
+        )
 
     start_memo = st.text_area(
         "作業開始連絡メモ",
         key="bee_start_memo",
-        height=120
+        height=120,
+        placeholder="例：作業開始の連絡があった。体調はまあまあとのこと。..."
     )
 
     end_memo = st.text_area(
         "作業終了連絡メモ",
         key="bee_end_memo",
-        height=120
-    )
-
-    staff_name = st.text_input(
-        "日誌入力者",
-        value=st.session_state.get("user", ""),
-        key="bee_staff_name"
+        height=120,
+        placeholder="例：作業終了の連絡があった。箸入れを20膳行ったと報告あり。..."
     )
 
     use_plan = st.checkbox("支援計画を生成に含める", key="bee_use_plan")
 
     st.divider()
+    st.markdown("## 入力内容確認")
 
-    st.markdown("## 確認")
+    preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
 
     st.write({
+        "date": str(target_date),
         "resident_id": resident_id,
         "resident_name": resident_name,
-        "date": str(target_date),
         "start_time": start_time,
         "end_time": end_time,
         "meal_flag": meal_flag,
-        "note": note,
+        "note": preview_note,
         "start_memo": start_memo,
         "end_memo": end_memo,
         "staff_name": staff_name,
         "use_plan": use_plan,
     })
 
-    st.info("次はここに『保存』『例文チェック』『Gemini生成』『Knowbe送信』を足していくある。")
+    st.divider()
+    st.markdown("## 保存")
+
+    save_cols = st.columns([1, 4])
+
+    with save_cols[0]:
+        if st.button("保存する", key="bee_save_record"):
+            if not start_time.strip():
+                st.warning("開始時間を入れてほしいある。")
+                return
+
+            if not end_time.strip():
+                st.warning("終了時間を入れてほしいある。")
+                return
+
+            if not staff_name.strip():
+                st.warning("日誌入力者を入れてほしいある。")
+                return
+
+            record_id = save_diary_input_record(
+                date=target_date,
+                resident_id=resident_id,
+                resident_name=resident_name,
+                start_time=start_time,
+                end_time=end_time,
+                meal_flag=meal_flag,
+                note=preview_note,
+                start_memo=start_memo,
+                end_memo=end_memo,
+                staff_name=staff_name,
+                generated_status="",
+                generated_support=""
+            )
+
+            if record_id is not None:
+                st.success(f"保存したある！ record_id = {record_id}")
+            else:
+                st.error("保存に失敗したある。シート名や接続を確認してほしいある。")
+
+    st.divider()
+    st.markdown("## 最近の保存データ")
+
+    diary_df = get_diary_input_rules_df()
+
+    if diary_df is not None and not diary_df.empty:
+        if "record_id" in diary_df.columns:
+            diary_df = diary_df.sort_values(by="record_id", ascending=False)
+        st.dataframe(diary_df.head(10), use_container_width=True, hide_index=True)
+    else:
+        st.info("まだ保存データはないある。")
 
 def get_resident_schedule_df():
     return get_resident_schedule_df_cached().copy()
