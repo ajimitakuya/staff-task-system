@@ -15,7 +15,10 @@ JST = timezone(timedelta(hours=9))
 def now_jst():
     return datetime.now(JST)
 
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
@@ -4052,6 +4055,8 @@ def generate_status_support_with_gemini(
 def render_bee_journal_page():
     st.title("🐝knowbe日誌入力🐝")
     st.caption("Sue for Bee Assistance 専用の裏メニューある。")
+
+    st.write("DEBUG gemini key exists:", "GEMINI_API_KEY" in st.secrets)
 
     st.markdown("## 利用者選択")
 
