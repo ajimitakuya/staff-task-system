@@ -4057,6 +4057,7 @@ def render_bee_journal_page():
     st.caption("Sue for Bee Assistance 専用の裏メニューある。")
 
     st.write("DEBUG gemini key exists:", "GEMINI_API_KEY" in st.secrets)
+    st.write("DEBUG secret keys:", list(st.secrets.keys()))
 
     st.markdown("## 利用者選択")
 
