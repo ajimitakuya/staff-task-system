@@ -233,14 +233,18 @@ def get_diary_input_rules_df_cached():
             "record_id", "date", "resident_id", "resident_name",
             "start_time", "end_time", "meal_flag", "note",
             "start_memo", "end_memo", "staff_name",
-            "generated_status", "generated_support", "created_at"
+            "generated_status", "generated_support", "created_at",
+            "service_type", "knowbe_target", "send_status", "sent_at", "send_error",
+            "record_mode"
         ])
     else:
         for col in [
             "record_id", "date", "resident_id", "resident_name",
             "start_time", "end_time", "meal_flag", "note",
             "start_memo", "end_memo", "staff_name",
-            "generated_status", "generated_support", "created_at"
+            "generated_status", "generated_support", "created_at",
+            "service_type", "knowbe_target", "send_status", "sent_at", "send_error",
+            "record_mode"
         ]:
             if col not in df.columns:
                 df[col] = ""
@@ -291,10 +295,6 @@ def save_diary_input_record(
         "generated_status": str(generated_status),
         "generated_support": str(generated_support),
         "created_at": created_at,
-        "knowbe_target": str(knowbe_target),
-        "send_status": str(send_status),
-        "sent_at": str(sent_at),
-        "send_error": str(send_error),
         "service_type": str(service_type),
         "knowbe_target": str(knowbe_target),
         "send_status": str(send_status),
@@ -923,8 +923,6 @@ page_options = [
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
     st.session_state.current_page = "① 未着手の任務（掲示板）"
-
-import streamlit as st
 
 st.sidebar.markdown(
 """
