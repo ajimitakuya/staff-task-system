@@ -4257,7 +4257,7 @@ def render_bee_journal_page():
     )
 
     if note_mode == "候補から選ぶ":
-        note_candidates = ["在宅利用", "食事摂取量 10/10", "食事摂取量 9/10", "食事摂取量 8/10", ""]
+        note_candidates = ["在宅利用", "食事摂取量 10/10", "施設外就労(実施報告書等添付)", "入院", ""]
         default_note = st.session_state.get("bee_note_text", "")
         default_index = note_candidates.index(default_note) if default_note in note_candidates else 0
 
