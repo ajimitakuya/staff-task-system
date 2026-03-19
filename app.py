@@ -11,12 +11,9 @@ from openpyxl import load_workbook
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar as st_calendar
 import google.generativeai as genai
-import os
 import tempfile
 from openpyxl import Workbook
 
-import run_support
-import run_home
 JST = timezone(timedelta(hours=9))
 def now_jst():
     return datetime.now(JST)
@@ -4054,79 +4051,6 @@ def generate_status_support_with_gemini(
         str(data.get("generated_support", "")).strip(),
     )
 
-def _bee_service_to_excel_values(service_type, meal_flag, note_text):
-    meal_excel = "提供あり" if str(meal_flag).strip() == "あり" else "提供なし"
-
-    if str(service_type).strip() == "施設外":
-        service_excel = "施設外就労"
-        note_excel = str(note_text).strip()
-    else:
-        service_excel = "通所"
-        if meal_excel == "提供なし":
-            note_excel = "在宅利用"
-        else:
-            note_excel = str(note_text).strip()
-
-    return service_excel, meal_excel, note_excel
-
-
-def create_bee_temp_excel(
-    target_date,
-    resident_name,
-    service_type,
-    start_time,
-    end_time,
-    meal_flag,
-    note_text,
-    generated_status,
-    generated_support,
-    staff_name
-):
-    service_excel, meal_excel, note_excel = _bee_service_to_excel_values(
-        service_type=service_type,
-        meal_flag=meal_flag,
-        note_text=note_text
-    )
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "基本情報"
-
-    treaty_ws = wb.create_sheet("条約")
-    treaty_ws["A1"] = "Bee"
-    treaty_ws["B1"] = "Auto"
-    treaty_ws["C1"] = "OK"
-
-    # A1/B1/C1 = 年月日
-    ws["A1"] = int(target_date.year)
-    ws["B1"] = int(target_date.month)
-    ws["C1"] = int(target_date.day)
-
-    # 3行目 = 1人分データ
-    ws["A3"] = str(resident_name).strip()
-    ws["B3"] = service_excel
-    ws["C3"] = str(start_time).strip()
-    ws["D3"] = str(end_time).strip()
-    ws["E3"] = meal_excel
-    ws["F3"] = note_excel
-    ws["H3"] = str(generated_status).strip()   # 利用者状態
-    ws["I3"] = str(generated_support).strip()  # 職員考察
-    ws["K3"] = str(staff_name).strip()
-    ws["L3"] = ""
-
-    fd, temp_path = tempfile.mkstemp(prefix="bee_knowbe_", suffix=".xlsx")
-    os.close(fd)
-    wb.save(temp_path)
-    wb.close()
-
-    return temp_path
-
-
-import os
-import sys
-import subprocess
-
-
 def send_to_knowbe_from_bee(
     target_date,
     resident_name,
@@ -4138,104 +4062,40 @@ def send_to_knowbe_from_bee(
     generated_status,
     generated_support,
     staff_name,
-    knowbe_target
+    knowbe_target,
 ):
-    if str(knowbe_target).strip() == "home":
-        script_name = "run_home.py"
-    else:
-        script_name = "run_support.py"
+    try:
+        import run_assistance
 
-    run_script_path = os.path.join(os.path.dirname(__file__), script_name)
-
-    env = os.environ.copy()
-    env["KB_SINGLE_MODE"] = "1"
-    env["KB_TARGET_DATE"] = str(target_date)
-    env["KB_RESIDENT_NAME"] = str(resident_name)
-    env["KB_SERVICE_TYPE"] = str(service_type)
-    env["KB_START_TIME"] = str(start_time)
-    env["KB_END_TIME"] = str(end_time)
-    env["KB_MEAL_FLAG"] = str(meal_flag)
-    env["KB_NOTE_TEXT"] = str(note_text)
-    env["KB_GENERATED_STATUS"] = str(generated_status)
-    env["KB_GENERATED_SUPPORT"] = str(generated_support)
-    env["KB_STAFF_NAME"] = str(staff_name)
-    env["KB_KNOWBE_TARGET"] = str(knowbe_target)
-
-    result = subprocess.run(
-        [sys.executable, run_script_path],
-        env=env,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace"
-    )
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"run_support.py 失敗ある\n"
-            f"stdout:\n{result.stdout}\n\n"
-            f"stderr:\n{result.stderr}"
+        ok = run_assistance.send_one_record_from_app(
+            target_date=str(target_date),
+            resident_name=str(resident_name).strip(),
+            service_type=str(service_type).strip(),
+            start_time=str(start_time).strip(),
+            end_time=str(end_time).strip(),
+            meal_flag=str(meal_flag).strip(),
+            note_text=str(note_text).strip(),
+            generated_status=str(generated_status).strip(),
+            generated_support=str(generated_support).strip(),
+            staff_name=str(staff_name).strip(),
+            knowbe_target=str(knowbe_target).strip(),
         )
+        return ok
 
-    return True
+    except Exception as e:
+        st.error(f"Knowbe送信失敗ある: {e}")
+        return False
 
 def render_bee_journal_page():
     st.title("🐝knowbe日誌入力🐝")
     st.caption("Sue for Bee Assistance 専用の裏メニューある。")
 
-    # st.write("DEBUG gemini section exists:", "gemini" in st.secrets)
-    # st.write("DEBUG gemini api_key exists:",
-            # "gemini" in st.secrets and "api_key" in st.secrets["gemini"])
-    # st.write("DEBUG secret keys:", list(st.secrets.keys()))
-
     st.markdown("## 利用者選択")
-
-st.markdown("### 保存データ呼び出し")
-
-df_saved = get_diary_input_rules_df()
-
-if not df_saved.empty:
-    # 利用者で絞る
-    df_user = df_saved[
-        df_saved["resident_name"].astype(str) == str(resident_name)
-    ].copy()
-
-    df_user = df_user.sort_values("record_id", ascending=False)
-
-    options = []
-    record_map = {}
-
-    for _, row in df_user.head(10).iterrows():
-        label = f"{row['date']} / {row['start_time']}〜{row['end_time']} / {row['record_id']}"
-        options.append(label)
-        record_map[label] = row.to_dict()
-
-    if options:
-        selected_record = st.selectbox(
-            "過去データを選択",
-            options,
-            key="load_record_select"
-        )
-
-        if st.button("呼び出す", key="load_record_btn"):
-            rec = record_map[selected_record]
-
-            st.session_state["start_time"] = rec.get("start_time", "")
-            st.session_state["end_time"] = rec.get("end_time", "")
-            st.session_state["meal_flag"] = rec.get("meal_flag", "")
-            st.session_state["note"] = rec.get("note", "")
-            st.session_state["start_memo"] = rec.get("start_memo", "")
-            st.session_state["end_memo"] = rec.get("end_memo", "")
-
-            st.success("呼び出したある！")
-            st.rerun()
 
     master_df = get_resident_master_df()
     if master_df is None or master_df.empty:
         st.warning("利用者情報がまだ登録されてないある。")
         return
-
-    # debug_open_spreadsheets()
 
     master_df = master_df.fillna("").copy()
 
@@ -4257,7 +4117,7 @@ if not df_saved.empty:
         resident_map[label] = row.to_dict()
 
     if not resident_options:
-        st.warning("利用者がいないある。")
+        st.warning("利用者情報がまだ登録されてないある。")
         return
 
     selected_label = st.selectbox(
@@ -4270,99 +4130,173 @@ if not df_saved.empty:
     resident_id = str(selected_row.get("resident_id", "")).strip()
     resident_name = str(selected_row.get("resident_name", "")).strip()
 
+    st.markdown("### 保存データ呼び出し")
+
+    diary_df = get_diary_input_rules_df()
+
+    if diary_df is not None and not diary_df.empty:
+        df_user = diary_df[
+            diary_df["resident_name"].astype(str) == str(resident_name)
+        ].copy()
+
+        if not df_user.empty:
+            try:
+                df_user["record_id_num"] = pd.to_numeric(df_user["record_id"], errors="coerce")
+                df_user = df_user.sort_values("record_id_num", ascending=False)
+            except Exception:
+                pass
+
+            load_options = []
+            load_map = {}
+
+            for _, r in df_user.head(10).iterrows():
+                label = f"{r.get('date', '')} / {r.get('start_time', '')}〜{r.get('end_time', '')} / ID:{r.get('record_id', '')}"
+                load_options.append(label)
+                load_map[label] = r.to_dict()
+
+            load_col1, load_col2 = st.columns([5, 1])
+
+            with load_col1:
+                selected_saved_label = st.selectbox(
+                    "過去の保存データ",
+                    [""] + load_options,
+                    key="bee_saved_record_select"
+                )
+
+            with load_col2:
+                st.write("")
+                st.write("")
+                if st.button("呼び出す", key="bee_load_saved_record", use_container_width=True):
+                    if selected_saved_label:
+                        rec = load_map[selected_saved_label]
+
+                        st.session_state["bee_target_date"] = (
+                            pd.to_datetime(rec.get("date", "")).date()
+                            if str(rec.get("date", "")).strip()
+                            else now_jst().date()
+                        )
+                        st.session_state["start_time"] = str(rec.get("start_time", ""))
+                        st.session_state["end_time"] = str(rec.get("end_time", ""))
+                        st.session_state["bee_meal_flag"] = str(rec.get("meal_flag", "なし"))
+                        st.session_state["bee_note_text"] = str(rec.get("note", ""))
+                        st.session_state["bee_start_memo"] = str(rec.get("start_memo", ""))
+                        st.session_state["bee_end_memo"] = str(rec.get("end_memo", ""))
+                        st.session_state["bee_staff_name"] = str(rec.get("staff_name", ""))
+                        st.session_state["bee_service_type"] = str(rec.get("service_type", "在宅"))
+                        st.session_state["bee_knowbe_target"] = str(rec.get("knowbe_target", "support"))
+
+                        st.success("保存データを呼び出したある！")
+                        st.rerun()
+
+    st.divider()
     st.markdown("## 日誌入力")
 
-    row1 = st.columns([2, 1.5, 1.5])
-    with row1[0]:
-        target_date = st.date_input("日付", value=now_jst().date(), key="bee_target_date")
-    with row1[1]:
-        start_time = st.text_input("開始時間", key="start_time")
-    with row1[2]:
-        end_time = st.text_input("終了時間", key="end_time")
+    target_date = st.date_input(
+        "対象日",
+        value=st.session_state.get("bee_target_date", now_jst().date()),
+        key="bee_target_date"
+    )
 
-    row2 = st.columns([2, 3])
-    with row2[0]:
+    input_cols = st.columns([1, 1, 1, 1])
+
+    with input_cols[0]:
+        start_time = st.text_input(
+            "開始時間",
+            value=st.session_state.get("start_time", ""),
+            key="start_time",
+            placeholder="10:00"
+        )
+
+    with input_cols[1]:
+        end_time = st.text_input(
+            "終了時間",
+            value=st.session_state.get("end_time", ""),
+            key="end_time",
+            placeholder="10:50"
+        )
+
+    with input_cols[2]:
         meal_flag = st.selectbox(
             "食事提供",
-            ["あり", "なし"],
+            ["なし", "あり"],
+            index=0 if st.session_state.get("bee_meal_flag", "なし") == "なし" else 1,
             key="bee_meal_flag"
         )
-    with row2[1]:
-        staff_name = st.text_input(
-            "日誌入力者",
-            value=st.session_state.get("user", ""),
-            key="bee_staff_name"
-        )
 
-    target_cols = st.columns([2, 3])
-
-    with target_cols[0]:
-        knowbe_target = st.selectbox(
-            "送信先",
-            ["run_support.py", "run_home.py"],
-            key="bee_knowbe_target"
-        )
-
-    setting_cols = st.columns([2, 2])
-
-    with setting_cols[0]:
+    with input_cols[3]:
         service_type = st.selectbox(
             "サービス種別",
-            ["在宅", "通所", "施設外"],
+            ["在宅", "通所", "施設外就労"],
+            index=["在宅", "通所", "施設外就労"].index(
+                st.session_state.get("bee_service_type", "在宅")
+                if st.session_state.get("bee_service_type", "在宅") in ["在宅", "通所", "施設外就労"]
+                else "在宅"
+            ),
             key="bee_service_type"
         )
 
-    with setting_cols[1]:
-        record_mode = st.selectbox(
-            "記録方法",
-            ["gemini", "raw"],
-            key="bee_record_mode",
-            help="gemini=AIで整える / raw=メモをそのまま記録する"
-        ) 
+    knowbe_target = st.radio(
+        "送信先",
+        ["support", "home"],
+        index=0 if st.session_state.get("bee_knowbe_target", "support") == "support" else 1,
+        horizontal=True,
+        key="bee_knowbe_target"
+    )
+
+    staff_name = st.text_input(
+        "日誌入力者",
+        value=st.session_state.get("bee_staff_name", st.session_state.get("user", "")),
+        key="bee_staff_name"
+    )
 
     note_mode = st.radio(
-        "備考入力方法",
-        ["候補から選ぶ", "手入力"],
+        "備考の入力方法",
+        ["候補から選ぶ", "直接入力"],
         horizontal=True,
         key="bee_note_mode"
     )
 
-    preset_notes = [
-        "",
-        "在宅利用",
-        "施設外就労(実施報告書等添付)",
-        "欠席時対応加算",
-        "特記事項無し",
-    ]
-
     if note_mode == "候補から選ぶ":
+        note_candidates = ["在宅利用", "食事摂取量 10/10", "食事摂取量 9/10", "食事摂取量 8/10", ""]
+        default_note = st.session_state.get("bee_note_text", "")
+        default_index = note_candidates.index(default_note) if default_note in note_candidates else 0
+
         note = st.selectbox(
-            "備考候補",
-            preset_notes,
+            "備考",
+            note_candidates,
+            index=default_index,
             key="bee_note_select"
         )
     else:
         note = st.text_area(
             "備考",
+            value=st.session_state.get("bee_note_text", ""),
             key="bee_note_text",
             height=80
         )
 
-    start_memo = st.text_area(
-        "作業開始連絡メモ",
-        key="bee_start_memo",
-        height=120,
-        placeholder="例：作業開始の連絡があった。体調はまあまあとのこと。..."
-    )
+    memo_cols = st.columns(2)
 
-    end_memo = st.text_area(
-        "作業終了連絡メモ",
-        key="bee_end_memo",
-        height=120,
-        placeholder="例：作業終了の連絡があった。箸入れを20膳行ったと報告あり。..."
-    )
+    with memo_cols[0]:
+        start_memo = st.text_area(
+            "開始メモ",
+            value=st.session_state.get("bee_start_memo", ""),
+            key="bee_start_memo",
+            height=140
+        )
 
-    use_plan = st.checkbox("支援計画を生成に含める", key="bee_use_plan")
+    with memo_cols[1]:
+        end_memo = st.text_area(
+            "終了メモ",
+            value=st.session_state.get("bee_end_memo", ""),
+            key="bee_end_memo",
+            height=140
+        )
+
+    st.divider()
+    st.markdown("## 補助設定")
+
+    use_plan = st.checkbox("個別支援計画を参照する", value=True, key="bee_use_plan")
 
     example_row = get_staff_example_row(staff_name)
     rule_row = get_personal_rule_row(staff_name)
@@ -4380,24 +4314,55 @@ if not df_saved.empty:
 
     ex_cols1 = st.columns(2)
     with ex_cols1[0]:
-        home_start_example = st.text_area("在宅作業開始例文", key="bee_home_start_example", height=100)
+        home_start_example = st.text_area(
+            "在宅作業開始例文",
+            value=st.session_state.get("bee_home_start_example", default_home_start),
+            key="bee_home_start_example",
+            height=100
+        )
     with ex_cols1[1]:
-        home_end_example = st.text_area("在宅作業終了例文", key="bee_home_end_example", height=100)
+        home_end_example = st.text_area(
+            "在宅作業終了例文",
+            value=st.session_state.get("bee_home_end_example", default_home_end),
+            key="bee_home_end_example",
+            height=100
+        )
 
     ex_cols2 = st.columns(2)
     with ex_cols2[0]:
-        day_start_example = st.text_area("通所作業開始例文", key="bee_day_start_example", height=100)
+        day_start_example = st.text_area(
+            "通所作業開始例文",
+            value=st.session_state.get("bee_day_start_example", default_day_start),
+            key="bee_day_start_example",
+            height=100
+        )
     with ex_cols2[1]:
-        day_end_example = st.text_area("通所作業終了例文", key="bee_day_end_example", height=100)
+        day_end_example = st.text_area(
+            "通所作業終了例文",
+            value=st.session_state.get("bee_day_end_example", default_day_end),
+            key="bee_day_end_example",
+            height=100
+        )
 
     ex_cols3 = st.columns(2)
     with ex_cols3[0]:
-        outside_start_example = st.text_area("施設外作業開始例文", key="bee_outside_start_example", height=100)
+        outside_start_example = st.text_area(
+            "施設外作業開始例文",
+            value=st.session_state.get("bee_outside_start_example", default_outside_start),
+            key="bee_outside_start_example",
+            height=100
+        )
     with ex_cols3[1]:
-        outside_end_example = st.text_area("施設外作業終了例文", key="bee_outside_end_example", height=100)
+        outside_end_example = st.text_area(
+            "施設外作業終了例文",
+            value=st.session_state.get("bee_outside_end_example", default_outside_end),
+            key="bee_outside_end_example",
+            height=100
+        )
 
     rule_text = st.text_area(
         "個人ルール",
+        value=st.session_state.get("bee_rule_text", default_rule_text),
         key="bee_rule_text",
         height=160,
         placeholder="- 日誌は3文から5文程度で書く\n- 必ずセリフを入れる\n- 食事提供無しは伝聞調にする"
@@ -4422,7 +4387,6 @@ if not df_saved.empty:
         "knowbe_target": knowbe_target,
         "use_plan": use_plan,
         "service_type": service_type,
-        "knowbe_target": knowbe_target,
     })
 
     st.divider()
@@ -4441,6 +4405,8 @@ if not df_saved.empty:
     examples_text = build_examples_text(service_type, get_staff_example_row(staff_name))
     rule_row = get_personal_rule_row(staff_name)
     loaded_rule_text = rule_row.get("rule_text", "") if rule_row else ""
+
+    record_mode = "gemini"
 
     send_cols = st.columns([1, 1, 1, 4])
 
@@ -4526,7 +4492,7 @@ if not df_saved.empty:
                     send_status="sent",
                     sent_at=now_jst().strftime("%Y-%m-%d %H:%M:%S"),
                     send_error="",
-                    record_mode="raw"
+                    record_mode=record_mode
                 )
                 st.success(f"Knowbeへ送信完了ある！ record_id = {record_id}")
 
@@ -4542,19 +4508,19 @@ if not df_saved.empty:
                     start_memo=start_memo,
                     end_memo=end_memo,
                     staff_name=staff_name,
-                    generated_status=generated_status,
-                    generated_support=generated_support,
+                    generated_status="",
+                    generated_support="",
                     service_type=service_type,
                     knowbe_target=knowbe_target,
                     send_status="error",
                     sent_at="",
                     send_error=str(e),
-                    record_mode="raw"
+                    record_mode=record_mode
                 )
                 st.error(f"送信エラーある: {e}")
 
     with send_cols[2]:
-        if st.button("Geminiで整えて記録する", key="bee_send_gemini"):
+        if st.button("Geminiで整えて送信", key="bee_send_gemini"):
             if not start_time.strip():
                 st.warning("開始時間を入れてほしいある。")
                 st.stop()
@@ -4565,23 +4531,16 @@ if not df_saved.empty:
                 st.warning("日誌入力者を入れてほしいある。")
                 st.stop()
 
-            if not examples_text.strip():
-                st.warning("スタッフ例文が未登録ある。先に例文を保存してほしいある。")
-                st.stop()
-
-            if not loaded_rule_text.strip():
-                st.warning("個人ルールが未登録ある。先にルールを保存してほしいある。")
-                st.stop()
-
             try:
-                generated_status, generated_support = generate_status_support_with_gemini(
+                generated_status, generated_support = generate_bee_texts(
+                    resident_name=resident_name,
                     service_type=service_type,
-                    meal_flag=meal_flag,
-                    note=preview_note,
                     start_memo=start_memo,
                     end_memo=end_memo,
+                    note_text=preview_note,
+                    staff_name=staff_name,
                     examples_text=examples_text,
-                    rule_text=loaded_rule_text,
+                    rule_text=loaded_rule_text if loaded_rule_text else rule_text,
                     plan_text=plan_text
                 )
 
@@ -4617,7 +4576,7 @@ if not df_saved.empty:
                     send_status="sent",
                     sent_at=now_jst().strftime("%Y-%m-%d %H:%M:%S"),
                     send_error="",
-                    record_mode="gemini"
+                    record_mode=record_mode
                 )
                 st.success(f"Knowbeへ送信完了ある！ record_id = {record_id}")
 
@@ -4640,7 +4599,7 @@ if not df_saved.empty:
                     send_status="error",
                     sent_at="",
                     send_error=str(e),
-                    record_mode="gemini"
+                    record_mode=record_mode
                 )
                 st.error(f"Gemini生成エラーある: {e}")
 
