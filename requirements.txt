@@ -1,7 +1,7 @@
 streamlit
 pandas
 openpyxl
-streamlit-gsheets
+st-gsheets-connection
 streamlit-calendar
 google-generativeai
 selenium
