@@ -1,8 +1,8 @@
 streamlit
 pandas
-st-gsheets-connection
-streamlit-calendar
-gspread
-gspread-formatting
 openpyxl
+streamlit-gsheets
+streamlit-calendar
 google-generativeai
+selenium
+webdriver-manager
