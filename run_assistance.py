@@ -43,19 +43,18 @@ from selenium.webdriver.common.action_chains import ActionChains
 # API（絶対に消さない）
 # =========================
 # 推奨：環境変数 GEMINI_API_KEY を使う（直書きは漏洩リスク）
-GEMINI_API_KEY = "AIzaSyCsf2njLjEflQ6HjJO4iZerV0C6pBkDR-I"
-USE_GEMINI = True
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+USE_GEMINI = bool(GEMINI_API_KEY)
 
 if not GEMINI_API_KEY:
     raise RuntimeError("[FATAL] GEMINI_API_KEY が無いある。環境変数 GEMINI_API_KEY を設定してから実行するある。")
-
 
 # =========================
 # 設定
 # =========================
 BASE_URL = "https://mgr.knowbe.jp/v2/"
-LOGIN_USERNAME = "sincere.shop01@gmail.com"
-LOGIN_PASSWORD = "hamu:0529"
+LOGIN_USERNAME = os.environ.get("KB_LOGIN_USERNAME", "")
+LOGIN_PASSWORD = os.environ.get("KB_LOGIN_PASSWORD", "")
 REPORT_DAILY_URL = "https://mgr.knowbe.jp/v2/#/report/daily"
 EXCEL_PATH_DEFAULT = os.path.join(os.path.dirname(__file__), "日誌基本情報サポート.xlsx")
 
