@@ -40,15 +40,34 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.action_chains import ActionChains
 
 
+import os
+import streamlit as st
+import google.generativeai as genai
+
 # =========================
-# API（絶対に消さない）
+# API
 # =========================
-# 推奨：環境変数 GEMINI_API_KEY を使う（直書きは漏洩リスク）
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-USE_GEMINI = bool(GEMINI_API_KEY)
+GEMINI_API_KEY = ""
+
+try:
+    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+except Exception:
+    GEMINI_API_KEY = ""
 
 if not GEMINI_API_KEY:
-    raise RuntimeError("[FATAL] GEMINI_API_KEY が無いある。環境変数 GEMINI_API_KEY を設定してから実行するある。")
+    try:
+        if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
+            GEMINI_API_KEY = st.secrets["gemini"]["api_key"]
+    except Exception:
+        pass
+
+if not GEMINI_API_KEY:
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
+USE_GEMINI = bool(GEMINI_API_KEY)
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 # =========================
 # 設定
@@ -2181,9 +2200,6 @@ def main():
 
     log("エクセルを熟読中ある...")
     y, m, d, items = read_sheet_data(excel_path)
-
-    if not USE_GEMINI or not GEMINI_API_KEY:
-        raise RuntimeError("[FATAL] GEMINI_API_KEY が無いある。環境変数 GEMINI_API_KEY を設定してから実行するある。")
 
     targets = [
         it for it in items
