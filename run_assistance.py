@@ -264,24 +264,17 @@ def manual_login_wait(driver):
     if not LOGIN_USERNAME or not LOGIN_PASSWORD:
         raise RuntimeError("[FATAL] KB_LOGIN_USERNAME / KB_LOGIN_PASSWORD が空ある")
 
-    """
-    ログイン画面なら自動で
-      - アカウント名
-      - パスワード
-      - 「上記に同意してログイン」
-    を入力して進む。
-    すでにログイン済みなら何もしない。
-    """
-    # 最大15分待つ設計は残しつつ、自動ログインを試す
-    for _ in range(900):
+    last_error = ""
+    start_ts = time.time()
+
+    while time.time() - start_ts < 30:
         url = driver.current_url or ""
 
-        # すでにログイン済みなら完了
+        # すでにログイン済み
         if "login" not in url and "mgr.knowbe.jp" in url:
             return
 
         try:
-            # アカウント名
             user_el = WebDriverWait(driver, 3).until(
                 EC.presence_of_element_located((By.ID, "username"))
             )
@@ -294,7 +287,6 @@ def manual_login_wait(driver):
             set_input_value(driver, pass_el, LOGIN_PASSWORD)
             time.sleep(0.3)
 
-            # 「上記に同意してログイン」の span から親 button を押す
             span = WebDriverWait(driver, 5).until(
                 EC.presence_of_element_located(
                     (By.XPATH, "//span[contains(normalize-space(.),'上記に同意してログイン')]")
@@ -305,23 +297,23 @@ def manual_login_wait(driver):
             if not safe_click(driver, btn):
                 driver.execute_script("arguments[0].click();", btn)
 
-            # ログイン完了待ち
             t0 = time.time()
-            while time.time() - t0 < 20:
+            while time.time() - t0 < 10:
                 cur = driver.current_url or ""
                 if "login" not in cur and "mgr.knowbe.jp" in cur:
                     time.sleep(1.0)
                     return
                 time.sleep(0.3)
 
-        except Exception:
-            # ログイン画面がまだ出ていない / 描画途中の保険
-            pass
+        except Exception as e:
+            last_error = str(e)
 
         time.sleep(1)
 
-    raise RuntimeError("[FATAL] 自動ログインがタイムアウトしたある")
-
+    raise RuntimeError(
+        f"[FATAL] 自動ログインが30秒でタイムアウトしたある。"
+        f" current_url={driver.current_url!r} last_error={last_error!r}"
+    )
 def get_top_dialog(driver):
     ds = driver.find_elements(By.CSS_SELECTOR, "[role='dialog']")
     return ds[-1] if ds else None
