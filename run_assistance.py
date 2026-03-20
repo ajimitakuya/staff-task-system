@@ -2164,6 +2164,11 @@ def send_one_record_from_app(
         service=ChromeService("/usr/bin/chromedriver"),
         options=options
     )
+
+    print("[STEP] driver created", flush=True)
+    driver.set_page_load_timeout(20)
+    driver.set_script_timeout(20)
+
     driver.implicitly_wait(2)
 
     try:
