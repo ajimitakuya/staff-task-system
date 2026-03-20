@@ -75,8 +75,16 @@ LOGIN_USERNAME = ""
 LOGIN_PASSWORD = ""
 
 try:
+    # まずフラット形式
     LOGIN_USERNAME = st.secrets.get("KB_LOGIN_USERNAME", "")
     LOGIN_PASSWORD = st.secrets.get("KB_LOGIN_PASSWORD", "")
+
+    # 次にネスト形式も見る
+    if not LOGIN_USERNAME and "knowbe" in st.secrets:
+        LOGIN_USERNAME = st.secrets["knowbe"].get("username", "")
+    if not LOGIN_PASSWORD and "knowbe" in st.secrets:
+        LOGIN_PASSWORD = st.secrets["knowbe"].get("password", "")
+
 except Exception:
     LOGIN_USERNAME = ""
     LOGIN_PASSWORD = ""
@@ -85,6 +93,9 @@ if not LOGIN_USERNAME:
     LOGIN_USERNAME = os.environ.get("KB_LOGIN_USERNAME", "")
 if not LOGIN_PASSWORD:
     LOGIN_PASSWORD = os.environ.get("KB_LOGIN_PASSWORD", "")
+
+print(f"[SECRETS CHECK] LOGIN_USERNAME exists={bool(LOGIN_USERNAME)}", flush=True)
+print(f"[SECRETS CHECK] LOGIN_PASSWORD exists={bool(LOGIN_PASSWORD)}", flush=True)
 
 BASE_URL = "https://mgr.knowbe.jp/v2/"
 REPORT_DAILY_URL = "https://mgr.knowbe.jp/v2/#/report/daily"
