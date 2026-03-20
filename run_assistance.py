@@ -2172,17 +2172,27 @@ def send_one_record_from_app(
     driver.implicitly_wait(2)
 
     try:
+        print("[STEP] goto_report_daily start", flush=True)
         goto_report_daily(driver)
+        print("[STEP] goto_report_daily done", flush=True)
+
+        print("[STEP] manual_login_wait start", flush=True)
         manual_login_wait(driver)
+        print("[STEP] manual_login_wait done", flush=True)
+
+        print("[STEP] goto_report_date start", flush=True)
         goto_report_date(driver, y, mo, d)
+        print("[STEP] goto_report_date done", flush=True)
 
         log(f"🏃 app単発 実績処理: {it.name}")
         ok = process_report_edit(driver, it)
         if not ok:
             raise RuntimeError(f"[FATAL] 利用実績の入力失敗ある: {it.name}")
 
+        print("[STEP] open_daily_record_page start", flush=True)
         if not open_daily_record_page(driver, y, mo, d):
             raise RuntimeError("[FATAL] 日々の記録ページへ行けないある")
+        print("[STEP] open_daily_record_page done", flush=True)
 
         log(f"🧾 app単発 日々の記録入力: {it.name}")
         ok = process_one_daily_record_direct(
