@@ -71,31 +71,26 @@ if GEMINI_API_KEY:
 # =========================
 # 設定
 # =========================
-LOGIN_USERNAME = ""
-LOGIN_PASSWORD = ""
+def get_knowbe_login_credentials():
+    username = ""
+    password = ""
 
-try:
-    # まずフラット形式
-    LOGIN_USERNAME = st.secrets.get("KB_LOGIN_USERNAME", "")
-    LOGIN_PASSWORD = st.secrets.get("KB_LOGIN_PASSWORD", "")
+    try:
+        username = st.secrets.get("KB_LOGIN_USERNAME", "")
+        password = st.secrets.get("KB_LOGIN_PASSWORD", "")
+    except Exception:
+        username = ""
+        password = ""
 
-    # 次にネスト形式も見る
-    if not LOGIN_USERNAME and "knowbe" in st.secrets:
-        LOGIN_USERNAME = st.secrets["knowbe"].get("username", "")
-    if not LOGIN_PASSWORD and "knowbe" in st.secrets:
-        LOGIN_PASSWORD = st.secrets["knowbe"].get("password", "")
+    if not username:
+        username = os.environ.get("KB_LOGIN_USERNAME", "")
+    if not password:
+        password = os.environ.get("KB_LOGIN_PASSWORD", "")
 
-except Exception:
-    LOGIN_USERNAME = ""
-    LOGIN_PASSWORD = ""
+    print(f"[SECRETS CHECK NOW] LOGIN_USERNAME exists={bool(username)}", flush=True)
+    print(f"[SECRETS CHECK NOW] LOGIN_PASSWORD exists={bool(password)}", flush=True)
 
-if not LOGIN_USERNAME:
-    LOGIN_USERNAME = os.environ.get("KB_LOGIN_USERNAME", "")
-if not LOGIN_PASSWORD:
-    LOGIN_PASSWORD = os.environ.get("KB_LOGIN_PASSWORD", "")
-
-print(f"[SECRETS CHECK] LOGIN_USERNAME exists={bool(LOGIN_USERNAME)}", flush=True)
-print(f"[SECRETS CHECK] LOGIN_PASSWORD exists={bool(LOGIN_PASSWORD)}", flush=True)
+    return username, password
 
 BASE_URL = "https://mgr.knowbe.jp/v2/"
 REPORT_DAILY_URL = "https://mgr.knowbe.jp/v2/#/report/daily"
@@ -272,7 +267,9 @@ def safe_click(driver, el) -> bool:
         return False
 
 def manual_login_wait(driver):
-    if not LOGIN_USERNAME or not LOGIN_PASSWORD:
+    login_username, login_password = get_knowbe_login_credentials()
+
+    if not login_username or not login_password:
         raise RuntimeError("[FATAL] KB_LOGIN_USERNAME / KB_LOGIN_PASSWORD が空ある")
 
     last_error = ""
@@ -293,9 +290,9 @@ def manual_login_wait(driver):
                 EC.presence_of_element_located((By.ID, "password"))
             )
 
-            set_input_value(driver, user_el, LOGIN_USERNAME)
+            set_input_value(driver, user_el, login_username)
             time.sleep(0.2)
-            set_input_value(driver, pass_el, LOGIN_PASSWORD)
+            set_input_value(driver, pass_el, login_password)
             time.sleep(0.3)
 
             span = WebDriverWait(driver, 5).until(
