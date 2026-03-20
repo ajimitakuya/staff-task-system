@@ -4459,6 +4459,30 @@ def render_bee_journal_page():
             generated_status = start_memo
             generated_support = end_memo
 
+            # 先に保存
+            record_id = save_diary_input_record(
+                date=target_date,
+                resident_id=resident_id,
+                resident_name=resident_name,
+                start_time=start_time,
+                end_time=end_time,
+                meal_flag=meal_flag,
+                note=preview_note,
+                start_memo=start_memo,
+                end_memo=end_memo,
+                staff_name=staff_name,
+                generated_status=generated_status,
+                generated_support=generated_support,
+                service_type=service_type,
+                knowbe_target=knowbe_target,
+                send_status="sending",
+                sent_at="",
+                send_error="",
+                record_mode=record_mode
+            )
+
+            st.info(f"送信開始ある… record_id = {record_id}")
+
             try:
                 send_to_knowbe_from_bee(
                     target_date=target_date,
@@ -4473,50 +4497,9 @@ def render_bee_journal_page():
                     staff_name=staff_name,
                     knowbe_target=knowbe_target
                 )
-
-                record_id = save_diary_input_record(
-                    date=target_date,
-                    resident_id=resident_id,
-                    resident_name=resident_name,
-                    start_time=start_time,
-                    end_time=end_time,
-                    meal_flag=meal_flag,
-                    note=preview_note,
-                    start_memo=start_memo,
-                    end_memo=end_memo,
-                    staff_name=staff_name,
-                    generated_status=generated_status,
-                    generated_support=generated_support,
-                    service_type=service_type,
-                    knowbe_target=knowbe_target,
-                    send_status="sent",
-                    sent_at=now_jst().strftime("%Y-%m-%d %H:%M:%S"),
-                    send_error="",
-                    record_mode=record_mode
-                )
                 st.success(f"Knowbeへ送信完了ある！ record_id = {record_id}")
 
             except Exception as e:
-                record_id = save_diary_input_record(
-                    date=target_date,
-                    resident_id=resident_id,
-                    resident_name=resident_name,
-                    start_time=start_time,
-                    end_time=end_time,
-                    meal_flag=meal_flag,
-                    note=preview_note,
-                    start_memo=start_memo,
-                    end_memo=end_memo,
-                    staff_name=staff_name,
-                    generated_status="",
-                    generated_support="",
-                    service_type=service_type,
-                    knowbe_target=knowbe_target,
-                    send_status="error",
-                    sent_at="",
-                    send_error=str(e),
-                    record_mode=record_mode
-                )
                 st.error(f"送信エラーある: {e}")
 
     with send_cols[2]:

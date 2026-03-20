@@ -71,9 +71,22 @@ if GEMINI_API_KEY:
 # =========================
 # 設定
 # =========================
+LOGIN_USERNAME = ""
+LOGIN_PASSWORD = ""
+
+try:
+    LOGIN_USERNAME = st.secrets.get("KB_LOGIN_USERNAME", "")
+    LOGIN_PASSWORD = st.secrets.get("KB_LOGIN_PASSWORD", "")
+except Exception:
+    LOGIN_USERNAME = ""
+    LOGIN_PASSWORD = ""
+
+if not LOGIN_USERNAME:
+    LOGIN_USERNAME = os.environ.get("KB_LOGIN_USERNAME", "")
+if not LOGIN_PASSWORD:
+    LOGIN_PASSWORD = os.environ.get("KB_LOGIN_PASSWORD", "")
+
 BASE_URL = "https://mgr.knowbe.jp/v2/"
-LOGIN_USERNAME = os.environ.get("KB_LOGIN_USERNAME", "")
-LOGIN_PASSWORD = os.environ.get("KB_LOGIN_PASSWORD", "")
 REPORT_DAILY_URL = "https://mgr.knowbe.jp/v2/#/report/daily"
 EXCEL_PATH_DEFAULT = os.path.join(os.path.dirname(__file__), "日誌基本情報サポート.xlsx")
 
@@ -248,6 +261,9 @@ def safe_click(driver, el) -> bool:
         return False
 
 def manual_login_wait(driver):
+    if not LOGIN_USERNAME or not LOGIN_PASSWORD:
+        raise RuntimeError("[FATAL] KB_LOGIN_USERNAME / KB_LOGIN_PASSWORD が空ある")
+
     """
     ログイン画面なら自動で
       - アカウント名
