@@ -36,7 +36,6 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.action_chains import ActionChains
 
 
@@ -2141,8 +2140,20 @@ def send_one_record_from_app(
     options.add_argument("--disable-software-rasterizer")
     options.add_argument("--disable-extensions")
 
+    options = webdriver.ChromeOptions()
+    options.binary_location = "/usr/bin/chromium"
+
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1400,900")
+    options.add_argument("--remote-debugging-port=9222")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--disable-extensions")
+
     driver = webdriver.Chrome(
-        service=ChromeService(ChromeDriverManager().install()),
+        service=ChromeService("/usr/bin/chromedriver"),
         options=options
     )
     driver.implicitly_wait(2)
@@ -2223,8 +2234,20 @@ def main():
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1400,900")
 
+    options = webdriver.ChromeOptions()
+    options.binary_location = "/usr/bin/chromium"
+
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1400,900")
+    options.add_argument("--remote-debugging-port=9222")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--disable-extensions")
+
     driver = webdriver.Chrome(
-        service=ChromeService(ChromeDriverManager().install()),
+        service=ChromeService("/usr/bin/chromedriver"),
         options=options
     )
     driver.implicitly_wait(2)

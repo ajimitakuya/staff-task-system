@@ -5,4 +5,3 @@ st-gsheets-connection
 streamlit-calendar
 google-generativeai
 selenium
-webdriver-manager
