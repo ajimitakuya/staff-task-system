@@ -2101,6 +2101,8 @@ def send_one_record_from_app(
     staff_name: str,
     knowbe_target: str
 ) -> bool:
+    raise RuntimeError("[TEST] send_one_record_from_app に入ったある")
+
     """
     appから1件だけ渡されたデータを Knowbe に送る
     """
