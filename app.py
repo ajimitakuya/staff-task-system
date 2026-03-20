@@ -4444,63 +4444,63 @@ def render_bee_journal_page():
             )
             st.success(f"下書きを保存したある！ record_id = {record_id}")
 
-    with send_cols[1]:
-        if st.button("Gemini編集なしでそのまま記録する", key="bee_send_raw"):
-            if not start_time.strip():
-                st.warning("開始時間を入れてほしいある。")
-                st.stop()
-            if not end_time.strip():
-                st.warning("終了時間を入れてほしいある。")
-                st.stop()
-            if not staff_name.strip():
-                st.warning("日誌入力者を入れてほしいある。")
-                st.stop()
+        with send_cols[1]:
+            if st.button("Gemini編集なしでそのまま記録する", key="bee_send_raw"):
+                if not start_time.strip():
+                    st.warning("開始時間を入れてほしいある。")
+                    st.stop()
+                if not end_time.strip():
+                    st.warning("終了時間を入れてほしいある。")
+                    st.stop()
+                if not staff_name.strip():
+                    st.warning("日誌入力者を入れてほしいある。")
+                    st.stop()
 
-            generated_status = start_memo
-            generated_support = end_memo
+                generated_status = start_memo
+                generated_support = end_memo
 
-            # 先に保存
-            record_id = save_diary_input_record(
-                date=target_date,
-                resident_id=resident_id,
-                resident_name=resident_name,
-                start_time=start_time,
-                end_time=end_time,
-                meal_flag=meal_flag,
-                note=preview_note,
-                start_memo=start_memo,
-                end_memo=end_memo,
-                staff_name=staff_name,
-                generated_status=generated_status,
-                generated_support=generated_support,
-                service_type=service_type,
-                knowbe_target=knowbe_target,
-                send_status="sending",
-                sent_at="",
-                send_error="",
-                record_mode=record_mode
-            )
-
-            st.info(f"送信開始ある… record_id = {record_id}")
-
-            try:
-                send_to_knowbe_from_bee(
-                    target_date=target_date,
+                # 先に保存（送信中）
+                record_id = save_diary_input_record(
+                    date=target_date,
+                    resident_id=resident_id,
                     resident_name=resident_name,
-                    service_type=service_type,
                     start_time=start_time,
                     end_time=end_time,
                     meal_flag=meal_flag,
-                    note_text=preview_note,
+                    note=preview_note,
+                    start_memo=start_memo,
+                    end_memo=end_memo,
+                    staff_name=staff_name,
                     generated_status=generated_status,
                     generated_support=generated_support,
-                    staff_name=staff_name,
-                    knowbe_target=knowbe_target
+                    service_type=service_type,
+                    knowbe_target=knowbe_target,
+                    send_status="sending",
+                    sent_at="",
+                    send_error="",
+                    record_mode=record_mode
                 )
-                st.success(f"Knowbeへ送信完了ある！ record_id = {record_id}")
 
-            except Exception as e:
-                st.error(f"送信エラーある: {e}")
+                st.info(f"送信開始ある… record_id = {record_id}")
+
+                try:
+                    send_to_knowbe_from_bee(
+                        target_date=target_date,
+                        resident_name=resident_name,
+                        service_type=service_type,
+                        start_time=start_time,
+                        end_time=end_time,
+                        meal_flag=meal_flag,
+                        note_text=preview_note,
+                        generated_status=generated_status,
+                        generated_support=generated_support,
+                        staff_name=staff_name,
+                        knowbe_target=knowbe_target
+                    )
+                    st.success(f"Knowbeへ送信完了ある！ record_id = {record_id}")
+
+                except Exception as e:
+                    st.error(f"Knowbe送信失敗ある: {e}")
 
     with send_cols[2]:
         if st.button("Geminiで整えて送信", key="bee_send_gemini"):
