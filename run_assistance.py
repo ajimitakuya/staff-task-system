@@ -2130,8 +2130,16 @@ def send_one_record_from_app(
     )
 
     options = webdriver.ChromeOptions()
+    options.binary_location = "/usr/bin/chromium"
+
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1400,900")
+    options.add_argument("--remote-debugging-port=9222")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--disable-extensions")
 
     driver = webdriver.Chrome(
         service=ChromeService(ChromeDriverManager().install()),
