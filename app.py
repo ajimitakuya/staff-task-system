@@ -4076,20 +4076,21 @@ def get_knowbe_credentials_from_app():
     try:
         username = st.secrets.get("KB_LOGIN_USERNAME", "")
         password = st.secrets.get("KB_LOGIN_PASSWORD", "")
-    except Exception:
-        pass
+    except Exception as e:
+        st.error(f"st.secrets 読み取り例外ある: {e}")
+        username = ""
+        password = ""
 
-    return str(username).strip(), str(password).strip()
+    # 念のため環境変数も確認
+    if not username:
+        import os
+        username = os.environ.get("KB_LOGIN_USERNAME", "")
+    if not password:
+        import os
+        password = os.environ.get("KB_LOGIN_PASSWORD", "")
 
-def get_knowbe_credentials_from_app():
-    username = ""
-    password = ""
-
-    try:
-        username = st.secrets.get("KB_LOGIN_USERNAME", "")
-        password = st.secrets.get("KB_LOGIN_PASSWORD", "")
-    except Exception:
-        pass
+    st.info(f"DEBUG secrets username exists = {bool(str(username).strip())}")
+    st.info(f"DEBUG secrets password exists = {bool(str(password).strip())}")
 
     return str(username).strip(), str(password).strip()
 
