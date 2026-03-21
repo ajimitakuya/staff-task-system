@@ -4074,9 +4074,8 @@ def get_knowbe_credentials_from_app():
     password = ""
 
     try:
-        if "knowbe" in st.secrets:
-            username = st.secrets["knowbe"].get("KB_LOGIN_USERNAME", "")
-            password = st.secrets["knowbe"].get("KB_LOGIN_PASSWORD", "")
+        username = st.secrets.get("KB_LOGIN_USERNAME", "")
+        password = st.secrets.get("KB_LOGIN_PASSWORD", "")
     except Exception as e:
         st.error(f"st.secrets 読み取り例外ある: {e}")
         username = ""
@@ -4084,6 +4083,7 @@ def get_knowbe_credentials_from_app():
 
     st.info(f"DEBUG secrets username exists = {bool(str(username).strip())}")
     st.info(f"DEBUG secrets password exists = {bool(str(password).strip())}")
+    st.write("DEBUG secret keys:", list(st.secrets.keys()))
 
     return str(username).strip(), str(password).strip()
 
