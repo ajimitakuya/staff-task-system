@@ -19,7 +19,6 @@ import time
 import datetime
 import re
 import math
-import time
 import shutil
 import tempfile
 
@@ -27,7 +26,6 @@ from dataclasses import dataclass
 from typing import List, Tuple, Optional
 
 import random
-from google import genai
 import openpyxl
 
 from selenium import webdriver
@@ -38,35 +36,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.action_chains import ActionChains
 
-
-import os
-import streamlit as st
-
-
-# =========================
-# API
-# =========================
-GEMINI_API_KEY = ""
-
-try:
-    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-except Exception:
-    GEMINI_API_KEY = ""
-
-if not GEMINI_API_KEY:
-    try:
-        if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
-            GEMINI_API_KEY = st.secrets["gemini"]["api_key"]
-    except Exception:
-        pass
-
-if not GEMINI_API_KEY:
-    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-
-USE_GEMINI = bool(GEMINI_API_KEY)
-
-print(f"[GEMINI CHECK] GEMINI_API_KEY exists={bool(GEMINI_API_KEY)}", flush=True)
-print(f"[GEMINI CHECK] USE_GEMINI={USE_GEMINI}", flush=True)
 
 # =========================
 # 設定
@@ -1982,13 +1951,8 @@ def open_daily_record_page(driver, y: int, m: int, d: int) -> bool:
 def run_daily_records(driver, excel_path: str, items: List[PersonItem], targets: List[PersonItem], y: int, m: int, d: int):
     """
     利用実績入力のあとに呼ぶ本体
+    Gemini参照はこのファイルでは持たず、必要な前処理だけして各行を処理する
     """
-    if not USE_GEMINI or not GEMINI_API_KEY:
-        print(f"[GEMINI CHECK] USE_GEMINI={USE_GEMINI} / GEMINI_API_KEY exists={bool(GEMINI_API_KEY)}", flush=True)
-        raise RuntimeError("[FATAL] Gemini APIキーが無いある")
-
-    client = genai.Client(api_key=GEMINI_API_KEY)
-
     treaty_text, examples = _read_treaty_and_staff_examples(excel_path)
     recorder_name = _choose_daily_recorder(excel_path)
 
@@ -2006,14 +1970,16 @@ def run_daily_records(driver, excel_path: str, items: List[PersonItem], targets:
             continue
 
         log(f"🧾 日々の記録入力: {it.name}")
+
         ok = process_one_daily_record(
             driver=driver,
-            client=client,
+            client=None,
             treaty_text=treaty_text,
             examples=examples,
             recorder_name=recorder_name,
             it=it,
         )
+
         if not ok:
             dump_debug(driver, f"daily_record_fail_{it.name}")
             log(f"[WARN] 日々の記録失敗→次へ: {it.name}")

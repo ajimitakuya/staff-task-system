@@ -1160,7 +1160,7 @@ with st.sidebar:
             st.rerun()
 
     if st.session_state["bee_menu_unlocked"]:
-        if st.button("🐝knowbe日誌入力🐝", width="stretch"):
+        if st.button("🐝knowbe日誌入力🐝", use_container_width=True):
             st.session_state.current_page = "🐝knowbe日誌入力🐝"
             st.rerun()
 
