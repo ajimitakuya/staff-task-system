@@ -71,6 +71,29 @@ if GEMINI_API_KEY:
 # =========================
 # 設定
 # =========================
+def get_knowbe_login_credentials():
+    username = ""
+    password = ""
+
+    try:
+        username = st.secrets.get("KB_LOGIN_USERNAME", "")
+        password = st.secrets.get("KB_LOGIN_PASSWORD", "")
+    except Exception:
+        username = ""
+        password = ""
+
+    if not username:
+        username = os.environ.get("KB_LOGIN_USERNAME", "")
+    if not password:
+        password = os.environ.get("KB_LOGIN_PASSWORD", "")
+
+    print(f"[SECRETS CHECK NOW] LOGIN_USERNAME exists={bool(username)}", flush=True)
+    print(f"[SECRETS CHECK NOW] LOGIN_PASSWORD exists={bool(password)}", flush=True)
+
+    return username, password
+
+
+
 def build_chrome_driver():
     options = webdriver.ChromeOptions()
     options.binary_location = "/usr/bin/chromium"
@@ -92,27 +115,6 @@ def build_chrome_driver():
     driver.set_script_timeout(20)
     driver.implicitly_wait(2)
     return driver
-
-def get_knowbe_login_credentials():
-    username = ""
-    password = ""
-
-    try:
-        username = st.secrets.get("KB_LOGIN_USERNAME", "")
-        password = st.secrets.get("KB_LOGIN_PASSWORD", "")
-    except Exception:
-        username = ""
-        password = ""
-
-    if not username:
-        username = os.environ.get("KB_LOGIN_USERNAME", "")
-    if not password:
-        password = os.environ.get("KB_LOGIN_PASSWORD", "")
-
-    print(f"[SECRETS CHECK NOW] LOGIN_USERNAME exists={bool(username)}", flush=True)
-    print(f"[SECRETS CHECK NOW] LOGIN_PASSWORD exists={bool(password)}", flush=True)
-
-    return username, password
 
 BASE_URL = "https://mgr.knowbe.jp/v2/"
 REPORT_DAILY_URL = "https://mgr.knowbe.jp/v2/#/report/daily"
@@ -2119,6 +2121,7 @@ def process_one_daily_record_direct(
     return True
 
 
+
 def send_one_record_from_app(
     target_date,
     resident_name,
@@ -2134,7 +2137,6 @@ def send_one_record_from_app(
     login_username,
     login_password,
 ):
-
     """
     appから1件だけ渡されたデータを Knowbe に送る
     """
@@ -2217,6 +2219,7 @@ def send_one_record_from_app(
         except Exception:
             pass
 
+
 def main():
     # =========================================
     # app単発モード
@@ -2296,6 +2299,7 @@ def main():
         log("🎊 全行程完了ある！")
 
     finally:
-        # 検証中は閉じない（必要ならON）
-        # driver.quit()
-        pass
+        try:
+            driver.quit()
+        except Exception:
+            pass
