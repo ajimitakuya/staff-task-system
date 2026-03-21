@@ -39,43 +39,44 @@ st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
 # --- 🔌 スプレッドシート接続設定 ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+def get_current_office_prefix():
+    return st.session_state.get("office_key", "support")
+
 def get_sheet_name(file):
-    if file == "task":
-        return "task"
-    elif file == "chat":
-        return "chat"
-    elif file == "manual":
-        return "manual"
-    elif file == "record_status":
-        return "record_status"
-    elif file == "calendar":
-        return "calendar"
-    elif file == "active_users":
-        return "active_users"
-    elif file == "resident_master":
-        return "resident_master"
-    elif file == "resident_schedule":
-        return "resident_schedule"
-    elif file == "resident_notes":
-        return "resident_notes"
-    elif file == "document_master":
-        return "document_master"
-    elif file == "external_contacts":
-        return "external_contacts"
-    elif file == "resident_links":
-        return "resident_links"
-    elif file == "saved_documents":
-        return "saved_documents"
-    elif file == "diary_input_rules":
-        return "diary_input_rules"
-    elif file == "staff_examples":
-        return "staff_examples"
-    elif file == "personal_rules":
-        return "personal_rules"
-    elif file == "assistant_plans":
-        return "assistant_plans"
-    else:
-        raise ValueError(f"未対応のシート名ある: {file}")
+    prefix = get_current_office_prefix()
+
+    shared_mapping = {
+        "task": "task",
+        "chat": "chat",
+        "manual": "manual",
+        "record_status": "record_status",
+        "calendar": "calendar",
+        "active_users": "active_users",
+    }
+
+    office_mapping = {
+        "resident_master": f"{prefix}_resident_master",
+        "resident_schedule": f"{prefix}_resident_schedule",
+        "resident_notes": f"{prefix}_resident_notes",
+        "document_master": f"{prefix}_document_master",
+        "external_contacts": f"{prefix}_external_contacts",
+        "resident_links": f"{prefix}_resident_links",
+        "saved_documents": f"{prefix}_saved_documents",
+        "diary_input_rules": f"{prefix}_diary_input_rules",
+        "staff_examples": f"{prefix}_staff_examples",
+        "personal_rules": f"{prefix}_personal_rules",
+        "assistant_plans": f"{prefix}_assistant_plans",
+    }
+
+    if file in shared_mapping:
+        return shared_mapping[file]
+
+    if file in office_mapping:
+        return office_mapping[file]
+
+    raise ValueError(f"未対応のシート名ある: {file}")
+
+    return mapping[file]
 
 
 def load_db(file, retries=3, delay=0.8):
