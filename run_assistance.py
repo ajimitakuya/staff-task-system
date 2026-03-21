@@ -1268,26 +1268,23 @@ def process_report_edit(driver, it: PersonItem) -> bool:
             close_dialog_if_open(driver)
             return False
 
-        # F: 備考
+        # F: 備考（完全上書き）
         note_src = (it.note or "").strip()
+
         if s == "施設外就労":
             final_note = "施設外就労(実施報告書等添付)"
         else:
-            if meal == "提供なし":
-                final_note = "在宅利用"
-            else:
-                final_note = note_src
+            final_note = note_src
 
-        if final_note:
-            area = _find_remark_area(dlg)
-            if area:
-                set_input_value(driver, area, final_note)
-            else:
-                dump_debug(driver, f"remark_not_found_{it.name}")
-                log(f"⚠️ {it.name} 備考欄が見つからないある → dbg参照")
-                close_dialog_if_open(driver)
-                return False
-
+        area = _find_remark_area(dlg)
+        if area:
+            set_input_value(driver, area, final_note)
+        else:
+            dump_debug(driver, f"remark_not_found_{it.name}")
+            log(f"⚠️ {it.name} 備考欄が見つからないある → dbg参照")
+            close_dialog_if_open(driver)
+            return False
+        
         # 保存
         save_btn = None
         for xp in [
