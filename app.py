@@ -10,7 +10,7 @@ import calendar as py_calendar
 from openpyxl import load_workbook
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar as st_calendar
-import google.generativeai as genai
+from google import genai
 import tempfile
 from openpyxl import Workbook
 
@@ -18,13 +18,26 @@ JST = timezone(timedelta(hours=9))
 def now_jst():
     return datetime.now(JST)
 
-GEMINI_API_KEY = ""
+def get_gemini_api_key_from_app():
+    api_key = ""
 
-if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
-    GEMINI_API_KEY = st.secrets["gemini"]["api_key"]
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY", "")
+    except Exception:
+        api_key = ""
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    if not api_key:
+        try:
+            if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
+                api_key = st.secrets["gemini"]["api_key"]
+        except Exception:
+            pass
+
+    if not api_key:
+        import os
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+
+    return str(api_key).strip()
 
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
@@ -4022,6 +4035,10 @@ def generate_status_support_with_gemini(
     rule_text,
     plan_text=""
 ):
+    api_key = get_gemini_api_key_from_app()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
+
     prompt = f"""
 あなたは障害福祉サービスのKnowbe日誌入力を補助するアシスタントです。
 
@@ -4058,9 +4075,15 @@ def generate_status_support_with_gemini(
 - JSON以外は返さない
 """
 
-    model = genai.GenerativeModel("gemini-1.5-flash-latest")
-    response = model.generate_content(prompt)
-    text = response.text.strip()
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+    )
+    text = (response.text or "").strip()
+
+    if not text:
+        raise RuntimeError("Geminiの応答が空ある")
 
     text = text.replace("```json", "").replace("```", "").strip()
     data = json.loads(text)
@@ -4120,8 +4143,6 @@ def generate_bee_texts(
     api_key = get_gemini_api_key_from_app()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
-
-    genai.configure(api_key=api_key)
     
     prompt = f"""
 あなたは就労継続支援B型の支援記録作成アシスタントある。
@@ -4174,9 +4195,12 @@ def generate_bee_texts(
 }}
 """
 
-    model = genai.GenerativeModel("gemini-1.5-flash-latest")
-    response = model.generate_content(prompt)
-    result_text = (getattr(response, "text", "") or "").strip()
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+    )
+    result_text = (response.text or "").strip()
 
     if not result_text:
         raise RuntimeError("Geminiの応答が空ある")

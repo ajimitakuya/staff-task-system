@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from typing import List, Tuple, Optional
 
 import random
-import google.generativeai as genai
+from google import genai
 import openpyxl
 
 from selenium import webdriver
@@ -41,7 +41,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 
 import os
 import streamlit as st
-import google.generativeai as genai
+
 
 # =========================
 # API
@@ -64,9 +64,6 @@ if not GEMINI_API_KEY:
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 USE_GEMINI = bool(GEMINI_API_KEY)
-
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
 
 print(f"[GEMINI CHECK] GEMINI_API_KEY exists={bool(GEMINI_API_KEY)}", flush=True)
 print(f"[GEMINI CHECK] USE_GEMINI={USE_GEMINI}", flush=True)
