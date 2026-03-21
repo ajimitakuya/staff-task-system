@@ -10,7 +10,7 @@ import calendar as py_calendar
 from openpyxl import load_workbook
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar as st_calendar
-from openai import OpenAI
+from google import genai
 import tempfile
 from openpyxl import Workbook
 
@@ -18,17 +18,24 @@ JST = timezone(timedelta(hours=9))
 def now_jst():
     return datetime.now(JST)
 
-def get_openai_api_key_from_app():
+def get_gemini_api_key_from_app():
     api_key = ""
 
     try:
-        api_key = st.secrets.get("OPENAI_API_KEY", "")
+        api_key = st.secrets.get("GEMINI_API_KEY", "")
     except Exception:
         api_key = ""
 
     if not api_key:
+        try:
+            if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
+                api_key = st.secrets["gemini"]["api_key"]
+        except Exception:
+            pass
+
+    if not api_key:
         import os
-        api_key = os.environ.get("OPENAI_API_KEY", "")
+        api_key = os.environ.get("GEMINI_API_KEY", "")
 
     return str(api_key).strip()
 
@@ -4156,9 +4163,10 @@ def generate_bee_texts(
     rule_text = "" if rule_text is None else str(rule_text).strip()
     plan_text = "" if plan_text is None else str(plan_text).strip()
 
-    api_key = get_openai_api_key_from_app()
+    api_key = get_gemini_api_key_from_app()
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY が取得できなかったある")
+        raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
+
 
     prompt = f"""
 あなたは就労継続支援B型の支援記録作成アシスタントある。
@@ -4210,14 +4218,12 @@ def generate_bee_texts(
 }}
 """
 
-    client = OpenAI(api_key=api_key)
-
-    response = client.responses.create(
-        model="gpt-4o-mini",
-        input=prompt,
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
     )
-
-    result_text = (response.output_text or "").strip()
+    result_text = (response.text or "").strip()
 
     if not result_text:
         raise RuntimeError("ChatGPTの応答が空ある")
@@ -4753,7 +4759,7 @@ def render_bee_journal_page():
                     st.error(f"Knowbe送信失敗ある: {e}")
 
         with send_cols[2]:
-            if st.button("ChatGPTで整えて送信", key="bee_send_gpt"):
+            if st.button("Geminiで整えて送信", key="bee_send_gpt"):
                 if not start_time.strip():
                     st.warning("開始時間を入れてほしいある。")
                     st.stop()
@@ -4842,9 +4848,60 @@ def render_bee_journal_page():
     diary_df = get_diary_input_rules_df()
 
     if diary_df is not None and not diary_df.empty:
-        if "record_id" in diary_df.columns:
-            diary_df = diary_df.sort_values(by="record_id", ascending=False)
-        st.dataframe(diary_df.head(10), use_container_width=True, hide_index=True)
+        df_user = diary_df[
+            diary_df["resident_name"].astype(str) == str(resident_name)
+        ].copy()
+
+        if not df_user.empty:
+            try:
+                df_user["record_id_num"] = pd.to_numeric(df_user["record_id"], errors="coerce")
+                df_user = df_user.sort_values("record_id_num", ascending=False)
+            except Exception:
+                pass
+
+            load_options = []
+            load_map = {}
+
+            for _, r in df_user.head(10).iterrows():
+                label = f"{r.get('date', '')} / {r.get('start_time', '')}〜{r.get('end_time', '')} / ID:{r.get('record_id', '')}"
+                load_options.append(label)
+                load_map[label] = r.to_dict()
+
+            load_col1, load_col2 = st.columns([5, 1])
+
+            with load_col1:
+                selected_saved_label = st.selectbox(
+                    "過去の保存データ",
+                    [""] + load_options,
+                    key="bee_saved_record_select"
+                )
+
+            with load_col2:
+                st.write("")
+                st.write("")
+                if st.button("呼び出す", key="bee_load_saved_record", use_container_width=True):
+                    if selected_saved_label:
+                        rec = load_map[selected_saved_label]
+
+                        st.session_state["bee_target_date"] = (
+                            pd.to_datetime(rec.get("date", "")).date()
+                            if str(rec.get("date", "")).strip()
+                            else now_jst().date()
+                        )
+                        st.session_state["start_time"] = str(rec.get("start_time", ""))
+                        st.session_state["end_time"] = str(rec.get("end_time", ""))
+                        st.session_state["bee_meal_flag"] = str(rec.get("meal_flag", "なし"))
+                        st.session_state["bee_note_text"] = str(rec.get("note", ""))
+                        st.session_state["bee_start_memo"] = str(rec.get("start_memo", ""))
+                        st.session_state["bee_end_memo"] = str(rec.get("end_memo", ""))
+                        st.session_state["bee_staff_name"] = str(rec.get("staff_name", ""))
+                        st.session_state["bee_service_type"] = str(rec.get("service_type", "在宅"))
+                        st.session_state["bee_knowbe_target"] = str(rec.get("knowbe_target", "support"))
+
+                        st.success("保存データを呼び出したある！")
+                        st.rerun()
+        else:
+            st.info("この利用者の保存データはまだないある。")
     else:
         st.info("まだ保存データはないある。")
 
