@@ -4092,7 +4092,7 @@ def get_gemini_api_key_from_app():
     api_key = ""
 
     try:
-        api_key = st.secrets.get("GEMINI_API_KEY", "")
+        print("DEBUG GEMINI_API_KEY =", st.secrets.get("GEMINI_API_KEY", ""), flush=True)
     except Exception:
         api_key = ""
 
