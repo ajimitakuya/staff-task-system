@@ -4095,14 +4095,28 @@ def get_gemini_api_key_from_app():
 def generate_bee_texts(
     resident_name,
     service_type,
-    meal_flag,
-    note,
-    start_memo,
-    end_memo,
-    examples_text,
-    rule_text,
-    plan_text,
+    meal_flag="",
+    note="",
+    start_memo="",
+    end_memo="",
+    examples_text="",
+    rule_text="",
+    plan_text="",
+    note_text=None,
+    staff_name=None,
 ):
+    # 旧呼び出し(note)と新呼び出し(note_text)の両対応にするある
+    if (not str(note).strip()) and note_text is not None:
+        note = note_text
+
+    meal_flag = "" if meal_flag is None else str(meal_flag).strip()
+    note = "" if note is None else str(note).strip()
+    start_memo = "" if start_memo is None else str(start_memo).strip()
+    end_memo = "" if end_memo is None else str(end_memo).strip()
+    examples_text = "" if examples_text is None else str(examples_text).strip()
+    rule_text = "" if rule_text is None else str(rule_text).strip()
+    plan_text = "" if plan_text is None else str(plan_text).strip()
+
     api_key = get_gemini_api_key_from_app()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
