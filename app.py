@@ -4102,30 +4102,47 @@ def send_to_knowbe_from_bee(
     staff_name,
     knowbe_target,
 ):
-    import run_assistance
-    st.warning("SEND_TO_KNOWBE_FROM_BEE CALLED / 2026-03-21-knowbe-debug-01")
+    import traceback
+
+    st.warning("SEND_TO_KNOWBE_FROM_BEE CALLED / 2026-03-21-knowbe-debug-02")
+
     login_username, login_password = get_knowbe_credentials_from_app()
 
-    st.write("DEBUG secret keys:", list(st.secrets.keys()))
+    st.info(f"DEBUG username exists = {bool(str(login_username).strip())}")
+    st.info(f"DEBUG password exists = {bool(str(login_password).strip())}")
+    st.write("DEBUG keys:", list(st.secrets.keys()))
 
     if not login_username or not login_password:
         raise RuntimeError("app.py 側で KB_LOGIN_USERNAME / KB_LOGIN_PASSWORD を取得できなかったある")
 
-    ok = run_assistance.send_one_record_from_app(
-        target_date=str(target_date),
-        resident_name=str(resident_name).strip(),
-        service_type=str(service_type).strip(),
-        start_time=str(start_time).strip(),
-        end_time=str(end_time).strip(),
-        meal_flag=str(meal_flag).strip(),
-        note_text=str(note_text).strip(),
-        generated_status=str(generated_status).strip(),
-        generated_support=str(generated_support).strip(),
-        staff_name=str(staff_name).strip(),
-        knowbe_target=str(knowbe_target).strip(),
-        login_username=login_username,
-        login_password=login_password,
-    )
+    try:
+        st.write("DEBUG 1: import run_assistance start")
+        import run_assistance
+        st.write("DEBUG 2: import run_assistance done")
+
+        st.write("DEBUG 3: send_one_record_from_app start")
+        ok = run_assistance.send_one_record_from_app(
+            target_date=str(target_date),
+            resident_name=str(resident_name).strip(),
+            service_type=str(service_type).strip(),
+            start_time=str(start_time).strip(),
+            end_time=str(end_time).strip(),
+            meal_flag=str(meal_flag).strip(),
+            note_text=str(note_text).strip(),
+            generated_status=str(generated_status).strip(),
+            generated_support=str(generated_support).strip(),
+            staff_name=str(staff_name).strip(),
+            knowbe_target=str(knowbe_target).strip(),
+            login_username=login_username,
+            login_password=login_password,
+        )
+        st.write(f"DEBUG 4: send_one_record_from_app returned = {ok}")
+
+    except Exception as e:
+        st.error(f"DEBUG EXCEPTION TYPE: {type(e).__name__}")
+        st.error(f"DEBUG EXCEPTION MSG: {e}")
+        st.code(traceback.format_exc())
+        raise
 
     if not ok:
         raise RuntimeError("run_assistance.send_one_record_from_app が False を返したある")
