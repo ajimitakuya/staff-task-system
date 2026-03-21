@@ -2010,6 +2010,7 @@ def run_daily_records(driver, excel_path: str, items: List[PersonItem], targets:
     利用実績入力のあとに呼ぶ本体
     """
     if not USE_GEMINI or not GEMINI_API_KEY:
+        print(f"[GEMINI CHECK] USE_GEMINI={USE_GEMINI} / GEMINI_API_KEY exists={bool(GEMINI_API_KEY)}", flush=True)
         raise RuntimeError("[FATAL] Gemini APIキーが無いある")
 
     client = genai.Client(api_key=GEMINI_API_KEY)
