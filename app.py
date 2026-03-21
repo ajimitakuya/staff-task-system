@@ -4105,6 +4105,8 @@ def send_to_knowbe_from_bee(
 
     login_username, login_password = get_knowbe_credentials_from_app()
 
+    st.write("DEBUG secret keys:", list(st.secrets.keys()))
+
     if not login_username or not login_password:
         raise RuntimeError("app.py 側で KB_LOGIN_USERNAME / KB_LOGIN_PASSWORD を取得できなかったある")
 
