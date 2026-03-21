@@ -4058,7 +4058,7 @@ def generate_status_support_with_gemini(
 - JSON以外は返さない
 """
 
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-1.5-flash-latest")
     response = model.generate_content(prompt)
     text = response.text.strip()
 
