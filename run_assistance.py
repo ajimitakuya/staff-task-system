@@ -68,6 +68,9 @@ USE_GEMINI = bool(GEMINI_API_KEY)
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
+print(f"[GEMINI CHECK] GEMINI_API_KEY exists={bool(GEMINI_API_KEY)}", flush=True)
+print(f"[GEMINI CHECK] USE_GEMINI={USE_GEMINI}", flush=True)
+
 # =========================
 # 設定
 # =========================
@@ -1538,15 +1541,24 @@ def _build_gemini_prompt(
 
 
 def _gemini_generate_text(client, prompt: str) -> str:
-    """
-    Geminiで本文生成
-    """
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-    )
-    text = getattr(response, "text", "") or ""
-    return text.strip()
+    try:
+        print("[GEMINI STEP] generate_content start", flush=True)
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+
+        print("[GEMINI STEP] generate_content done", flush=True)
+
+        text = getattr(response, "text", "") or ""
+        print(f"[GEMINI STEP] response text exists={bool(text.strip())}", flush=True)
+
+        return text.strip()
+
+    except Exception as e:
+        print(f"[GEMINI ERROR] {type(e).__name__}: {e}", flush=True)
+        raise
 
 
 def click_daily_edit_button(driver) -> bool:
