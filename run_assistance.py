@@ -41,27 +41,36 @@ from selenium.webdriver.common.action_chains import ActionChains
 # 設定
 # =========================
 def get_knowbe_login_credentials():
+    office_key = str(st.session_state.get("office_key", "support")).strip().lower()
+
+    if office_key not in ("support", "home"):
+        office_key = "support"
+
     username = ""
     password = ""
 
+    secret_user_key = f"KB_LOGIN_USERNAME_{office_key.upper()}"
+    secret_pass_key = f"KB_LOGIN_PASSWORD_{office_key.upper()}"
+
     try:
-        username = st.secrets.get("KB_LOGIN_USERNAME", "")
-        password = st.secrets.get("KB_LOGIN_PASSWORD", "")
+        username = st.secrets.get(secret_user_key, "")
+        password = st.secrets.get(secret_pass_key, "")
     except Exception:
         username = ""
         password = ""
 
     if not username:
-        username = os.environ.get("KB_LOGIN_USERNAME", "")
+        username = os.environ.get(secret_user_key, "")
     if not password:
-        password = os.environ.get("KB_LOGIN_PASSWORD", "")
+        password = os.environ.get(secret_pass_key, "")
 
+    print(f"[SECRETS CHECK NOW] office={office_key}", flush=True)
+    print(f"[SECRETS CHECK NOW] username_key={secret_user_key}", flush=True)
+    print(f"[SECRETS CHECK NOW] password_key={secret_pass_key}", flush=True)
     print(f"[SECRETS CHECK NOW] LOGIN_USERNAME exists={bool(username)}", flush=True)
     print(f"[SECRETS CHECK NOW] LOGIN_PASSWORD exists={bool(password)}", flush=True)
 
     return username, password
-
-
 
 def build_chrome_driver():
     options = webdriver.ChromeOptions()
