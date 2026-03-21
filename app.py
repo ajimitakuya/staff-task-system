@@ -4088,6 +4088,106 @@ def get_knowbe_credentials_from_app():
 
     return str(username).strip(), str(password).strip()
 
+def get_gemini_api_key_from_app():
+    api_key = ""
+
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY", "")
+    except Exception:
+        api_key = ""
+
+    if not api_key:
+        try:
+            if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
+                api_key = st.secrets["gemini"]["api_key"]
+        except Exception:
+            pass
+
+    if not api_key:
+        import os
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+
+    return str(api_key).strip()
+
+
+def generate_bee_texts(
+    resident_name,
+    service_type,
+    start_memo,
+    end_memo,
+    note_text,
+    staff_name,
+    examples_text,
+    rule_text,
+    plan_text,
+):
+    api_key = get_gemini_api_key_from_app()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
+
+    genai.configure(api_key=api_key)
+
+    prompt = f"""
+あなたは就労継続支援B型の日誌作成アシスタントです。
+以下の情報をもとに、Knowbeの日々の記録に入れる
+「利用者状態」と「職員考察」をそれぞれ自然な日本語で作成してください。
+
+【利用者名】
+{resident_name}
+
+【サービス種別】
+{service_type}
+
+【開始メモ】
+{start_memo}
+
+【終了メモ】
+{end_memo}
+
+【備考】
+{note_text}
+
+【日誌入力者】
+{staff_name}
+
+【文体参考】
+{examples_text}
+
+【ルール】
+{rule_text}
+
+【支援計画等の参考】
+{plan_text}
+
+【出力条件】
+- 返答は必ず2項目
+- 1行目を「利用者状態:」
+- 2行目を「職員考察:」
+- 余計な説明は禁止
+- 短すぎず長すぎず、Knowbeに貼れる自然な文にする
+"""
+
+    model = genai.GenerativeModel("gemini-2.5-flash")
+    response = model.generate_content(prompt)
+    text = (getattr(response, "text", "") or "").strip()
+
+    if not text:
+        raise RuntimeError("Geminiの応答が空ある")
+
+    user_text = ""
+    staff_text = ""
+
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("利用者状態:"):
+            user_text = line.replace("利用者状態:", "", 1).strip()
+        elif line.startswith("職員考察:"):
+            staff_text = line.replace("職員考察:", "", 1).strip()
+
+    if not user_text or not staff_text:
+        raise RuntimeError(f"Gemini出力の解析に失敗ある: {text}")
+
+    return user_text, staff_text
 
 def send_to_knowbe_from_bee(
     target_date,
