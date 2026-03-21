@@ -266,11 +266,12 @@ def safe_click(driver, el) -> bool:
     except Exception:
         return False
 
-def manual_login_wait(driver):
-    login_username, login_password = get_knowbe_login_credentials()
+def manual_login_wait(driver, login_username, login_password):
+    login_username = "" if login_username is None else str(login_username).strip()
+    login_password = "" if login_password is None else str(login_password).strip()
 
     if not login_username or not login_password:
-        raise RuntimeError("[FATAL] KB_LOGIN_USERNAME / KB_LOGIN_PASSWORD が空ある")
+        raise RuntimeError("[FATAL] login_username / login_password が空ある")
 
     last_error = ""
     start_ts = time.time()
@@ -278,7 +279,6 @@ def manual_login_wait(driver):
     while time.time() - start_ts < 30:
         url = driver.current_url or ""
 
-        # すでにログイン済み
         if "login" not in url and "mgr.knowbe.jp" in url:
             return
 
@@ -322,6 +322,7 @@ def manual_login_wait(driver):
         f"[FATAL] 自動ログインが30秒でタイムアウトしたある。"
         f" current_url={driver.current_url!r} last_error={last_error!r}"
     )
+
 def get_top_dialog(driver):
     ds = driver.find_elements(By.CSS_SELECTOR, "[role='dialog']")
     return ds[-1] if ds else None
@@ -2097,18 +2098,20 @@ def process_one_daily_record_direct(
 
 
 def send_one_record_from_app(
-    target_date: str,
-    resident_name: str,
-    service_type: str,
-    start_time: str,
-    end_time: str,
-    meal_flag: str,
-    note_text: str,
-    generated_status: str,
-    generated_support: str,
-    staff_name: str,
-    knowbe_target: str
-) -> bool:
+    target_date,
+    resident_name,
+    service_type,
+    start_time,
+    end_time,
+    meal_flag,
+    note_text,
+    generated_status,
+    generated_support,
+    staff_name,
+    knowbe_target,
+    login_username,
+    login_password,
+):
 
     """
     appから1件だけ渡されたデータを Knowbe に送る
@@ -2186,7 +2189,7 @@ def send_one_record_from_app(
         print("[STEP] goto_report_daily done", flush=True)
 
         print("[STEP] manual_login_wait start", flush=True)
-        manual_login_wait(driver)
+        manual_login_wait(driver, login_username, login_password)
         print("[STEP] manual_login_wait done", flush=True)
 
         print("[STEP] goto_report_date start", flush=True)
@@ -2227,6 +2230,11 @@ def main():
     # app単発モード
     # =========================================
     if os.environ.get("KB_SINGLE_MODE", "") == "1":
+        login_username, login_password = get_knowbe_login_credentials()
+
+        if not login_username or not login_password:
+            raise RuntimeError("[FATAL] KB_LOGIN_USERNAME / KB_LOGIN_PASSWORD が空ある")
+
         send_one_record_from_app(
             target_date=os.environ.get("KB_TARGET_DATE", ""),
             resident_name=os.environ.get("KB_RESIDENT_NAME", ""),
@@ -2239,6 +2247,8 @@ def main():
             generated_support=os.environ.get("KB_GENERATED_SUPPORT", ""),
             staff_name=os.environ.get("KB_STAFF_NAME", ""),
             knowbe_target=os.environ.get("KB_KNOWBE_TARGET", ""),
+            login_username=login_username,
+            login_password=login_password,
         )
         return
 
@@ -2285,8 +2295,13 @@ def main():
     driver.implicitly_wait(2)
 
     try:
+        login_username, login_password = get_knowbe_login_credentials()
+
+        if not login_username or not login_password:
+            raise RuntimeError("[FATAL] KB_LOGIN_USERNAME / KB_LOGIN_PASSWORD が空ある")
+
         goto_report_daily(driver)
-        manual_login_wait(driver)
+        manual_login_wait(driver, login_username, login_password)
         goto_report_date(driver, y, m, d)
 
         any_ok = False

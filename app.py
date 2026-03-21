@@ -310,6 +310,24 @@ def save_diary_input_record(
     save_db(df, "diary_input_rules")
     return next_id
 
+def update_diary_input_record_status(record_id, send_status, sent_at="", send_error=""):
+    df = get_diary_input_rules_df()
+
+    if df is None or df.empty:
+        return False
+
+    mask = df["record_id"].astype(str) == str(record_id)
+
+    if not mask.any():
+        return False
+
+    df.loc[mask, "send_status"] = str(send_status)
+    df.loc[mask, "sent_at"] = str(sent_at)
+    df.loc[mask, "send_error"] = str(send_error)
+
+    save_db(df, "diary_input_rules")
+    return True
+
 def get_diary_input_rules_df():
     return get_diary_input_rules_df_cached().copy()    
 
@@ -4051,6 +4069,31 @@ def generate_status_support_with_gemini(
         str(data.get("generated_support", "")).strip(),
     )
 
+def get_knowbe_credentials_from_app():
+    username = ""
+    password = ""
+
+    try:
+        username = st.secrets.get("KB_LOGIN_USERNAME", "")
+        password = st.secrets.get("KB_LOGIN_PASSWORD", "")
+    except Exception:
+        pass
+
+    return str(username).strip(), str(password).strip()
+
+def get_knowbe_credentials_from_app():
+    username = ""
+    password = ""
+
+    try:
+        username = st.secrets.get("KB_LOGIN_USERNAME", "")
+        password = st.secrets.get("KB_LOGIN_PASSWORD", "")
+    except Exception:
+        pass
+
+    return str(username).strip(), str(password).strip()
+
+
 def send_to_knowbe_from_bee(
     target_date,
     resident_name,
@@ -4064,27 +4107,33 @@ def send_to_knowbe_from_bee(
     staff_name,
     knowbe_target,
 ):
-    try:
-        import run_assistance
+    import run_assistance
 
-        ok = run_assistance.send_one_record_from_app(
-            target_date=str(target_date),
-            resident_name=str(resident_name).strip(),
-            service_type=str(service_type).strip(),
-            start_time=str(start_time).strip(),
-            end_time=str(end_time).strip(),
-            meal_flag=str(meal_flag).strip(),
-            note_text=str(note_text).strip(),
-            generated_status=str(generated_status).strip(),
-            generated_support=str(generated_support).strip(),
-            staff_name=str(staff_name).strip(),
-            knowbe_target=str(knowbe_target).strip(),
-        )
-        return ok
+    login_username, login_password = get_knowbe_credentials_from_app()
 
-    except Exception as e:
-        st.error(f"Knowbe送信失敗ある: {e}")
-        return False
+    if not login_username or not login_password:
+        raise RuntimeError("app.py 側で KB_LOGIN_USERNAME / KB_LOGIN_PASSWORD を取得できなかったある")
+
+    ok = run_assistance.send_one_record_from_app(
+        target_date=str(target_date),
+        resident_name=str(resident_name).strip(),
+        service_type=str(service_type).strip(),
+        start_time=str(start_time).strip(),
+        end_time=str(end_time).strip(),
+        meal_flag=str(meal_flag).strip(),
+        note_text=str(note_text).strip(),
+        generated_status=str(generated_status).strip(),
+        generated_support=str(generated_support).strip(),
+        staff_name=str(staff_name).strip(),
+        knowbe_target=str(knowbe_target).strip(),
+        login_username=login_username,
+        login_password=login_password,
+    )
+
+    if not ok:
+        raise RuntimeError("run_assistance.send_one_record_from_app が False を返したある")
+
+    return True
 
 def render_bee_journal_page():
     st.title("🐝knowbe日誌入力🐝")
@@ -4484,6 +4533,71 @@ def render_bee_journal_page():
                 st.info(f"送信開始ある… record_id = {record_id}")
 
                 try:
+                    ok = send_to_knowbe_from_bee(
+                        target_date=target_date,
+                        resident_name=resident_name,
+                        service_type=service_type,
+                        start_time=start_time,
+                        end_time=end_time,
+                        meal_flag=meal_flag,
+                        note_text=preview_note,
+                        generated_status=generated_status,
+                        generated_support=generated_support,
+                        staff_name=staff_name,
+                        knowbe_target=knowbe_target
+                    )
+
+                    if ok:
+                        update_diary_input_record_status(
+                            record_id=record_id,
+                            send_status="sent",
+                            sent_at=now_jst().strftime("%Y-%m-%d %H:%M:%S"),
+                            send_error=""
+                        )
+                        st.success(f"Knowbeへ送信完了ある！ record_id = {record_id}")
+                    else:
+                        update_diary_input_record_status(
+                            record_id=record_id,
+                            send_status="error",
+                            sent_at="",
+                            send_error="run_assistance.send_one_record_from_app returned False"
+                        )
+                        st.error(f"Knowbe送信失敗ある。 record_id = {record_id}")
+
+                except Exception as e:
+                    update_diary_input_record_status(
+                        record_id=record_id,
+                        send_status="error",
+                        sent_at="",
+                        send_error=str(e)
+                    )
+                    st.error(f"Knowbe送信失敗ある: {e}")
+
+        with send_cols[2]:
+            if st.button("Geminiで整えて送信", key="bee_send_gemini"):
+                if not start_time.strip():
+                    st.warning("開始時間を入れてほしいある。")
+                    st.stop()
+                if not end_time.strip():
+                    st.warning("終了時間を入れてほしいある。")
+                    st.stop()
+                if not staff_name.strip():
+                    st.warning("日誌入力者を入れてほしいある。")
+                    st.stop()
+
+                try:
+                    generated_status, generated_support = generate_bee_texts(
+                        resident_name=resident_name,
+                        service_type=service_type,
+                        start_memo=start_memo,
+                        end_memo=end_memo,
+                        note_text=preview_note,
+                        staff_name=staff_name,
+                        examples_text=examples_text,
+                        rule_text=loaded_rule_text if loaded_rule_text else rule_text,
+                        plan_text=plan_text
+                    )
+
                     send_to_knowbe_from_bee(
                         target_date=target_date,
                         resident_name=resident_name,
@@ -4497,94 +4611,51 @@ def render_bee_journal_page():
                         staff_name=staff_name,
                         knowbe_target=knowbe_target
                     )
+
+                    record_id = save_diary_input_record(
+                        date=target_date,
+                        resident_id=resident_id,
+                        resident_name=resident_name,
+                        start_time=start_time,
+                        end_time=end_time,
+                        meal_flag=meal_flag,
+                        note=preview_note,
+                        start_memo=start_memo,
+                        end_memo=end_memo,
+                        staff_name=staff_name,
+                        generated_status=generated_status,
+                        generated_support=generated_support,
+                        service_type=service_type,
+                        knowbe_target=knowbe_target,
+                        send_status="sent",
+                        sent_at=now_jst().strftime("%Y-%m-%d %H:%M:%S"),
+                        send_error="",
+                        record_mode=record_mode
+                    )
                     st.success(f"Knowbeへ送信完了ある！ record_id = {record_id}")
 
                 except Exception as e:
-                    st.error(f"Knowbe送信失敗ある: {e}")
-
-    with send_cols[2]:
-        if st.button("Geminiで整えて送信", key="bee_send_gemini"):
-            if not start_time.strip():
-                st.warning("開始時間を入れてほしいある。")
-                st.stop()
-            if not end_time.strip():
-                st.warning("終了時間を入れてほしいある。")
-                st.stop()
-            if not staff_name.strip():
-                st.warning("日誌入力者を入れてほしいある。")
-                st.stop()
-
-            try:
-                generated_status, generated_support = generate_bee_texts(
-                    resident_name=resident_name,
-                    service_type=service_type,
-                    start_memo=start_memo,
-                    end_memo=end_memo,
-                    note_text=preview_note,
-                    staff_name=staff_name,
-                    examples_text=examples_text,
-                    rule_text=loaded_rule_text if loaded_rule_text else rule_text,
-                    plan_text=plan_text
-                )
-
-                send_to_knowbe_from_bee(
-                    target_date=target_date,
-                    resident_name=resident_name,
-                    service_type=service_type,
-                    start_time=start_time,
-                    end_time=end_time,
-                    meal_flag=meal_flag,
-                    note_text=preview_note,
-                    generated_status=generated_status,
-                    generated_support=generated_support,
-                    staff_name=staff_name,
-                    knowbe_target=knowbe_target
-                )
-
-                record_id = save_diary_input_record(
-                    date=target_date,
-                    resident_id=resident_id,
-                    resident_name=resident_name,
-                    start_time=start_time,
-                    end_time=end_time,
-                    meal_flag=meal_flag,
-                    note=preview_note,
-                    start_memo=start_memo,
-                    end_memo=end_memo,
-                    staff_name=staff_name,
-                    generated_status=generated_status,
-                    generated_support=generated_support,
-                    service_type=service_type,
-                    knowbe_target=knowbe_target,
-                    send_status="sent",
-                    sent_at=now_jst().strftime("%Y-%m-%d %H:%M:%S"),
-                    send_error="",
-                    record_mode=record_mode
-                )
-                st.success(f"Knowbeへ送信完了ある！ record_id = {record_id}")
-
-            except Exception as e:
-                record_id = save_diary_input_record(
-                    date=target_date,
-                    resident_id=resident_id,
-                    resident_name=resident_name,
-                    start_time=start_time,
-                    end_time=end_time,
-                    meal_flag=meal_flag,
-                    note=preview_note,
-                    start_memo=start_memo,
-                    end_memo=end_memo,
-                    staff_name=staff_name,
-                    generated_status="",
-                    generated_support="",
-                    service_type=service_type,
-                    knowbe_target=knowbe_target,
-                    send_status="error",
-                    sent_at="",
-                    send_error=str(e),
-                    record_mode=record_mode
-                )
-                st.error(f"Gemini生成エラーある: {e}")
+                    record_id = save_diary_input_record(
+                        date=target_date,
+                        resident_id=resident_id,
+                        resident_name=resident_name,
+                        start_time=start_time,
+                        end_time=end_time,
+                        meal_flag=meal_flag,
+                        note=preview_note,
+                        start_memo=start_memo,
+                        end_memo=end_memo,
+                        staff_name=staff_name,
+                        generated_status="",
+                        generated_support="",
+                        service_type=service_type,
+                        knowbe_target=knowbe_target,
+                        send_status="error",
+                        sent_at="",
+                        send_error=str(e),
+                        record_mode=record_mode
+                    )
+                    st.error(f"Gemini生成エラーある: {e}")
 
     st.divider()
     st.markdown("## 最近の保存データ")
