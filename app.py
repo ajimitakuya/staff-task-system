@@ -4074,20 +4074,13 @@ def get_knowbe_credentials_from_app():
     password = ""
 
     try:
-        username = st.secrets.get("KB_LOGIN_USERNAME", "")
-        password = st.secrets.get("KB_LOGIN_PASSWORD", "")
+        if "knowbe" in st.secrets:
+            username = st.secrets["knowbe"].get("KB_LOGIN_USERNAME", "")
+            password = st.secrets["knowbe"].get("KB_LOGIN_PASSWORD", "")
     except Exception as e:
         st.error(f"st.secrets 読み取り例外ある: {e}")
         username = ""
         password = ""
-
-    # 念のため環境変数も確認
-    if not username:
-        import os
-        username = os.environ.get("KB_LOGIN_USERNAME", "")
-    if not password:
-        import os
-        password = os.environ.get("KB_LOGIN_PASSWORD", "")
 
     st.info(f"DEBUG secrets username exists = {bool(str(username).strip())}")
     st.info(f"DEBUG secrets password exists = {bool(str(password).strip())}")
