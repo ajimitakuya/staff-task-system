@@ -28,6 +28,7 @@ if GEMINI_API_KEY:
 
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
+st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
 
 # --- 🔌 スプレッドシート接続設定 ---
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -4081,9 +4082,9 @@ def get_knowbe_credentials_from_app():
         username = ""
         password = ""
 
-    st.info(f"DEBUG secrets username exists = {bool(str(username).strip())}")
-    st.info(f"DEBUG secrets password exists = {bool(str(password).strip())}")
-    st.write("DEBUG secret keys:", list(st.secrets.keys()))
+    st.info(f"DEBUG username exists = {bool(str(username).strip())}")
+    st.info(f"DEBUG password exists = {bool(str(password).strip())}")
+    st.write("DEBUG keys:", list(st.secrets.keys()))
 
     return str(username).strip(), str(password).strip()
 
@@ -4102,7 +4103,7 @@ def send_to_knowbe_from_bee(
     knowbe_target,
 ):
     import run_assistance
-
+    st.warning("SEND_TO_KNOWBE_FROM_BEE CALLED / 2026-03-21-knowbe-debug-01")
     login_username, login_password = get_knowbe_credentials_from_app()
 
     st.write("DEBUG secret keys:", list(st.secrets.keys()))
