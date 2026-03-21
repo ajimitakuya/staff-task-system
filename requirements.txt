@@ -3,6 +3,6 @@ pandas
 openpyxl
 st-gsheets-connection
 streamlit-calendar
-openai
+google-genai
 selenium
 webdriver-manager

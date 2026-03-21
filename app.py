@@ -10,7 +10,6 @@ import calendar as py_calendar
 from openpyxl import load_workbook
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar as st_calendar
-from google import genai
 import tempfile
 from openpyxl import Workbook
 
@@ -38,6 +37,13 @@ def get_gemini_api_key_from_app():
         api_key = os.environ.get("GEMINI_API_KEY", "")
 
     return str(api_key).strip()
+
+def get_genai_client(api_key: str):
+    try:
+        from google import genai
+    except Exception as e:
+        raise RuntimeError(f"Gemini SDKの読み込みに失敗ある: {e}")
+    return genai.Client(api_key=api_key)
 
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
@@ -82,8 +88,6 @@ def get_sheet_name(file):
         return office_mapping[file]
 
     raise ValueError(f"未対応のシート名ある: {file}")
-
-    return mapping[file]
 
 
 def load_db(file, retries=3, delay=0.8):
@@ -4099,12 +4103,12 @@ def generate_status_support_with_gemini(
 - JSON以外は返さない
 """
 
-    client = OpenAI(api_key=api_key)
-    response = client.responses.create(
-        model="gpt-4o-mini",
-        input=prompt,
+    client = get_genai_client(api_key)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
     )
-    text = (response.output_text or "").strip()
+    text = (response.text or "").strip()
 
     if not text:
         raise RuntimeError("Geminiの応答が空ある")
@@ -4218,7 +4222,7 @@ def generate_bee_texts(
 }}
 """
 
-    client = genai.Client(api_key=api_key)
+    client = get_genai_client(api_key)
     response = client.models.generate_content(
         model="gemini-2.0-flash",
         contents=prompt,
