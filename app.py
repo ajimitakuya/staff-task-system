@@ -10,7 +10,7 @@ import calendar as py_calendar
 from openpyxl import load_workbook
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar as st_calendar
-from google import genai
+from openai import OpenAI
 import tempfile
 from openpyxl import Workbook
 
@@ -18,24 +18,17 @@ JST = timezone(timedelta(hours=9))
 def now_jst():
     return datetime.now(JST)
 
-def get_gemini_api_key_from_app():
+def get_openai_api_key_from_app():
     api_key = ""
 
     try:
-        api_key = st.secrets.get("GEMINI_API_KEY", "")
+        api_key = st.secrets.get("OPENAI_API_KEY", "")
     except Exception:
         api_key = ""
 
     if not api_key:
-        try:
-            if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
-                api_key = st.secrets["gemini"]["api_key"]
-        except Exception:
-            pass
-
-    if not api_key:
         import os
-        api_key = os.environ.get("GEMINI_API_KEY", "")
+        api_key = os.environ.get("OPENAI_API_KEY", "")
 
     return str(api_key).strip()
 
@@ -4075,12 +4068,12 @@ def generate_status_support_with_gemini(
 - JSON以外は返さない
 """
 
-    client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt,
+    client = OpenAI(api_key=api_key)
+    response = client.responses.create(
+        model="gpt-4o-mini",
+        input=prompt,
     )
-    text = (response.text or "").strip()
+    text = (response.output_text or "").strip()
 
     if not text:
         raise RuntimeError("Geminiの応答が空ある")
@@ -4128,7 +4121,6 @@ def generate_bee_texts(
     note_text=None,
     staff_name=None,
 ):
-    # 旧呼び出し(note)と新呼び出し(note_text)の両対応にするある
     if (not str(note).strip()) and note_text is not None:
         note = note_text
 
@@ -4140,24 +4132,31 @@ def generate_bee_texts(
     rule_text = "" if rule_text is None else str(rule_text).strip()
     plan_text = "" if plan_text is None else str(plan_text).strip()
 
-    api_key = get_gemini_api_key_from_app()
+    api_key = get_openai_api_key_from_app()
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
-    
+        raise RuntimeError("OPENAI_API_KEY が取得できなかったある")
+
     prompt = f"""
 あなたは就労継続支援B型の支援記録作成アシスタントある。
 以下の情報をもとに、Knowbeへそのまま貼り付けられる
 「利用者状態」と「職員考察」を作るある。
 
-【前提】
-- service_type: {service_type}
-- meal_flag: {meal_flag}
-- 備考: {note}
+【利用者名】
+{resident_name}
 
-【利用者状態メモ（そのままの意味を尊重）】
+【サービス種別】
+{service_type}
+
+【食事】
+{meal_flag}
+
+【備考】
+{note}
+
+【利用者状態メモ】
 {start_memo}
 
-【職員考察メモ（そのままの意味を尊重）】
+【職員考察メモ】
 {end_memo}
 
 【スタッフ例文】
@@ -4169,41 +4168,35 @@ def generate_bee_texts(
 【支援計画】
 {plan_text}
 
-【出力条件】
-- 日誌を書く人と電話を受けた人は同一人物のため、
-  「〜と伺った」「〜と聞いた」などの二重伝聞は禁止。
-  「連絡があった」「話していた」「報告があった」などの直接表現を使う。
-- 在宅利用の場合のみ、体調や生活状況の説明部分は
-  「〜とのことです」「〜と話していた」などの伝聞調を使用してよい。
-- 通所・施設外就労の場合は、実際に見た文体で書く。
-- 出力は本文のみ。見出し、箇条書き、引用符、注釈は不要。
-- 事実を歪めず、元メモの内容を必ず盛り込む。
-- 不適切表現、子ども扱い表現は禁止。
-- 支援記録として自然で丁寧な文章にする。
-- 3文程度でまとめること。
-- 100〜150文字程度を目安にすること。
-- 長すぎず短すぎず、Knowbeへそのまま貼れる長さにする。
-- スタッフ例文に「〇〇さん」とある場合は
-  そこに利用者の苗字を入れる。
+【ルール】
+- 出力はJSONのみ
+- generated_status は「利用者状態」
+- generated_support は「職員考察」
+- 事実を勝手に増やさない
+- 見出しや箇条書きは不要
+- 支援記録として自然で丁寧な文
+- 3文程度
+- 100〜150文字程度目安
+- Knowbeへそのまま貼れる長さ
 
 【出力形式】
-必ず以下のJSON形式で返すこと：
-
 {{
   "generated_status": "ここに利用者状態",
   "generated_support": "ここに職員考察"
 }}
 """
 
-    client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt,
+    client = OpenAI(api_key=api_key)
+
+    response = client.responses.create(
+        model="gpt-4o-mini",
+        input=prompt,
     )
-    result_text = (response.text or "").strip()
+
+    result_text = (response.output_text or "").strip()
 
     if not result_text:
-        raise RuntimeError("Geminiの応答が空ある")
+        raise RuntimeError("ChatGPTの応答が空ある")
 
     cleaned = result_text.replace("```json", "").replace("```", "").strip()
 
@@ -4212,26 +4205,10 @@ def generate_bee_texts(
         generated_status = str(data.get("generated_status", "")).strip()
         generated_support = str(data.get("generated_support", "")).strip()
     except Exception:
-        if "職員考察" in cleaned:
-            parts = cleaned.split("職員考察", 1)
-            generated_status = (
-                parts[0]
-                .replace("利用者状態", "")
-                .replace("：", "")
-                .replace(":", "")
-                .strip()
-            )
-            generated_support = (
-                parts[1]
-                .replace("：", "")
-                .replace(":", "")
-                .strip()
-            )
-        else:
-            raise RuntimeError(f"Gemini出力の解析に失敗ある: {cleaned}")
+        raise RuntimeError(f"ChatGPT出力の解析に失敗ある: {cleaned}")
 
     if not generated_status or not generated_support:
-        raise RuntimeError(f"Gemini出力の解析に失敗ある: {cleaned}")
+        raise RuntimeError(f"ChatGPT出力の解析に失敗ある: {cleaned}")
 
     return generated_status, generated_support
 
@@ -4752,7 +4729,7 @@ def render_bee_journal_page():
                     st.error(f"Knowbe送信失敗ある: {e}")
 
         with send_cols[2]:
-            if st.button("Geminiで整えて送信", key="bee_send_gemini"):
+            if st.button("ChatGPTで整えて送信", key="bee_send_gpt"):
                 if not start_time.strip():
                     st.warning("開始時間を入れてほしいある。")
                     st.stop()
