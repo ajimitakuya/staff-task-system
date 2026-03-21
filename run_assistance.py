@@ -71,6 +71,28 @@ if GEMINI_API_KEY:
 # =========================
 # 設定
 # =========================
+def build_chrome_driver():
+    options = webdriver.ChromeOptions()
+    options.binary_location = "/usr/bin/chromium"
+
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1400,900")
+    options.add_argument("--remote-debugging-port=9222")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--disable-extensions")
+
+    driver = webdriver.Chrome(
+        service=ChromeService("/usr/bin/chromedriver"),
+        options=options
+    )
+    driver.set_page_load_timeout(20)
+    driver.set_script_timeout(20)
+    driver.implicitly_wait(2)
+    return driver
+
 def get_knowbe_login_credentials():
     username = ""
     password = ""
@@ -2148,40 +2170,9 @@ def send_one_record_from_app(
         knowbe_target=knowbe_target,
     )
 
-    options = webdriver.ChromeOptions()
-    options.binary_location = "/usr/bin/chromium"
-
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1400,900")
-    options.add_argument("--remote-debugging-port=9222")
-    options.add_argument("--disable-software-rasterizer")
-    options.add_argument("--disable-extensions")
-
-    options = webdriver.ChromeOptions()
-    options.binary_location = "/usr/bin/chromium"
-
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1400,900")
-    options.add_argument("--remote-debugging-port=9222")
-    options.add_argument("--disable-software-rasterizer")
-    options.add_argument("--disable-extensions")
-
-    driver = webdriver.Chrome(
-        service=ChromeService("/usr/bin/chromedriver"),
-        options=options
-    )
-
+    print("[STEP] build_chrome_driver start", flush=True)
+    driver = build_chrome_driver()
     print("[STEP] driver created", flush=True)
-    driver.set_page_load_timeout(20)
-    driver.set_script_timeout(20)
-
-    driver.implicitly_wait(2)
 
     try:
         print("[STEP] goto_report_daily start", flush=True)
@@ -2221,9 +2212,10 @@ def send_one_record_from_app(
         return True
 
     finally:
-        # 検証中は閉じないならコメントアウトのままでOK
-        # driver.quit()
-        pass
+        try:
+            driver.quit()
+        except Exception:
+            pass
 
 def main():
     # =========================================
@@ -2272,27 +2264,7 @@ def main():
 
     read_treaty_check(excel_path)
 
-    options = webdriver.ChromeOptions()
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1400,900")
-
-    options = webdriver.ChromeOptions()
-    options.binary_location = "/usr/bin/chromium"
-
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1400,900")
-    options.add_argument("--remote-debugging-port=9222")
-    options.add_argument("--disable-software-rasterizer")
-    options.add_argument("--disable-extensions")
-
-    driver = webdriver.Chrome(
-        service=ChromeService("/usr/bin/chromedriver"),
-        options=options
-    )
-    driver.implicitly_wait(2)
+    driver = build_chrome_driver()
 
     try:
         login_username, login_password = get_knowbe_login_credentials()
