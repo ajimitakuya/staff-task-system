@@ -894,10 +894,24 @@ def render_urgent_banner():
 # ==========================================
 # 🔑 ユーザー認証
 # ==========================================
-if 'user' not in st.session_state:
+if "user" not in st.session_state:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
     st.title("🛡️ 業務システム・ログイン")
-    st.warning("### 名前を選んでログインしてください💻")
+    st.warning("### 事業所と担当者を選んでログインしてください💻")
+
+    office_options = {
+        "サポート": "support",
+        "ホーム": "home",
+    }
+
+    selected_office_label = st.radio(
+        "接続先事業所を選択してください",
+        list(office_options.keys()),
+        index=0,
+        horizontal=True,
+    )
+
+    st.divider()
 
     user_list = [
         "木村 由美", "秋吉 幸雄", "安心院 拓也", "粟田 絵利菜", "小宅 正嗣",
@@ -913,6 +927,11 @@ if 'user' not in st.session_state:
     if st.button("システムへログイン", use_container_width=True):
         if user:
             st.session_state.user = user
+
+            # 👇 ここ追加（事業所）
+            st.session_state.office_label = selected_office_label
+            st.session_state.office_key = office_options[selected_office_label]
+
             st.session_state.login_at = now_jst().strftime("%Y-%m-%d %H:%M")
             st.session_state.last_active_ping = 0
             st.rerun()
@@ -1139,6 +1158,10 @@ if st.sidebar.button("ログアウト"):
         del st.session_state.bee_menu_unlocked
     if "secret_bee_cmd" in st.session_state:
         del st.session_state.secret_bee_cmd
+    if "office_label" in st.session_state:
+        del st.session_state.office_label
+    if "office_key" in st.session_state:
+        del st.session_state.office_key
     st.rerun()
 
 if "bee_menu_unlocked" not in st.session_state:
