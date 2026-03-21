@@ -4070,29 +4070,11 @@ def generate_status_support_with_gemini(
         str(data.get("generated_support", "")).strip(),
     )
 
-def get_knowbe_credentials_from_app():
-    username = ""
-    password = ""
-
-    try:
-        username = st.secrets.get("KB_LOGIN_USERNAME", "")
-        password = st.secrets.get("KB_LOGIN_PASSWORD", "")
-    except Exception as e:
-        st.error(f"st.secrets 読み取り例外ある: {e}")
-        username = ""
-        password = ""
-
-    st.info(f"DEBUG username exists = {bool(str(username).strip())}")
-    st.info(f"DEBUG password exists = {bool(str(password).strip())}")
-    st.write("DEBUG keys:", list(st.secrets.keys()))
-
-    return str(username).strip(), str(password).strip()
-
 def get_gemini_api_key_from_app():
     api_key = ""
 
     try:
-        print("DEBUG GEMINI_API_KEY =", st.secrets.get("GEMINI_API_KEY", ""), flush=True)
+        api_key = st.secrets.get("GEMINI_API_KEY", "")
     except Exception:
         api_key = ""
 
@@ -4113,10 +4095,10 @@ def get_gemini_api_key_from_app():
 def generate_bee_texts(
     resident_name,
     service_type,
+    meal_flag,
+    note,
     start_memo,
     end_memo,
-    note_text,
-    staff_name,
     examples_text,
     rule_text,
     plan_text,
@@ -4126,37 +4108,30 @@ def generate_bee_texts(
         raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
 
     genai.configure(api_key=api_key)
-
+    
     prompt = f"""
-あなたは就労継続支援B型の日誌作成アシスタントです。
-以下の情報をもとに、Knowbeの日々の記録に入れる
-「利用者状態」と「職員考察」をそれぞれ自然な日本語で作成してください。
+あなたは就労継続支援B型の支援記録作成アシスタントある。
+以下の情報をもとに、Knowbeへそのまま貼り付けられる
+「利用者状態」と「職員考察」を作るある。
 
-【利用者名】
-{resident_name}
+【前提】
+- service_type: {service_type}
+- meal_flag: {meal_flag}
+- 備考: {note}
 
-【サービス種別】
-{service_type}
-
-【開始メモ】
+【利用者状態メモ（そのままの意味を尊重）】
 {start_memo}
 
-【終了メモ】
+【職員考察メモ（そのままの意味を尊重）】
 {end_memo}
 
-【備考】
-{note_text}
-
-【日誌入力者】
-{staff_name}
-
-【文体参考】
+【スタッフ例文】
 {examples_text}
 
-【ルール】
+【個人ルール】
 {rule_text}
 
-【支援計画等の参考】
+【支援計画】
 {plan_text}
 
 【出力条件】
@@ -4175,29 +4150,70 @@ def generate_bee_texts(
 - 長すぎず短すぎず、Knowbeへそのまま貼れる長さにする。
 - スタッフ例文に「〇〇さん」とある場合は
   そこに利用者の苗字を入れる。
+
+【出力形式】
+必ず以下のJSON形式で返すこと：
+
+{{
+  "generated_status": "ここに利用者状態",
+  "generated_support": "ここに職員考察"
+}}
 """
 
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    model = genai.GenerativeModel("gemini-1.5-flash")
     response = model.generate_content(prompt)
-    text = (getattr(response, "text", "") or "").strip()
+    result_text = (getattr(response, "text", "") or "").strip()
 
-    if not text:
+    if not result_text:
         raise RuntimeError("Geminiの応答が空ある")
 
-    user_text = ""
-    staff_text = ""
+    cleaned = result_text.replace("```json", "").replace("```", "").strip()
 
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("利用者状態:"):
-            user_text = line.replace("利用者状態:", "", 1).strip()
-        elif line.startswith("職員考察:"):
-            staff_text = line.replace("職員考察:", "", 1).strip()
+    try:
+        data = json.loads(cleaned)
+        generated_status = str(data.get("generated_status", "")).strip()
+        generated_support = str(data.get("generated_support", "")).strip()
+    except Exception:
+        if "職員考察" in cleaned:
+            parts = cleaned.split("職員考察", 1)
+            generated_status = (
+                parts[0]
+                .replace("利用者状態", "")
+                .replace("：", "")
+                .replace(":", "")
+                .strip()
+            )
+            generated_support = (
+                parts[1]
+                .replace("：", "")
+                .replace(":", "")
+                .strip()
+            )
+        else:
+            raise RuntimeError(f"Gemini出力の解析に失敗ある: {cleaned}")
 
-    if not user_text or not staff_text:
-        raise RuntimeError(f"Gemini出力の解析に失敗ある: {text}")
+    if not generated_status or not generated_support:
+        raise RuntimeError(f"Gemini出力の解析に失敗ある: {cleaned}")
 
-    return user_text, staff_text
+    return generated_status, generated_support
+
+def get_knowbe_credentials_from_app():
+    username = ""
+    password = ""
+
+    try:
+        username = st.secrets.get("KB_LOGIN_USERNAME", "")
+        password = st.secrets.get("KB_LOGIN_PASSWORD", "")
+    except Exception as e:
+        st.error(f"st.secrets 読み取り例外ある: {e}")
+        username = ""
+        password = ""
+
+    st.info(f"DEBUG username exists = {bool(str(username).strip())}")
+    st.info(f"DEBUG password exists = {bool(str(password).strip())}")
+    st.write("DEBUG keys:", list(st.secrets.keys()))
+
+    return str(username).strip(), str(password).strip()
 
 def send_to_knowbe_from_bee(
     target_date,

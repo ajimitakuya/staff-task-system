@@ -1469,37 +1469,16 @@ def _get_style_examples_for_staff(examples: dict, staff_name: str, category: str
     c = x.get(category, {})
     return c.get("利用者状態", ""), c.get("職員考察", "")
 
-def _replace_placeholder_name(text: str, full_name: str) -> str:
-    """
-    スタッフ例文中の「〇〇さん」を利用者の苗字に置き換える
-    例:
-      荒木 和也 → 荒木さん
-    """
-    text = norm(text)
-    full_name = norm(full_name)
-
-    if not text or not full_name:
-        return text
-
-    surname = re.split(r"[ 　]+", full_name)[0].strip()
-    if not surname:
-        return text
-
-    return text.replace("〇〇さん", f"{surname}さん")
-
 
 def _build_gemini_prompt(
-    field_kind: str,           # "利用者状態" or "職員考察"
-    base_memo: str,            # H列 or I列
-    category: str,             # 在宅 / 通所 / 施設外
+    field_kind: str,
+    base_memo: str,
+    category: str,
     staff_name: str,
     style_example: str,
     treaty_text: str
 ) -> str:
-    """
-    Geminiへ渡す最終プロンプト
-    """
-    return f"""あなたは就労継続支援B型の支援記録作成アシスタントです。
+    prompt = f"""あなたは就労継続支援B型の支援記録作成アシスタントです。
 以下の「条約」を絶対遵守して、{field_kind}欄に入れる日本語文を1段落で作成してください。
 
 【条約】
@@ -1521,45 +1500,43 @@ def _build_gemini_prompt(
 {base_memo}
 
 【厳守事項】
-
-- 日誌を書く人と電話を受けた人は同一人物のため、
-  「〜と伺った」「〜と聞いた」などの二重伝聞は禁止。
-  「連絡があった」「話していた」「報告があった」などの直接表現を使う。
-- 在宅利用の場合のみ、体調や生活状況の説明部分は
-  「〜とのことです」「〜と話していた」などの伝聞調を使用してよい。
-- 通所・施設外就労の場合は、実際に見た文体で書く。
-- 出力は本文のみ。見出し、箇条書き、引用符、注釈は不要。
-- 事実を歪めず、元メモの内容を必ず盛り込む。
-- 不適切表現、子ども扱い表現は禁止。
-- 支援記録として自然で丁寧な文章にする。
-- 3文程度でまとめること。
-- 100〜150文字程度を目安にすること。
-- 長すぎず短すぎず、Knowbeへそのまま貼れる長さにする。
-- スタッフ例文に「〇〇さん」とある場合は
-  そこに利用者の苗字を入れる。
+- 出力は本文のみ
+- 見出し、JSON、箇条書きは禁止
+- 余計な説明は禁止
+- {field_kind}欄にそのまま貼れる自然な文章にする
 """
-
+    return prompt
 
 def _gemini_generate_text(client, prompt: str) -> str:
-    try:
-        print("[GEMINI STEP] generate_content start", flush=True)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+    )
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-        )
+    result_text = (getattr(response, "text", "") or "").strip()
+    if not result_text:
+        raise RuntimeError("Geminiの応答が空ある")
 
-        print("[GEMINI STEP] generate_content done", flush=True)
+    cleaned = result_text.replace("```json", "").replace("```", "").strip()
+    return cleaned
 
-        text = getattr(response, "text", "") or ""
-        print(f"[GEMINI STEP] response text exists={bool(text.strip())}", flush=True)
+def _replace_placeholder_name(text: str, full_name: str) -> str:
+    """
+    スタッフ例文中の「〇〇さん」を利用者の苗字に置き換える
+    例:
+      荒木 和也 → 荒木さん
+    """
+    text = norm(text)
+    full_name = norm(full_name)
 
-        return text.strip()
+    if not text or not full_name:
+        return text
 
-    except Exception as e:
-        print(f"[GEMINI ERROR] {type(e).__name__}: {e}", flush=True)
-        raise
+    surname = re.split(r"[ 　]+", full_name)[0].strip()
+    if not surname:
+        return text
 
+    return text.replace("〇〇さん", f"{surname}さん")
 
 def click_daily_edit_button(driver) -> bool:
     """
