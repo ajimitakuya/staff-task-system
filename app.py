@@ -1339,7 +1339,7 @@ st.sidebar.markdown(
 
 def heart_label(text: str) -> str:
     if not st.session_state.get("heart_mode", False):
-        return text
+        return str(text)
 
     s = str(text)
 
@@ -1413,6 +1413,26 @@ for page_key, label in document_page_options:
 
 page = st.session_state.current_page
 
+def heart_label(text: str) -> str:
+    if not st.session_state.get("heart_mode", False):
+        return str(text)
+
+    s = str(text)
+
+    # 先頭の番号・記号つきメニューをハート化
+    if len(s) >= 2 and s[1] == " ":
+        return f"💕 {s[2:]}"
+    if len(s) >= 3 and s[2] == " ":
+        return f"💕 {s[3:]}"
+
+    # knowbe ボタンもハート化
+    if "knowbe" in s:
+        return "💕knowbe日誌入力💕"
+
+    # それ以外は先頭にハート
+    return f"💕 {s}"
+
+
 if st.sidebar.button("ログアウト"):
     if "user" in st.session_state:
         del st.session_state.user
@@ -1461,6 +1481,61 @@ with st.sidebar:
 
         if st.button(knowbe_label, use_container_width=True):
             st.session_state.current_page = "🐝knowbe日誌入力🐝"
+            st.rerun()
+
+main_page_options = [
+    "⓪ 検索",
+    "① 未着手の任務（掲示板）",
+    "② タスクの引き受け・報告",
+    "③ 稼働状況・完了履歴",
+    "④ チームチャット",
+    "⑤ 業務マニュアル",
+    "⑥ 日誌入力状況",
+    "⑦ タスクカレンダー",
+    "⑧ 緊急一覧",
+    "⑨ 利用者情報",
+    "⑩ 書類アップロード",
+]
+
+document_page_options = [
+    ("書類_個別支援計画案", "🤫個別支援計画案🤫" if st.session_state.get("secret_doc_mode", False) else "個別支援計画案"),
+    ("書類_サービス担当者会議", "🤫サービス担当者会議🤫" if st.session_state.get("secret_doc_mode", False) else "サービス担当者会議"),
+    ("書類_個別支援計画", "🤫個別支援計画🤫" if st.session_state.get("secret_doc_mode", False) else "個別支援計画"),
+    ("書類_モニタリング", "🤫モニタリング🤫" if st.session_state.get("secret_doc_mode", False) else "モニタリング"),
+    ("書類_在宅評価シート", "在宅評価シート"),
+    ("書類_アセスメント", "アセスメント"),
+    ("書類_基本シート", "基本シート"),
+    ("書類_就労分野シート", "就労分野シート"),
+]
+
+for p in main_page_options:
+    is_selected = (st.session_state.current_page == p)
+    display_p = heart_label(p)
+
+    if is_selected:
+        st.sidebar.markdown(
+            f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {display_p}</div></div>',
+            unsafe_allow_html=True
+        )
+    else:
+        if st.sidebar.button(display_p, key=f"menu_{p}", use_container_width=True):
+            st.session_state.current_page = p
+            st.rerun()
+
+st.sidebar.markdown("### 利用者書類")
+
+for page_key, label in document_page_options:
+    is_selected = (st.session_state.current_page == page_key)
+    display_label = heart_label(label)
+
+    if is_selected:
+        st.sidebar.markdown(
+            f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {display_label}</div></div>',
+            unsafe_allow_html=True
+        )
+    else:
+        if st.sidebar.button(display_label, key=f"menu_{page_key}", use_container_width=True):
+            st.session_state.current_page = page_key
             st.rerun()
 
 st.sidebar.divider()
