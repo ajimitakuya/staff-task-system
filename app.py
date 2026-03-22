@@ -10,7 +10,7 @@ import calendar as py_calendar
 from openpyxl import load_workbook
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar as st_calendar
-from openai import OpenAI
+import google.generativeai as genai
 import tempfile
 from openpyxl import Workbook
 
@@ -18,19 +18,25 @@ JST = timezone(timedelta(hours=9))
 def now_jst():
     return datetime.now(JST)
 
-def get_openai_api_key_from_app():
+def get_genai_client():
     api_key = ""
 
     try:
-        api_key = st.secrets.get("OPENAI_API_KEY", "")
+        api_key = st.secrets.get("GEMINI_API_KEY", "")
     except Exception:
         api_key = ""
 
     if not api_key:
         import os
-        api_key = os.environ.get("OPENAI_API_KEY", "")
+        api_key = os.environ.get("GEMINI_API_KEY", "")
 
-    return str(api_key).strip()
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY が設定されてないある")
+
+    import google.generativeai as genai
+    genai.configure(api_key=api_key)
+
+    return genai
 
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
@@ -3374,7 +3380,11 @@ def render_basic_sheet_form_page(doc_title: str):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key=f"{doc_title}_download_excel"
         )
-    
+
+def render_work_field_form_page(doc_title: str):
+    st.title(f"📄 {doc_title}")
+    st.info("就労分野シートはまだ作成中ある。")
+
 def render_work_sheet_form_page(doc_title: str):
     st.title("📋 就労分野シート")
     st.caption("就労分野シート入力ページある。入力・保存・呼び出し・Excel出力まで対応版ある。")
@@ -4145,9 +4155,12 @@ def generate_bee_texts(
     rule_text = "" if rule_text is None else str(rule_text).strip()
     plan_text = "" if plan_text is None else str(plan_text).strip()
 
-    api_key = get_openai_api_key_from_app()
+    api_key = get_gemini_api_key_from_app()
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY が取得できなかったある")
+        raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
+
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-1.5-flash")
 
     prompt = f"""
 あなたは就労継続支援B型の支援記録作成アシスタントある。
@@ -4199,17 +4212,11 @@ def generate_bee_texts(
 }}
 """
 
-    client = OpenAI(api_key=api_key)
-
-    response = client.responses.create(
-        model="gpt-4o-mini",
-        input=prompt,
-    )
-
-    result_text = (response.output_text or "").strip()
+    response = model.generate_content(prompt)
+    result_text = (response.text or "").strip()
 
     if not result_text:
-        raise RuntimeError("ChatGPTの応答が空ある")
+        raise RuntimeError("Geminiの応答が空ある")
 
     cleaned = result_text.replace("```json", "").replace("```", "").strip()
 
@@ -4218,10 +4225,10 @@ def generate_bee_texts(
         generated_status = str(data.get("generated_status", "")).strip()
         generated_support = str(data.get("generated_support", "")).strip()
     except Exception:
-        raise RuntimeError(f"ChatGPT出力の解析に失敗ある: {cleaned}")
+        raise RuntimeError(f"Gemini出力の解析に失敗ある: {cleaned}")
 
     if not generated_status or not generated_support:
-        raise RuntimeError(f"ChatGPT出力の解析に失敗ある: {cleaned}")
+        raise RuntimeError(f"Gemini出力の解析に失敗ある: {cleaned}")
 
     return generated_status, generated_support
 
@@ -4270,12 +4277,12 @@ def send_to_knowbe_from_bee(
         raise RuntimeError("app.py 側で KB_LOGIN_USERNAME / KB_LOGIN_PASSWORD を取得できなかったある")
 
     try:
-        st.write("DEBUG 1: import run_assistance start")
-        import run_assistance
-        st.write("DEBUG 2: import run_assistance done")
+        st.write("DEBUG 1: import send_one_record_from_app start")
+        from run_assistance import send_one_record_from_app  # type: ignore
+        st.write("DEBUG 2: import send_one_record_from_app done")
 
         st.write("DEBUG 3: send_one_record_from_app start")
-        ok = run_assistance.send_one_record_from_app(
+        ok = send_one_record_from_app(
             target_date=str(target_date),
             resident_name=str(resident_name).strip(),
             service_type=str(service_type).strip(),
@@ -4742,7 +4749,7 @@ def render_bee_journal_page():
                     st.error(f"Knowbe送信失敗ある: {e}")
 
         with send_cols[2]:
-            if st.button("ChatGPTで整えて送信", key="bee_send_gpt"):
+            if st.button("Geminiで整えて送信", key="bee_send_gpt"):
                 if not start_time.strip():
                     st.warning("開始時間を入れてほしいある。")
                     st.stop()
