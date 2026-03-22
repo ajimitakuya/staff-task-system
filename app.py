@@ -443,6 +443,222 @@ def load_document_json(record_id):
     except Exception:
         return None
 
+def get_gemini_api_key_from_app():
+    api_key = ""
+
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY", "")
+    except Exception:
+        api_key = ""
+
+    if not api_key:
+        import os
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+
+    return str(api_key).strip()
+
+
+def call_gemini_json(prompt: str, model_name: str = "gemini-1.5-flash"):
+    api_key = get_gemini_api_key_from_app()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
+
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+
+    response = model.generate_content(prompt)
+    text = getattr(response, "text", "") or ""
+    text = str(text).strip()
+
+    if not text:
+        raise RuntimeError("Geminiの応答が空ある")
+
+    cleaned = text.replace("```json", "").replace("```", "").strip()
+
+    try:
+        return json.loads(cleaned)
+    except Exception as e:
+        raise RuntimeError(f"Gemini JSON解析エラーある: {e}\n\n応答:\n{cleaned}")
+
+
+def get_latest_saved_document(resident_id, doc_type):
+    df = get_saved_documents_df()
+    if df is None or df.empty:
+        return None
+
+    work = df.copy()
+    work["resident_id"] = work["resident_id"].astype(str)
+    work["doc_type"] = work["doc_type"].astype(str)
+
+    work = work[
+        (work["resident_id"] == str(resident_id)) &
+        (work["doc_type"] == str(doc_type))
+    ].copy()
+
+    if work.empty:
+        return None
+
+    try:
+        work["record_id_num"] = pd.to_numeric(work["record_id"], errors="coerce")
+        work = work.sort_values(["record_id_num"], ascending=[False])
+    except Exception:
+        pass
+
+    return work.iloc[0].to_dict()
+
+
+def get_latest_saved_document_json(resident_id, doc_type):
+    row = get_latest_saved_document(resident_id, doc_type)
+    if not row:
+        return None
+
+    json_str = str(row.get("json_data", "")).strip()
+    if not json_str:
+        return None
+
+    try:
+        return json.loads(json_str)
+    except Exception:
+        return None
+
+
+def safe_text(v):
+    if v is None:
+        return ""
+    return str(v).strip()
+
+
+def build_plan_draft_generation_prompt(
+    resident_name,
+    source_label,
+    source_data,
+    new_policy="",
+    new_long_goal="",
+    new_short_goal="",
+    new_goal_rows_policy="",
+):
+    source_data = source_data or {}
+
+    prompt = f'''
+就労継続支援B型の個別支援計画案を作成するある。
+
+【利用者名】
+{safe_text(resident_name)}
+
+【参照元の種類】
+{safe_text(source_label)}
+
+【参照元データ】
+サービス等利用計画の総合的な方針:
+{safe_text(source_data.get("policy", ""))}
+
+長期目標:
+{safe_text(source_data.get("long_goal", ""))}
+
+短期目標:
+{safe_text(source_data.get("short_goal", ""))}
+
+具体的到達目標1:
+{safe_text(source_data.get("target_1", ""))}
+本人の役割1:
+{safe_text(source_data.get("role_1", ""))}
+支援内容1:
+{safe_text(source_data.get("support_1", ""))}
+支援期間1:
+{safe_text(source_data.get("period_1", ""))}
+担当者1:
+{safe_text(source_data.get("person_1", ""))}
+優先順位1:
+{safe_text(source_data.get("priority_1", ""))}
+
+具体的到達目標2:
+{safe_text(source_data.get("target_2", ""))}
+本人の役割2:
+{safe_text(source_data.get("role_2", ""))}
+支援内容2:
+{safe_text(source_data.get("support_2", ""))}
+支援期間2:
+{safe_text(source_data.get("period_2", ""))}
+担当者2:
+{safe_text(source_data.get("person_2", ""))}
+優先順位2:
+{safe_text(source_data.get("priority_2", ""))}
+
+具体的到達目標3:
+{safe_text(source_data.get("target_3", ""))}
+本人の役割3:
+{safe_text(source_data.get("role_3", ""))}
+支援内容3:
+{safe_text(source_data.get("support_3", ""))}
+支援期間3:
+{safe_text(source_data.get("period_3", ""))}
+担当者3:
+{safe_text(source_data.get("person_3", ""))}
+優先順位3:
+{safe_text(source_data.get("priority_3", ""))}
+
+【新しい方針】
+サービス等利用計画の総合的な方針について:
+{safe_text(new_policy)}
+
+長期目標について:
+{safe_text(new_long_goal)}
+
+短期目標について:
+{safe_text(new_short_goal)}
+
+具体的到達目標3組全体について:
+{safe_text(new_goal_rows_policy)}
+
+【作成する項目】
+- サービス等利用計画の総合的な方針
+- 長期目標
+- 短期目標
+- 具体的到達目標・本人の役割・支援内容・支援期間・担当者・優先順位を3組
+
+【ルール】
+- 新しい方針が空でも作成すること
+- 参照元データが少なくても自然に補うこと
+- 就労継続支援B型の書類として自然な内容にすること
+- 出力はJSONのみ
+- 文章は日本語
+- 余計な説明文は不要
+
+【出力形式】
+{{
+  "policy": "サービス等利用計画の総合的な方針",
+  "long_goal": "長期目標",
+  "short_goal": "短期目標",
+  "goal_rows": [
+    {{
+      "target": "具体的到達目標1",
+      "role": "本人の役割1",
+      "support": "支援内容1",
+      "period": "支援期間1",
+      "person": "担当者1",
+      "priority": "優先順位1"
+    }},
+    {{
+      "target": "具体的到達目標2",
+      "role": "本人の役割2",
+      "support": "支援内容2",
+      "period": "支援期間2",
+      "person": "担当者2",
+      "priority": "優先順位2"
+    }},
+    {{
+      "target": "具体的到達目標3",
+      "role": "本人の役割3",
+      "support": "支援内容3",
+      "period": "支援期間3",
+      "person": "担当者3",
+      "priority": "優先順位3"
+    }}
+  ]
+}}
+'''
+    return prompt
+
 def get_next_numeric_id(df, col_name="id", start=1):
     if df is None or df.empty or col_name not in df.columns:
         return start
@@ -1138,6 +1354,7 @@ def heart_label(text: str) -> str:
         return "💕knowbe日誌入力💕"
 
     # それ以外は先頭にハート
+    return f"💕 {s}"
 
 main_page_options = [
     "⓪ 検索",
@@ -1197,7 +1414,10 @@ for page_key, label in document_page_options:
 page = st.session_state.current_page
 
 if st.sidebar.button("ログアウト"):
-    del st.session_state.user
+    if "user" in st.session_state:
+        del st.session_state.user
+    if "office_key" in st.session_state:
+        del st.session_state.office_key
     if "login_at" in st.session_state:
         del st.session_state.login_at
     if "last_active_ping" in st.session_state:
@@ -1208,18 +1428,10 @@ if st.sidebar.button("ログアウト"):
         del st.session_state.bee_menu_unlocked
     if "secret_doc_mode" in st.session_state:
         del st.session_state.secret_doc_mode
+    if "heart_mode" in st.session_state:
+        del st.session_state.heart_mode
     if "secret_bee_cmd" in st.session_state:
         del st.session_state.secret_bee_cmd
-    if "office_key" in st.session_state:
-        del st.session_state.office_key
-    if st.sidebar.button("ログアウト"):
-        del st.session_state.user
-        if "office_key" in st.session_state:
-            del st.session_state.office_key
-        if "login_at" in st.session_state:
-            del st.session_state.login_at
-    if "heart_mode" in st.seesion_state:
-        del st.session_state.heart_mode
     st.rerun()
 
 if "bee_menu_unlocked" not in st.session_state:
@@ -1230,27 +1442,19 @@ if "heart_mode" not in st.session_state:
     st.session_state["heart_mode"] = False
 
 with st.sidebar:
-    if not st.session_state["bee_menu_unlocked"] or not st.session_state["secret_doc_mode"]:
-        secret_cmd = st.text_input("裏コマンド", key="secret_bee_cmd", label_visibility="collapsed")
+    secret_cmd = st.text_input("裏コマンド", key="secret_bee_cmd", label_visibility="collapsed")
 
-        if secret_cmd == "🐝":
-            st.session_state["bee_menu_unlocked"] = True
-            st.session_state["secret_bee_cmd"] = ""
-            st.rerun()
-        elif secret_cmd == "🤫":
-            st.session_state["secret_doc_mode"] = True
-            st.session_state["secret_bee_cmd"] = ""
-            st.rerun()
-        elif secret_cmd == "🤐":
-            st.session_state["secret_doc_mode"] = False
-            st.session_state["secret_bee_cmd"] = ""
-            st.rerun()
-        elif secret_cmd == "💕":
-            st.session_state["heart_mode"] = True
-            st.session_state["secret_bee_cmd"] = ""
-            st.rerun()
+    if secret_cmd == "🐝":
+        st.session_state["bee_menu_unlocked"] = True
+        st.rerun()
+    elif secret_cmd == "🤫":
+        st.session_state["secret_doc_mode"] = True
+        st.rerun()
+    elif secret_cmd == "💕":
+        st.session_state["heart_mode"] = True
+        st.rerun()
 
-    if st.session_state["bee_menu_unlocked"]:
+    if st.session_state.get("bee_menu_unlocked", False):
         knowbe_label = "🐝knowbe日誌入力🐝"
         if st.session_state.get("heart_mode", False):
             knowbe_label = "💕knowbe日誌入力💕"
