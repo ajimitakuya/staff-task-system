@@ -1441,9 +1441,6 @@ for page_key, label in document_page_options:
             st.session_state.current_page = page_key
             st.rerun()
 
-st.sidebar.divider()
-st.sidebar.caption("System Version 2.0")
-
 st.sidebar.text_input(
     "裏コマンド",
     key="secret_bee_cmd",
@@ -1460,6 +1457,9 @@ if st.session_state.get("bee_menu_unlocked", False):
     if st.sidebar.button(knowbe_label, use_container_width=True):
         st.session_state.current_page = "🐝knowbe日誌入力🐝"
         st.rerun()
+
+st.sidebar.divider()
+st.sidebar.caption("System Version 2.0")
 
 page = st.session_state.current_page
 
