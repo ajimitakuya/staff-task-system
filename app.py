@@ -467,7 +467,6 @@ def call_gemini_json(prompt: str):
 
     model_candidates = [
         "gemini-1.5-flash-latest",
-        "gemini-1.5-flash",
         "gemini-1.0-pro",
     ]
 
@@ -4466,8 +4465,7 @@ def generate_bee_texts(
         raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
-
+    model = genai.GenerativeModel("gemini-1.5-flash-latest")
     prompt = f"""
 あなたは就労継続支援B型の支援記録作成アシスタントある。
 以下の情報をもとに、Knowbeへそのまま貼り付けられる
