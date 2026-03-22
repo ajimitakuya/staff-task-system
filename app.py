@@ -458,27 +458,38 @@ def get_gemini_api_key_from_app():
     return str(api_key).strip()
 
 
-def call_gemini_json(prompt: str, model_name: str = "gemini-1.5-flash"):
+def call_gemini_json(prompt: str):
     api_key = get_gemini_api_key_from_app()
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
+        raise RuntimeError("APIキーないある")
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name)
 
-    response = model.generate_content(prompt)
-    text = getattr(response, "text", "") or ""
-    text = str(text).strip()
+    model_candidates = [
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash",
+        "gemini-1.0-pro",
+    ]
 
-    if not text:
-        raise RuntimeError("Geminiの応答が空ある")
+    last_error = None
 
-    cleaned = text.replace("```json", "").replace("```", "").strip()
+    for model_name in model_candidates:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            text = str(getattr(response, "text", "")).strip()
 
-    try:
-        return json.loads(cleaned)
-    except Exception as e:
-        raise RuntimeError(f"Gemini JSON解析エラーある: {e}\n\n応答:\n{cleaned}")
+            if not text:
+                continue
+
+            cleaned = text.replace("```json", "").replace("```", "").strip()
+            return json.loads(cleaned)
+
+        except Exception as e:
+            last_error = e
+            continue
+
+    raise RuntimeError(f"Gemini全部失敗ある: {last_error}")
 
 
 def get_latest_saved_document(resident_id, doc_type):
