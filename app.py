@@ -1459,10 +1459,10 @@ if st.session_state.get("bee_menu_unlocked", False):
         st.rerun()
 
 
-# ===== 入力欄（空） =====
+# ===== 入力欄 =====
 st.sidebar.text_input(
-    "",
-    key="secret_cmd",
+    "secret command",
+    key="secret_bee_cmd",
     label_visibility="collapsed",
     on_change=process_secret_command,
 )
@@ -4528,17 +4528,34 @@ def generate_bee_texts(
     return generated_status, generated_support
 
 def get_knowbe_credentials_from_app():
+    office_key = str(st.session_state.get("office_key", "support")).strip().lower()
+    if office_key not in ("support", "home"):
+        office_key = "support"
+
     username = ""
     password = ""
 
+    secret_user_key = f"KB_LOGIN_USERNAME_{office_key.upper()}"
+    secret_pass_key = f"KB_LOGIN_PASSWORD_{office_key.upper()}"
+
     try:
-        username = st.secrets.get("KB_LOGIN_USERNAME", "")
-        password = st.secrets.get("KB_LOGIN_PASSWORD", "")
+        username = st.secrets.get(secret_user_key, "")
+        password = st.secrets.get(secret_pass_key, "")
     except Exception as e:
         st.error(f"st.secrets 読み取り例外ある: {e}")
         username = ""
         password = ""
 
+    if not username:
+        import os
+        username = os.environ.get(secret_user_key, "")
+    if not password:
+        import os
+        password = os.environ.get(secret_pass_key, "")
+
+    st.info(f"DEBUG office_key = {office_key}")
+    st.info(f"DEBUG user_key = {secret_user_key}")
+    st.info(f"DEBUG pass_key = {secret_pass_key}")
     st.info(f"DEBUG username exists = {bool(str(username).strip())}")
     st.info(f"DEBUG password exists = {bool(str(password).strip())}")
     st.write("DEBUG keys:", list(st.secrets.keys()))
