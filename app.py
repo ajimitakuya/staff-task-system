@@ -1378,29 +1378,8 @@ document_page_options = [
     ("書類_就労分野シート", "就労分野シート"),
 ]
 
-if st.sidebar.button("ログアウト"):
-    if "user" in st.session_state:
-        del st.session_state.user
-    if "office_key" in st.session_state:
-        del st.session_state.office_key
-    if "login_at" in st.session_state:
-        del st.session_state.login_at
-    if "last_active_ping" in st.session_state:
-        del st.session_state.last_active_ping
-    if "current_page" in st.session_state:
-        del st.session_state.current_page
-    if "bee_menu_unlocked" in st.session_state:
-        del st.session_state.bee_menu_unlocked
-    if "secret_doc_mode" in st.session_state:
-        del st.session_state.secret_doc_mode
-    if "heart_mode" in st.session_state:
-        del st.session_state.heart_mode
-    if "secret_bee_cmd" in st.session_state:
-        del st.session_state.secret_bee_cmd
-    st.rerun()
-
 def process_secret_command():
-    cmd = str(st.session_state.get("secret_bee_cmd", "")).strip()
+    cmd = str(st.session_state.get("secret_cmd", "")).strip()
 
     if cmd == "🐝":
         st.session_state["bee_menu_unlocked"] = True
@@ -1409,8 +1388,10 @@ def process_secret_command():
     elif cmd == "💕":
         st.session_state["heart_mode"] = True
 
-    st.session_state["secret_bee_cmd"] = ""
+    st.session_state["secret_cmd"] = ""
 
+
+# ===== メインメニュー =====
 for p in main_page_options:
     is_selected = (st.session_state.current_page == p)
     display_p = heart_label(p)
@@ -1425,6 +1406,8 @@ for p in main_page_options:
             st.session_state.current_page = p
             st.rerun()
 
+
+# ===== 利用者書類 =====
 st.sidebar.markdown("### 利用者書類")
 
 for page_key, label in document_page_options:
@@ -1441,23 +1424,51 @@ for page_key, label in document_page_options:
             st.session_state.current_page = page_key
             st.rerun()
 
-st.sidebar.text_input(
-    "裏コマンド",
-    key="secret_bee_cmd",
-    label_visibility="collapsed",
-    placeholder="裏コマンド",
-    on_change=process_secret_command,
-)
 
+# ===== ログアウト（ここ固定） =====
+if st.sidebar.button("ログアウト", use_container_width=True):
+    if "user" in st.session_state:
+        del st.session_state.user
+    if "office_key" in st.session_state:
+        del st.session_state.office_key
+    if "login_at" in st.session_state:
+        del st.session_state.login_at
+    if "last_active_ping" in st.session_state:
+        del st.session_state.last_active_ping
+    if "current_page" in st.session_state:
+        del st.session_state.current_page
+    if "bee_menu_unlocked" in st.session_state:
+        del st.session_state.bee_menu_unlocked
+    if "secret_doc_mode" in st.session_state:
+        del st.session_state.secret_doc_mode
+    if "heart_mode" in st.session_state:
+        del st.session_state.heart_mode
+    if "secret_cmd" in st.session_state:
+        del st.session_state.secret_cmd
+    st.rerun()
+
+
+# ===== 🐝 knowbe（条件表示） =====
 if st.session_state.get("bee_menu_unlocked", False):
     knowbe_label = "🐝knowbe日誌入力🐝"
     if st.session_state.get("heart_mode", False):
         knowbe_label = "💕knowbe日誌入力💕"
 
-    if st.sidebar.button(knowbe_label, use_container_width=True):
+    if st.sidebar.button(knowbe_label, key="knowbe_menu_button", use_container_width=True):
         st.session_state.current_page = "🐝knowbe日誌入力🐝"
         st.rerun()
 
+
+# ===== 入力欄（空） =====
+st.sidebar.text_input(
+    "",
+    key="secret_cmd",
+    label_visibility="collapsed",
+    on_change=process_secret_command,
+)
+
+
+# ===== 最下部 =====
 st.sidebar.divider()
 st.sidebar.caption("System Version 2.0")
 
