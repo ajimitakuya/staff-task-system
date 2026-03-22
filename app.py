@@ -1379,7 +1379,7 @@ document_page_options = [
 ]
 
 def process_secret_command():
-    cmd = str(st.session_state.get("secret_cmd", "")).strip()
+    cmd = str(st.session_state.get("secret_bee_cmd", "")).strip()
 
     if cmd == "🐝":
         st.session_state["bee_menu_unlocked"] = True
@@ -1388,7 +1388,7 @@ def process_secret_command():
     elif cmd == "💕":
         st.session_state["heart_mode"] = True
 
-    st.session_state["secret_cmd"] = ""
+    st.session_state["secret_bee_cmd"] = ""
 
 
 # ===== メインメニュー =====
@@ -1443,8 +1443,8 @@ if st.sidebar.button("ログアウト", use_container_width=True):
         del st.session_state.secret_doc_mode
     if "heart_mode" in st.session_state:
         del st.session_state.heart_mode
-    if "secret_cmd" in st.session_state:
-        del st.session_state.secret_cmd
+    if "secret_bee_cmd" in st.session_state:
+        del st.session_state.secret_bee_cmd
     st.rerun()
 
 
