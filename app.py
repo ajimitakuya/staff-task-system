@@ -10,6 +10,7 @@ import calendar as py_calendar
 from openpyxl import load_workbook
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar as st_calendar
+from openai import OpenAI
 import tempfile
 from openpyxl import Workbook
 
@@ -17,33 +18,19 @@ JST = timezone(timedelta(hours=9))
 def now_jst():
     return datetime.now(JST)
 
-def get_gemini_api_key_from_app():
+def get_openai_api_key_from_app():
     api_key = ""
 
     try:
-        api_key = st.secrets.get("GEMINI_API_KEY", "")
+        api_key = st.secrets.get("OPENAI_API_KEY", "")
     except Exception:
         api_key = ""
 
     if not api_key:
-        try:
-            if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
-                api_key = st.secrets["gemini"]["api_key"]
-        except Exception:
-            pass
-
-    if not api_key:
         import os
-        api_key = os.environ.get("GEMINI_API_KEY", "")
+        api_key = os.environ.get("OPENAI_API_KEY", "")
 
     return str(api_key).strip()
-
-def get_genai_client(api_key: str):
-    try:
-        from google import genai
-    except Exception as e:
-        raise RuntimeError(f"Gemini SDKの読み込みに失敗ある: {e}")
-    return genai.Client(api_key=api_key)
 
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
@@ -52,42 +39,43 @@ st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
 # --- 🔌 スプレッドシート接続設定 ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-def get_current_office_prefix():
-    return st.session_state.get("office_key", "support")
-
 def get_sheet_name(file):
-    prefix = get_current_office_prefix()
-
-    shared_mapping = {
-        "task": "task",
-        "chat": "chat",
-        "manual": "manual",
-        "record_status": "record_status",
-        "calendar": "calendar",
-        "active_users": "active_users",
-    }
-
-    office_mapping = {
-        "resident_master": f"{prefix}_resident_master",
-        "resident_schedule": f"{prefix}_resident_schedule",
-        "resident_notes": f"{prefix}_resident_notes",
-        "document_master": f"{prefix}_document_master",
-        "external_contacts": f"{prefix}_external_contacts",
-        "resident_links": f"{prefix}_resident_links",
-        "saved_documents": f"{prefix}_saved_documents",
-        "diary_input_rules": f"{prefix}_diary_input_rules",
-        "staff_examples": f"{prefix}_staff_examples",
-        "personal_rules": f"{prefix}_personal_rules",
-        "assistant_plans": f"{prefix}_assistant_plans",
-    }
-
-    if file in shared_mapping:
-        return shared_mapping[file]
-
-    if file in office_mapping:
-        return office_mapping[file]
-
-    raise ValueError(f"未対応のシート名ある: {file}")
+    if file == "task":
+        return "task"
+    elif file == "chat":
+        return "chat"
+    elif file == "manual":
+        return "manual"
+    elif file == "record_status":
+        return "record_status"
+    elif file == "calendar":
+        return "calendar"
+    elif file == "active_users":
+        return "active_users"
+    elif file == "resident_master":
+        return "resident_master"
+    elif file == "resident_schedule":
+        return "resident_schedule"
+    elif file == "resident_notes":
+        return "resident_notes"
+    elif file == "document_master":
+        return "document_master"
+    elif file == "external_contacts":
+        return "external_contacts"
+    elif file == "resident_links":
+        return "resident_links"
+    elif file == "saved_documents":
+        return "saved_documents"
+    elif file == "diary_input_rules":
+        return "diary_input_rules"
+    elif file == "staff_examples":
+        return "staff_examples"
+    elif file == "personal_rules":
+        return "personal_rules"
+    elif file == "assistant_plans":
+        return "assistant_plans"
+    else:
+        raise ValueError(f"未対応のシート名ある: {file}")
 
 
 def load_db(file, retries=3, delay=0.8):
@@ -906,24 +894,10 @@ def render_urgent_banner():
 # ==========================================
 # 🔑 ユーザー認証
 # ==========================================
-if "user" not in st.session_state:
+if 'user' not in st.session_state:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
     st.title("🛡️ 業務システム・ログイン")
-    st.warning("### 事業所と担当者を選んでログインしてください💻")
-
-    office_options = {
-        "サポート": "support",
-        "ホーム": "home",
-    }
-
-    selected_office_label = st.radio(
-        "接続先事業所を選択してください",
-        list(office_options.keys()),
-        index=0,
-        horizontal=True,
-    )
-
-    st.divider()
+    st.warning("### 名前を選んでログインしてください💻")
 
     user_list = [
         "木村 由美", "秋吉 幸雄", "安心院 拓也", "粟田 絵利菜", "小宅 正嗣",
@@ -939,11 +913,6 @@ if "user" not in st.session_state:
     if st.button("システムへログイン", use_container_width=True):
         if user:
             st.session_state.user = user
-
-            # 👇 ここ追加（事業所）
-            st.session_state.office_label = selected_office_label
-            st.session_state.office_key = office_options[selected_office_label]
-
             st.session_state.login_at = now_jst().strftime("%Y-%m-%d %H:%M")
             st.session_state.last_active_ping = 0
             st.rerun()
@@ -1117,14 +1086,11 @@ main_page_options = [
     "⑩ 書類アップロード",
 ]
 
-if "secret_doc_mode" not in st.session_state:
-    st.session_state["secret_doc_mode"] = False
-
 document_page_options = [
-    ("書類_個別支援計画案", "🤫個別支援計画案🤫" if st.session_state.get("secret_doc_mode") else "個別支援計画案"),
-    ("書類_サービス担当者会議", "🤫サービス担当者会議🤫" if st.session_state.get("secret_doc_mode") else "サービス担当者会議"),
-    ("書類_個別支援計画", "🤫個別支援計画🤫" if st.session_state.get("secret_doc_mode") else "個別支援計画"),
-    ("書類_モニタリング", "🤫モニタリング🤫" if st.session_state.get("secret_doc_mode") else "モニタリング"),
+    ("書類_個別支援計画案", "🤫個別支援計画案🤫" if st.session_state.get("secret_doc_mode", False) else "個別支援計画案"),
+    ("書類_サービス担当者会議", "🤫サービス担当者会議🤫" if st.session_state.get("secret_doc_mode", False) else "サービス担当者会議"),
+    ("書類_個別支援計画", "🤫個別支援計画🤫" if st.session_state.get("secret_doc_mode", False) else "個別支援計画"),
+    ("書類_モニタリング", "🤫モニタリング🤫" if st.session_state.get("secret_doc_mode", False) else "モニタリング"),
     ("書類_在宅評価シート", "在宅評価シート"),
     ("書類_アセスメント", "アセスメント"),
     ("書類_基本シート", "基本シート"),
@@ -1171,33 +1137,33 @@ if st.sidebar.button("ログアウト"):
         del st.session_state.current_page
     if "bee_menu_unlocked" in st.session_state:
         del st.session_state.bee_menu_unlocked
-    if "secret_bee_cmd" in st.session_state:
-        del st.session_state.secret_bee_cmd
-    if "office_label" in st.session_state:
-        del st.session_state.office_label
-    if "office_key" in st.session_state:
-        del st.session_state.office_key
     if "secret_doc_mode" in st.session_state:
         del st.session_state.secret_doc_mode
+    if "secret_bee_cmd" in st.session_state:
+        del st.session_state.secret_bee_cmd
     st.rerun()
 
 if "bee_menu_unlocked" not in st.session_state:
     st.session_state["bee_menu_unlocked"] = False
+if "secret_doc_mode" not in st.session_state:
+    st.session_state["secret_doc_mode"] = False
 
 with st.sidebar:
-    secret_cmd = st.text_input("裏コマンド", key="secret_bee_cmd", label_visibility="collapsed")
+    if not st.session_state["bee_menu_unlocked"] or not st.session_state["secret_doc_mode"]:
+        secret_cmd = st.text_input("裏コマンド", key="secret_bee_cmd", label_visibility="collapsed")
 
-    if secret_cmd == "🐝":
-        st.session_state["bee_menu_unlocked"] = True
-        st.rerun()
-    elif secret_cmd == "🤫":
-        st.session_state["secret_doc_mode"] = True
-        st.session_state["secret_bee_cmd"] = ""
-        st.rerun()
-    elif secret_cmd == "🤐":
-        st.session_state["secret_doc_mode"] = False
-        st.session_state["secret_bee_cmd"] = ""
-        st.rerun()
+        if secret_cmd == "🐝":
+            st.session_state["bee_menu_unlocked"] = True
+            st.session_state["secret_bee_cmd"] = ""
+            st.rerun()
+        elif secret_cmd == "🤫":
+            st.session_state["secret_doc_mode"] = True
+            st.session_state["secret_bee_cmd"] = ""
+            st.rerun()
+        elif secret_cmd == "🤐":
+            st.session_state["secret_doc_mode"] = False
+            st.session_state["secret_bee_cmd"] = ""
+            st.rerun()
 
     if st.session_state["bee_menu_unlocked"]:
         if st.button("🐝knowbe日誌入力🐝", use_container_width=True):
@@ -1284,52 +1250,6 @@ def render_plan_form_page(doc_title: str):
     selected_row = resident_map[selected_label]
     resident_name = str(selected_row.get("resident_name", "")).strip()
 
-    # ==========================================
-    # 過去の保存データを呼び出す
-    # ==========================================
-    st.markdown("## 過去の保存データ")
-
-    record_df = get_document_records(doc_title, str(selected_row.get("resident_id", "")).strip())
-
-    loaded_data = None
-
-    if record_df is not None and not record_df.empty:
-        options = []
-        option_map = {}
-
-        for _, r in record_df.iterrows():
-            label = f"{r.get('updated_at', '')} / ID:{r.get('record_id', '')}"
-            options.append(label)
-            option_map[label] = str(r.get("record_id", "")).strip()
-
-        load_col1, load_col2 = st.columns([5, 1])
-
-        with load_col1:
-            selected_record_label = st.selectbox(
-                "保存済みデータを選択",
-                [""] + options,
-                key=f"{doc_title}_saved_record_select"
-            )
-
-        with load_col2:
-            st.write("")
-            st.write("")
-            load_clicked = st.button("呼び出す", key=f"{doc_title}_load_button", use_container_width=True)
-
-        if load_clicked and selected_record_label:
-            target_record_id = option_map[selected_record_label]
-            loaded_data = load_document_json(target_record_id)
-
-            if loaded_data is not None:
-                st.session_state[f"{doc_title}_loaded_data"] = loaded_data
-                st.success("保存データを呼び出したある！")
-                st.rerun()
-    else:
-        st.info("この利用者の保存データはまだないある。")
-
-    if f"{doc_title}_loaded_data" in st.session_state:
-        loaded_data = st.session_state[f"{doc_title}_loaded_data"]    
-
     basic_cols = st.columns([7, 2, 2, 2])
 
     with basic_cols[0]:
@@ -1351,37 +1271,22 @@ def render_plan_form_page(doc_title: str):
 
     st.markdown("## 本文入力")
 
-    default_policy = ""
-    if loaded_data:
-        default_policy = str(loaded_data.get("policy", ""))
-
     policy_val = st.text_area(
         "サービス等利用計画の総合的な方針",
-        value=default_policy,
         key=f"{doc_title}_policy",
         height=120,
         placeholder="B8 に入る内容ある"
     )
 
-    default_long_goal = ""
-    if loaded_data:
-        default_long_goal = str(loaded_data.get("long_goal", ""))
-
     long_goal_val = st.text_area(
         "長期目標（内容・期間等）",
-        value=default_long_goal,
         key=f"{doc_title}_long_goal",
         height=100,
         placeholder="B10 に入る内容ある"
     )
 
-    default_short_goal = ""
-    if loaded_data:
-        default_short_goal = str(loaded_data.get("short_goal", ""))
-
     short_goal_val = st.text_area(
         "短期目標（内容・期間等）",
-        value=default_short_goal,
         key=f"{doc_title}_short_goal",
         height=100,
         placeholder="B12 に入る内容ある"
@@ -1409,15 +1314,11 @@ def render_plan_form_page(doc_title: str):
 
     for i in range(1, 4):
         st.markdown(f"### {i}行目")
-
-        row_defaults = {}
-        if loaded_data:
-            row_defaults = loaded_data.get(f"row_{i}", {}) or {}
+        row_cols = st.columns([5, 3, 4, 2, 2, 2])
 
         with row_cols[0]:
             target_val = st.text_area(
                 f"{i}行目_具体的達成目標",
-                value=str(row_defaults.get("target", "")),
                 key=f"{doc_title}_target_{i}",
                 height=90,
                 label_visibility="collapsed",
@@ -1427,7 +1328,6 @@ def render_plan_form_page(doc_title: str):
         with row_cols[1]:
             role_val = st.text_area(
                 f"{i}行目_本人の役割",
-                value=str(row_defaults.get("role", "")),
                 key=f"{doc_title}_role_{i}",
                 height=90,
                 label_visibility="collapsed",
@@ -1437,7 +1337,6 @@ def render_plan_form_page(doc_title: str):
         with row_cols[2]:
             support_val = st.text_area(
                 f"{i}行目_支援内容",
-                value=str(row_defaults.get("support", "")),
                 key=f"{doc_title}_support_{i}",
                 height=90,
                 label_visibility="collapsed",
@@ -1447,7 +1346,6 @@ def render_plan_form_page(doc_title: str):
         with row_cols[3]:
             period_val = st.text_input(
                 f"{i}行目_支援期間",
-                value=str(row_defaults.get("period", "")),
                 key=f"{doc_title}_period_{i}",
                 label_visibility="collapsed",
                 placeholder="M17〜M19"
@@ -1456,21 +1354,15 @@ def render_plan_form_page(doc_title: str):
         with row_cols[4]:
             person_val = st.text_input(
                 f"{i}行目_担当者",
-                value=str(row_defaults.get("person", "")),
                 key=f"{doc_title}_person_{i}",
                 label_visibility="collapsed",
                 placeholder="O17〜O19"
             )
 
         with row_cols[5]:
-            priority_default = str(row_defaults.get("priority", ""))
-            priority_candidates = ["", "1", "2", "3"]
-            priority_index = priority_candidates.index(priority_default) if priority_default in priority_candidates else 0
-
             priority_val = st.selectbox(
                 f"{i}行目_優先順位",
-                priority_candidates,
-                index=priority_index,
+                ["", "1", "2", "3"],
                 key=f"{doc_title}_priority_{i}",
                 label_visibility="collapsed"
             )
@@ -3013,7 +2905,6 @@ def render_assessment_form_page(doc_title: str):
         with row_cols[0]:
             target_val = st.text_area(
                 f"{i}行目_具体的達成目標",
-                value=str(row_defaults.get("target", "")),
                 key=f"{doc_title}_target_{i}",
                 height=90,
                 label_visibility="collapsed",
@@ -3021,13 +2912,12 @@ def render_assessment_form_page(doc_title: str):
             )
 
         with row_cols[1]:
-            support_val = st.text_area(
-                f"{i}行目_支援内容",
-                value=str(row_defaults.get("support", "")),
-                key=f"{doc_title}_support_{i}",
+            role_val = st.text_area(
+                f"{i}行目_本人の役割",
+                key=f"{doc_title}_role_{i}",
                 height=90,
                 label_visibility="collapsed",
-                placeholder="J17〜J19"
+                placeholder="G17〜G19"
             )
 
         with row_cols[2]:
@@ -3042,7 +2932,6 @@ def render_assessment_form_page(doc_title: str):
         with row_cols[3]:
             period_val = st.text_input(
                 f"{i}行目_支援期間",
-                value=str(row_defaults.get("period", "")),
                 key=f"{doc_title}_period_{i}",
                 label_visibility="collapsed",
                 placeholder="M17〜M19"
@@ -3051,20 +2940,15 @@ def render_assessment_form_page(doc_title: str):
         with row_cols[4]:
             person_val = st.text_input(
                 f"{i}行目_担当者",
-                value=str(row_defaults.get("person", "")),
                 key=f"{doc_title}_person_{i}",
                 label_visibility="collapsed",
                 placeholder="O17〜O19"
             )
 
-            priority_default = str(row_defaults.get("priority", ""))
-            priority_candidates = ["", "1", "2", "3"]
-            priority_index = priority_candidates.index(priority_default) if priority_default in priority_candidates else 0
         with row_cols[5]:
             priority_val = st.selectbox(
                 f"{i}行目_優先順位",
-                priority_candidates,
-                index=priority_index,
+                ["", "1", "2", "3"],
                 key=f"{doc_title}_priority_{i}",
                 label_visibility="collapsed"
             )
@@ -3158,15 +3042,6 @@ def render_assessment_form_page(doc_title: str):
         "wish_user": wish_user,
         "wish_family": wish_family,
         "future_direction": future_direction,
-    }
-
-    form_data = {
-        "policy": policy_val,
-        "long_goal": long_goal_val,
-        "short_goal": short_goal_val,
-        "row_1": row_data[0],
-        "row_2": row_data[1],
-        "row_3": row_data[2],
     }
 
     with st.expander("入力内容確認"):
@@ -4224,6 +4099,28 @@ def generate_status_support_with_gemini(
         str(data.get("generated_support", "")).strip(),
     )
 
+def get_gemini_api_key_from_app():
+    api_key = ""
+
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY", "")
+    except Exception:
+        api_key = ""
+
+    if not api_key:
+        try:
+            if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
+                api_key = st.secrets["gemini"]["api_key"]
+        except Exception:
+            pass
+
+    if not api_key:
+        import os
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+
+    return str(api_key).strip()
+
+
 def generate_bee_texts(
     resident_name,
     service_type,
@@ -4248,10 +4145,9 @@ def generate_bee_texts(
     rule_text = "" if rule_text is None else str(rule_text).strip()
     plan_text = "" if plan_text is None else str(plan_text).strip()
 
-    api_key = get_gemini_api_key_from_app()
+    api_key = get_openai_api_key_from_app()
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
-
+        raise RuntimeError("OPENAI_API_KEY が取得できなかったある")
 
     prompt = f"""
 あなたは就労継続支援B型の支援記録作成アシスタントある。
@@ -4303,12 +4199,14 @@ def generate_bee_texts(
 }}
 """
 
-    client = get_genai_client(api_key)
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt,
+    client = OpenAI(api_key=api_key)
+
+    response = client.responses.create(
+        model="gpt-4o-mini",
+        input=prompt,
     )
-    result_text = (response.text or "").strip()
+
+    result_text = (response.output_text or "").strip()
 
     if not result_text:
         raise RuntimeError("ChatGPTの応答が空ある")
@@ -4844,7 +4742,7 @@ def render_bee_journal_page():
                     st.error(f"Knowbe送信失敗ある: {e}")
 
         with send_cols[2]:
-            if st.button("Geminiで整えて送信", key="bee_send_gpt"):
+            if st.button("ChatGPTで整えて送信", key="bee_send_gpt"):
                 if not start_time.strip():
                     st.warning("開始時間を入れてほしいある。")
                     st.stop()
@@ -4933,60 +4831,9 @@ def render_bee_journal_page():
     diary_df = get_diary_input_rules_df()
 
     if diary_df is not None and not diary_df.empty:
-        df_user = diary_df[
-            diary_df["resident_name"].astype(str) == str(resident_name)
-        ].copy()
-
-        if not df_user.empty:
-            try:
-                df_user["record_id_num"] = pd.to_numeric(df_user["record_id"], errors="coerce")
-                df_user = df_user.sort_values("record_id_num", ascending=False)
-            except Exception:
-                pass
-
-            load_options = []
-            load_map = {}
-
-            for _, r in df_user.head(10).iterrows():
-                label = f"{r.get('date', '')} / {r.get('start_time', '')}〜{r.get('end_time', '')} / ID:{r.get('record_id', '')}"
-                load_options.append(label)
-                load_map[label] = r.to_dict()
-
-            load_col1, load_col2 = st.columns([5, 1])
-
-            with load_col1:
-                selected_saved_label = st.selectbox(
-                    "過去の保存データ",
-                    [""] + load_options,
-                    key="bee_saved_record_select"
-                )
-
-            with load_col2:
-                st.write("")
-                st.write("")
-                if st.button("呼び出す", key="bee_load_saved_record", use_container_width=True):
-                    if selected_saved_label:
-                        rec = load_map[selected_saved_label]
-
-                        st.session_state["bee_target_date"] = (
-                            pd.to_datetime(rec.get("date", "")).date()
-                            if str(rec.get("date", "")).strip()
-                            else now_jst().date()
-                        )
-                        st.session_state["start_time"] = str(rec.get("start_time", ""))
-                        st.session_state["end_time"] = str(rec.get("end_time", ""))
-                        st.session_state["bee_meal_flag"] = str(rec.get("meal_flag", "なし"))
-                        st.session_state["bee_note_text"] = str(rec.get("note", ""))
-                        st.session_state["bee_start_memo"] = str(rec.get("start_memo", ""))
-                        st.session_state["bee_end_memo"] = str(rec.get("end_memo", ""))
-                        st.session_state["bee_staff_name"] = str(rec.get("staff_name", ""))
-                        st.session_state["bee_service_type"] = str(rec.get("service_type", "在宅"))
-                        st.session_state["bee_knowbe_target"] = str(rec.get("knowbe_target", "support"))
-
-                        st.success("保存データを呼び出したある！")
-                        st.rerun()
-        else:
-            st.info("この利用者の保存データはまだないある。")
+        if "record_id" in diary_df.columns:
+            diary_df = diary_df.sort_values(by="record_id", ascending=False)
+        st.dataframe(diary_df.head(10), use_container_width=True, hide_index=True)
     else:
         st.info("まだ保存データはないある。")
 
@@ -8012,260 +7859,11 @@ elif page == "⓪ 検索":
                     )
 
 
-
-SECRET_DOC_KEYS = {
-    "書類_個別支援計画案": "個別支援計画案",
-    "書類_サービス担当者会議": "サービス担当者会議",
-    "書類_個別支援計画": "個別支援計画",
-    "書類_モニタリング": "モニタリング",
-}
-
-def get_latest_document_json(doc_type: str, resident_id: str):
-    df = get_document_records(doc_type, resident_id)
-    if df is None or df.empty:
-        return None
-    try:
-        df["record_id_num"] = pd.to_numeric(df["record_id"], errors="coerce")
-        df = df.sort_values("record_id_num", ascending=False)
-    except Exception:
-        pass
-    record_id = str(df.iloc[0].get("record_id", "")).strip()
-    if not record_id:
-        return None
-    return load_document_json(record_id)
-
-def get_reference_payload_for_doc(doc_title: str, resident_id: str):
-    if doc_title == "個別支援計画案":
-        monitoring = get_latest_document_json("モニタリング", resident_id)
-        if monitoring:
-            return {"source_type": "モニタリング", "data": monitoring}
-        return {
-            "source_type": "初回資料",
-            "data": {
-                "assessment": get_latest_document_json("アセスメント", resident_id) or {},
-                "basic_sheet": get_latest_document_json("基本シート", resident_id) or {},
-                "work_sheet": get_latest_document_json("就労分野シート", resident_id) or {},
-            },
-        }
-
-    mapping = {
-        "サービス担当者会議": "個別支援計画案",
-        "個別支援計画": "サービス担当者会議",
-        "モニタリング": "個別支援計画",
-    }
-    src = mapping.get(doc_title)
-    if not src:
-        return {"source_type": "なし", "data": {}}
-    payload = get_latest_document_json(src, resident_id)
-    return {"source_type": src, "data": payload or {}}
-
-def build_secret_prompt(doc_title: str, resident_name: str, reference_payload: dict, new_policy: dict):
-    source_type = reference_payload.get("source_type", "")
-    source_data = reference_payload.get("data", {}) or {}
-
-    if doc_title in ("個別支援計画案", "個別支援計画"):
-        instructions = """
-作成する項目:
-- policy: サービス等利用計画の総合的な方針
-- long_goal: 長期目標
-- short_goal: 短期目標
-- row_1, row_2, row_3:
-  - target: 具体的達成目標
-  - role: 本人の役割
-  - support: 支援内容
-  - period: 支援期間
-  - person: 担当者
-  - priority: 優先順位（"1" / "2" / "3" のどれか）
-
-必ずJSONのみで返すこと。
-"""
-        schema = {
-            "policy": "",
-            "long_goal": "",
-            "short_goal": "",
-            "row_1": {"target": "", "role": "", "support": "", "period": "", "person": "", "priority": "1"},
-            "row_2": {"target": "", "role": "", "support": "", "period": "", "person": "", "priority": "2"},
-            "row_3": {"target": "", "role": "", "support": "", "period": "", "person": "", "priority": "3"},
-        }
-    elif doc_title == "サービス担当者会議":
-        instructions = """
-作成する項目:
-- agenda: 議題
-- discussion: 検討内容
-- issues_left: 残された課題
-- conclusion: 結論
-
-必ずJSONのみで返すこと。
-"""
-        schema = {
-            "agenda": "",
-            "discussion": "",
-            "issues_left": "",
-            "conclusion": "",
-        }
-    else:  # モニタリング
-        instructions = """
-作成する項目:
-- row_1, row_2, row_3:
-  - status: 達成状況の評価（"達成" / "継続" / "一部達成" / "終了" のどれか）
-  - detail: 達成できている点と未達成点（要因も）
-  - future: 今後の対応（支援内容・方法の変更・継続・終了）
-
-必ずJSONのみで返すこと。
-"""
-        schema = {
-            "row_1": {"status": "継続", "detail": "", "future": ""},
-            "row_2": {"status": "継続", "detail": "", "future": ""},
-            "row_3": {"status": "継続", "detail": "", "future": ""},
-        }
-
-    return f"""
-あなたは就労継続支援B型の支援記録・各種書類作成アシスタントです。
-利用者名: {resident_name}
-作成する書類: {doc_title}
-
-参照元の種類:
-{source_type}
-
-参照元データ(JSON):
-{json.dumps(source_data, ensure_ascii=False, indent=2)}
-
-新しい方針(JSON):
-{json.dumps(new_policy, ensure_ascii=False, indent=2)}
-
-{instructions}
-
-注意:
-- 参照元データが空でも作成する
-- 新しい方針が空でも作成する
-- 参照元の内容を踏まえて、自然で連続性のある内容にする
-- 事実を勝手に過剰追加しない
-- 日本語で書く
-- JSON以外の文字を出さない
-
-出力JSONひな型:
-{json.dumps(schema, ensure_ascii=False, indent=2)}
-"""
-
-def generate_secret_document_with_gemini(doc_title: str, resident_name: str, resident_id: str, new_policy: dict):
-    api_key = get_gemini_api_key_from_app()
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
-
-    reference_payload = get_reference_payload_for_doc(doc_title, resident_id)
-    prompt = build_secret_prompt(doc_title, resident_name, reference_payload, new_policy)
-
-    client = get_genai_client(api_key)
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt,
-    )
-    text = (response.text or "").strip()
-    if not text:
-        raise RuntimeError(f"{doc_title} のGemini応答が空ある")
-
-    cleaned = text.replace("```json", "").replace("```", "").strip()
-    try:
-        return json.loads(cleaned)
-    except Exception as e:
-        raise RuntimeError(f"{doc_title} のGemini出力JSON解析に失敗ある: {e}\n{cleaned[:800]}")
-
-def apply_generated_form_data(doc_title: str, generated: dict):
-    if doc_title in ("個別支援計画案", "個別支援計画"):
-        st.session_state[f"{doc_title}_loaded_data"] = generated
-        # widget keys
-        st.session_state[f"{doc_title}_policy"] = str(generated.get("policy", ""))
-        st.session_state[f"{doc_title}_long_goal"] = str(generated.get("long_goal", ""))
-        st.session_state[f"{doc_title}_short_goal"] = str(generated.get("short_goal", ""))
-        for i in range(1, 4):
-            row = generated.get(f"row_{i}", {}) or {}
-            st.session_state[f"{doc_title}_target_{i}"] = str(row.get("target", ""))
-            st.session_state[f"{doc_title}_role_{i}"] = str(row.get("role", ""))
-            st.session_state[f"{doc_title}_support_{i}"] = str(row.get("support", ""))
-            st.session_state[f"{doc_title}_period_{i}"] = str(row.get("period", ""))
-            st.session_state[f"{doc_title}_person_{i}"] = str(row.get("person", ""))
-            st.session_state[f"{doc_title}_priority_{i}"] = str(row.get("priority", ""))
-    elif doc_title == "サービス担当者会議":
-        st.session_state[f"{doc_title}_agenda"] = str(generated.get("agenda", ""))
-        st.session_state[f"{doc_title}_discussion"] = str(generated.get("discussion", ""))
-        st.session_state[f"{doc_title}_issues_left"] = str(generated.get("issues_left", ""))
-        st.session_state[f"{doc_title}_conclusion"] = str(generated.get("conclusion", ""))
-    elif doc_title == "モニタリング":
-        for i in range(1, 4):
-            row = generated.get(f"row_{i}", {}) or {}
-            st.session_state[f"{doc_title}_status_{i}"] = str(row.get("status", ""))
-            st.session_state[f"{doc_title}_detail_{i}"] = str(row.get("detail", ""))
-            st.session_state[f"{doc_title}_future_{i}"] = str(row.get("future", ""))
-
 def render_secret_generation_panel(doc_title: str):
-    st.markdown("## 🤫 Gemini自動作成")
-    st.caption("直前の関連書類を参照し、必要なら新しい方針も加えて、このページ用の新規内容を一発作成するある。")
-
-    master_df = get_resident_master_df()
-    if master_df is None or master_df.empty:
-        st.warning("利用者情報がないので一発作成できないある。")
-        return
-
-    master_df = master_df.fillna("").copy()
-    resident_options = []
-    resident_map = {}
-    for _, row in master_df.iterrows():
-        rid = str(row.get("resident_id", "")).strip()
-        rname = str(row.get("resident_name", "")).strip()
-        if not rname:
-            continue
-        label = f"{rname}"
-        if rid:
-            label += f" ({rid})"
-        resident_options.append(label)
-        resident_map[label] = row.to_dict()
-
-    selected_label = st.selectbox(
-        "Gemini自動作成の対象利用者",
-        resident_options,
-        key=f"secret_{doc_title}_resident_select",
-    )
-    selected_row = resident_map[selected_label]
-    resident_id = str(selected_row.get("resident_id", "")).strip()
-    resident_name = str(selected_row.get("resident_name", "")).strip()
-
-    if doc_title in ("個別支援計画案", "個別支援計画"):
-        policy_general = st.text_area("新しい方針（サービス等利用計画の総合的な方針）", key=f"secret_{doc_title}_policy_general", height=80)
-        policy_long = st.text_area("新しい方針（長期目標）", key=f"secret_{doc_title}_policy_long", height=80)
-        policy_short = st.text_area("新しい方針（短期目標）", key=f"secret_{doc_title}_policy_short", height=80)
-        policy_rows = st.text_area("新しい方針（具体的達成目標3組）", key=f"secret_{doc_title}_policy_rows", height=100)
-        new_policy = {
-            "policy": policy_general,
-            "long_goal": policy_long,
-            "short_goal": policy_short,
-            "rows": policy_rows,
-        }
-    elif doc_title == "サービス担当者会議":
-        p1 = st.text_area("新しい方針（議題）", key=f"secret_{doc_title}_policy_agenda", height=80)
-        p2 = st.text_area("新しい方針（検討内容）", key=f"secret_{doc_title}_policy_discussion", height=100)
-        p3 = st.text_area("新しい方針（残された課題）", key=f"secret_{doc_title}_policy_issues", height=80)
-        p4 = st.text_area("新しい方針（結論）", key=f"secret_{doc_title}_policy_conclusion", height=80)
-        new_policy = {"agenda": p1, "discussion": p2, "issues_left": p3, "conclusion": p4}
-    else:
-        p1 = st.text_area("新しい方針（目標1のモニタリング）", key=f"secret_{doc_title}_policy_row1", height=80)
-        p2 = st.text_area("新しい方針（目標2のモニタリング）", key=f"secret_{doc_title}_policy_row2", height=80)
-        p3 = st.text_area("新しい方針（目標3のモニタリング）", key=f"secret_{doc_title}_policy_row3", height=80)
-        new_policy = {"row_1": p1, "row_2": p2, "row_3": p3}
-
-    if st.button("過去のデータから作成", key=f"secret_{doc_title}_generate", use_container_width=True):
-        try:
-            generated = generate_secret_document_with_gemini(doc_title, resident_name, resident_id, new_policy)
-            apply_generated_form_data(doc_title, generated)
-
-            # resident selection sync for normal page
-            resident_label = selected_label
-            st.session_state[f"{doc_title}_resident_select"] = resident_label
-            st.success("Geminiで自動作成して入力欄へ反映したある！")
-            st.rerun()
-        except Exception as e:
-            st.error(f"{doc_title} 自動作成エラーある: {e}")
+    st.info("🤫 秘密モードある。ここに後で『新しい方針欄』『過去のデータから作成』『Gemini自動入力』を追加していくある。")
 
 def render_secret_page(doc_title: str):
+    st.title(f"🤫 {doc_title}")
     render_secret_generation_panel(doc_title)
     st.divider()
     if doc_title == "サービス担当者会議":
@@ -8274,27 +7872,28 @@ def render_secret_page(doc_title: str):
         render_monitoring_form_page(doc_title)
     else:
         render_plan_form_page(doc_title)
+
 # ==========================================
 # 利用者書類
 # ==========================================
 
-elif page == "書類_個別支援計画案":
-    if st.session_state.get("secret_doc_mode"):
+if page == "書類_個別支援計画案":
+    if st.session_state.get("secret_doc_mode", False):
         render_secret_page("個別支援計画案")
     else:
         render_plan_form_page("個別支援計画案")
 elif page == "書類_サービス担当者会議":
-    if st.session_state.get("secret_doc_mode"):
+    if st.session_state.get("secret_doc_mode", False):
         render_secret_page("サービス担当者会議")
     else:
         render_meeting_form_page("サービス担当者会議")
 elif page == "書類_個別支援計画":
-    if st.session_state.get("secret_doc_mode"):
+    if st.session_state.get("secret_doc_mode", False):
         render_secret_page("個別支援計画")
     else:
         render_plan_form_page("個別支援計画")
 elif page == "書類_モニタリング":
-    if st.session_state.get("secret_doc_mode"):
+    if st.session_state.get("secret_doc_mode", False):
         render_secret_page("モニタリング")
     else:
         render_monitoring_form_page("モニタリング")
@@ -8305,6 +7904,4 @@ elif page == "書類_アセスメント":
 elif page == "書類_基本シート":
     render_basic_sheet_form_page("基本シート")
 elif page == "書類_就労分野シート":
-    render_work_sheet_form_page("就労分野シート")
-elif page == "🐝knowbe日誌入力🐝":
-    render_bee_journal_page()
+    render_work_field_form_page("就労分野シート")
