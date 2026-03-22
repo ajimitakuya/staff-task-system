@@ -10,6 +10,7 @@ import calendar as py_calendar
 from openpyxl import load_workbook
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar as st_calendar
+from google import genai
 import tempfile
 from openpyxl import Workbook
 
@@ -88,6 +89,8 @@ def get_sheet_name(file):
         return office_mapping[file]
 
     raise ValueError(f"未対応のシート名ある: {file}")
+
+    return mapping[file]
 
 
 def load_db(file, retries=3, delay=0.8):
@@ -1225,6 +1228,7 @@ def create_excel_file(template_name, cell_data):
 
     return buffer
 
+
 def render_plan_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
     st.caption("まずは入力しやすい形の試作ページある。まだ保存はしないある。")
@@ -1270,7 +1274,50 @@ def render_plan_form_page(doc_title: str):
     )
 
     selected_row = resident_map[selected_label]
+    resident_id = str(selected_row.get("resident_id", "")).strip()
     resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    # 保存済みデータ読み込み
+    st.markdown("## 過去の保存データ")
+    record_df = get_document_records(doc_title, resident_id)
+    loaded_data = None
+
+    if record_df is not None and not record_df.empty:
+        options = []
+        option_map = {}
+
+        for _, r in record_df.iterrows():
+            label = f"{r.get('updated_at', '')} / ID:{r.get('record_id', '')}"
+            options.append(label)
+            option_map[label] = str(r.get("record_id", "")).strip()
+
+        load_col1, load_col2 = st.columns([5, 1])
+
+        with load_col1:
+            selected_record_label = st.selectbox(
+                "保存済みデータを選択",
+                [""] + options,
+                key=f"{doc_title}_saved_record_select"
+            )
+
+        with load_col2:
+            st.write("")
+            st.write("")
+            if st.button("呼び出す", key=f"{doc_title}_load_button", use_container_width=True):
+                if selected_record_label:
+                    target_record_id = option_map[selected_record_label]
+                    loaded_json = load_document_json(target_record_id)
+
+                    if loaded_json is not None:
+                        st.session_state[f"{doc_title}_loaded_data"] = loaded_json
+                        st.session_state[f"{doc_title}_loaded_record_id"] = target_record_id
+                        st.success("保存データを呼び出したある！")
+                        st.rerun()
+    else:
+        st.info("この利用者の保存データはまだないある。")
+
+    if f"{doc_title}_loaded_data" in st.session_state:
+        loaded_data = st.session_state[f"{doc_title}_loaded_data"]
 
     basic_cols = st.columns([7, 2, 2, 2])
 
@@ -1290,25 +1337,30 @@ def render_plan_form_page(doc_title: str):
         day_val = st.text_input("日", key=f"{doc_title}_day", placeholder="14")
 
     st.divider()
-
     st.markdown("## 本文入力")
 
+    default_policy = str((loaded_data or {}).get("policy", ""))
     policy_val = st.text_area(
         "サービス等利用計画の総合的な方針",
+        value=default_policy,
         key=f"{doc_title}_policy",
         height=120,
         placeholder="B8 に入る内容ある"
     )
 
+    default_long_goal = str((loaded_data or {}).get("long_goal", ""))
     long_goal_val = st.text_area(
         "長期目標（内容・期間等）",
+        value=default_long_goal,
         key=f"{doc_title}_long_goal",
         height=100,
         placeholder="B10 に入る内容ある"
     )
 
+    default_short_goal = str((loaded_data or {}).get("short_goal", ""))
     short_goal_val = st.text_area(
         "短期目標（内容・期間等）",
+        value=default_short_goal,
         key=f"{doc_title}_short_goal",
         height=100,
         placeholder="B12 に入る内容ある"
@@ -1336,55 +1388,60 @@ def render_plan_form_page(doc_title: str):
 
     for i in range(1, 4):
         st.markdown(f"### {i}行目")
+        row_defaults = (loaded_data or {}).get(f"row_{i}", {}) or {}
         row_cols = st.columns([5, 3, 4, 2, 2, 2])
 
         with row_cols[0]:
             target_val = st.text_area(
                 f"{i}行目_具体的達成目標",
+                value=str(row_defaults.get("target", "")),
                 key=f"{doc_title}_target_{i}",
                 height=90,
                 label_visibility="collapsed",
                 placeholder="C17〜C19"
             )
-
         with row_cols[1]:
             role_val = st.text_area(
                 f"{i}行目_本人の役割",
+                value=str(row_defaults.get("role", "")),
                 key=f"{doc_title}_role_{i}",
                 height=90,
                 label_visibility="collapsed",
                 placeholder="G17〜G19"
             )
-
         with row_cols[2]:
             support_val = st.text_area(
                 f"{i}行目_支援内容",
+                value=str(row_defaults.get("support", "")),
                 key=f"{doc_title}_support_{i}",
                 height=90,
                 label_visibility="collapsed",
                 placeholder="J17〜J19"
             )
-
         with row_cols[3]:
             period_val = st.text_input(
                 f"{i}行目_支援期間",
+                value=str(row_defaults.get("period", "")),
                 key=f"{doc_title}_period_{i}",
                 label_visibility="collapsed",
                 placeholder="M17〜M19"
             )
-
         with row_cols[4]:
             person_val = st.text_input(
                 f"{i}行目_担当者",
+                value=str(row_defaults.get("person", "")),
                 key=f"{doc_title}_person_{i}",
                 label_visibility="collapsed",
                 placeholder="O17〜O19"
             )
-
         with row_cols[5]:
+            priority_default = str(row_defaults.get("priority", ""))
+            priority_candidates = ["", "1", "2", "3"]
+            priority_index = priority_candidates.index(priority_default) if priority_default in priority_candidates else 0
             priority_val = st.selectbox(
                 f"{i}行目_優先順位",
-                ["", "1", "2", "3"],
+                priority_candidates,
+                index=priority_index,
                 key=f"{doc_title}_priority_{i}",
                 label_visibility="collapsed"
             )
@@ -1412,7 +1469,48 @@ def render_plan_form_page(doc_title: str):
     with agree_cols[3]:
         manager_val = st.text_input("サービス担当責任者", key=f"{doc_title}_manager", placeholder="N21")
 
+    form_data = {
+        "policy": policy_val,
+        "long_goal": long_goal_val,
+        "short_goal": short_goal_val,
+        "row_1": row_data[0],
+        "row_2": row_data[1],
+        "row_3": row_data[2],
+        "agree_year": agree_year_val,
+        "agree_month": agree_month_val,
+        "agree_day": agree_day_val,
+        "manager": manager_val,
+        "year": year_val,
+        "month": month_val,
+        "day": day_val,
+    }
+
     st.divider()
+    st.markdown("### 保存")
+    loaded_record_id = st.session_state.get(f"{doc_title}_loaded_record_id")
+
+    save_cols = st.columns([1, 1, 4])
+    with save_cols[0]:
+        if st.button("新規保存", key=f"{doc_title}_save_new"):
+            new_id = save_document_record(
+                resident_id=resident_id,
+                resident_name=resident_name,
+                doc_type=doc_title,
+                form_data=form_data
+            )
+            st.session_state[f"{doc_title}_loaded_record_id"] = new_id
+            st.success(f"新規保存したある！ record_id = {new_id}")
+
+    with save_cols[1]:
+        if st.button("上書き保存", key=f"{doc_title}_save_update"):
+            if loaded_record_id:
+                ok = update_document_record(loaded_record_id, form_data)
+                if ok:
+                    st.success(f"上書き保存したある！ record_id = {loaded_record_id}")
+                else:
+                    st.warning("上書き対象が見つからないある。")
+            else:
+                st.warning("先に保存済みデータを読み込むか、新規保存してほしいある。")
 
     with st.expander("入力内容確認"):
         st.write(f"利用者氏名: {resident_name}")
@@ -1431,17 +1529,15 @@ def render_plan_form_page(doc_title: str):
     st.markdown("### Excel出力")
 
     if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
-
         cell_data = {
             "C4": resident_name,
             "M3": year_val,
             "O3": month_val,
             "Q3": day_val,
-            "M4": manager_val
+            "M4": manager_val,
         }
 
-        template_name = doc_title
-        file = create_excel_file(template_name, cell_data)
+        file = create_excel_file(doc_title, cell_data)
 
         st.download_button(
             label="ダウンロード",
@@ -1450,6 +1546,7 @@ def render_plan_form_page(doc_title: str):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key=f"{doc_title}_download_excel"
         )
+
 
 def render_meeting_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
@@ -4222,7 +4319,7 @@ def generate_bee_texts(
 }}
 """
 
-    client = get_genai_client(api_key)
+    client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
         model="gemini-2.0-flash",
         contents=prompt,
@@ -4291,11 +4388,9 @@ def send_to_knowbe_from_bee(
         raise RuntimeError("app.py 側で KB_LOGIN_USERNAME / KB_LOGIN_PASSWORD を取得できなかったある")
 
     try:
-        st.write("DEBUG 1: import run_assistance start")
-        import run_assistance
-        st.write("DEBUG 2: import run_assistance done")
+        import importlib
 
-        st.write("DEBUG 3: send_one_record_from_app start")
+        run_assistance = importlib.import_module("run_assistance")
         ok = run_assistance.send_one_record_from_app(
             target_date=str(target_date),
             resident_name=str(resident_name).strip(),
@@ -4852,60 +4947,9 @@ def render_bee_journal_page():
     diary_df = get_diary_input_rules_df()
 
     if diary_df is not None and not diary_df.empty:
-        df_user = diary_df[
-            diary_df["resident_name"].astype(str) == str(resident_name)
-        ].copy()
-
-        if not df_user.empty:
-            try:
-                df_user["record_id_num"] = pd.to_numeric(df_user["record_id"], errors="coerce")
-                df_user = df_user.sort_values("record_id_num", ascending=False)
-            except Exception:
-                pass
-
-            load_options = []
-            load_map = {}
-
-            for _, r in df_user.head(10).iterrows():
-                label = f"{r.get('date', '')} / {r.get('start_time', '')}〜{r.get('end_time', '')} / ID:{r.get('record_id', '')}"
-                load_options.append(label)
-                load_map[label] = r.to_dict()
-
-            load_col1, load_col2 = st.columns([5, 1])
-
-            with load_col1:
-                selected_saved_label = st.selectbox(
-                    "過去の保存データ",
-                    [""] + load_options,
-                    key="bee_saved_record_select"
-                )
-
-            with load_col2:
-                st.write("")
-                st.write("")
-                if st.button("呼び出す", key="bee_load_saved_record", use_container_width=True):
-                    if selected_saved_label:
-                        rec = load_map[selected_saved_label]
-
-                        st.session_state["bee_target_date"] = (
-                            pd.to_datetime(rec.get("date", "")).date()
-                            if str(rec.get("date", "")).strip()
-                            else now_jst().date()
-                        )
-                        st.session_state["start_time"] = str(rec.get("start_time", ""))
-                        st.session_state["end_time"] = str(rec.get("end_time", ""))
-                        st.session_state["bee_meal_flag"] = str(rec.get("meal_flag", "なし"))
-                        st.session_state["bee_note_text"] = str(rec.get("note", ""))
-                        st.session_state["bee_start_memo"] = str(rec.get("start_memo", ""))
-                        st.session_state["bee_end_memo"] = str(rec.get("end_memo", ""))
-                        st.session_state["bee_staff_name"] = str(rec.get("staff_name", ""))
-                        st.session_state["bee_service_type"] = str(rec.get("service_type", "在宅"))
-                        st.session_state["bee_knowbe_target"] = str(rec.get("knowbe_target", "support"))
-
-                        st.success("保存データを呼び出したある！")
-                        st.rerun()
-        else:
-            st.info("この利用者の保存データはまだないある。")
+        if "record_id" in diary_df.columns:
+            diary_df = diary_df.sort_values(by="record_id", ascending=False)
+        st.dataframe(diary_df.head(10), use_container_width=True, hide_index=True)
     else:
         st.info("まだ保存データはないある。")
 
