@@ -1236,18 +1236,15 @@ unsafe_allow_html=True
 )
 
 st.sidebar.markdown("<div style='margin-top:30px;'></div>", unsafe_allow_html=True)
-
 st.sidebar.markdown("メニューを選択してください")
 
 st.sidebar.markdown(
     """
     <style>
-    /* サイドバー全体 */
     section[data-testid="stSidebar"] .stButton {
         margin-bottom: 12px !important;
     }
 
-    /* 未選択メニューボタン本体 */
     section[data-testid="stSidebar"] .stButton > button {
         width: 100% !important;
         height: 56px !important;
@@ -1272,7 +1269,6 @@ st.sidebar.markdown(
         background: #fffaf5 !important;
     }
 
-    /* buttonの中の文字コンテナを左寄せ */
     section[data-testid="stSidebar"] .stButton > button > div {
         width: 100% !important;
         height: 56px !important;
@@ -1293,13 +1289,11 @@ st.sidebar.markdown(
         line-height: 1.2 !important;
     }
 
-    /* 選択中メニューの外側ラッパー */
     .menu-selected-wrap {
         width: 100%;
         margin: 0 0 12px 0;
     }
 
-    /* 選択中メニュー本体 */
     .menu-selected-box {
         width: 100%;
         height: 56px;
@@ -1318,7 +1312,6 @@ st.sidebar.markdown(
         line-height: 1.2;
     }
 
-    /* markdown側の余白を消す */
     section[data-testid="stSidebar"] div[data-testid="stMarkdown"] {
         margin-bottom: 0 !important;
     }
@@ -1343,18 +1336,22 @@ def heart_label(text: str) -> str:
 
     s = str(text)
 
-    # 先頭の番号・記号つきメニューをハート化
     if len(s) >= 2 and s[1] == " ":
         return f"💕 {s[2:]}"
     if len(s) >= 3 and s[2] == " ":
         return f"💕 {s[3:]}"
 
-    # knowbe ボタンもハート化
     if "knowbe" in s:
         return "💕knowbe日誌入力💕"
 
-    # それ以外は先頭にハート
     return f"💕 {s}"
+
+if "bee_menu_unlocked" not in st.session_state:
+    st.session_state["bee_menu_unlocked"] = False
+if "secret_doc_mode" not in st.session_state:
+    st.session_state["secret_doc_mode"] = False
+if "heart_mode" not in st.session_state:
+    st.session_state["heart_mode"] = False
 
 main_page_options = [
     "⓪ 検索",
@@ -1380,58 +1377,6 @@ document_page_options = [
     ("書類_基本シート", "基本シート"),
     ("書類_就労分野シート", "就労分野シート"),
 ]
-
-for p in main_page_options:
-    is_selected = (st.session_state.current_page == p)
-    display_p = heart_label(p)
-
-    if is_selected:
-        st.sidebar.markdown(
-            f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {display_p}</div></div>',
-            unsafe_allow_html=True
-        )
-    else:
-        if st.sidebar.button(display_p, key=f"menu_{p}", use_container_width=True):
-            st.session_state.current_page = p
-            st.rerun()
-
-st.sidebar.markdown("### 利用者書類")
-
-for page_key, label in document_page_options:
-    is_selected = (st.session_state.current_page == page_key)
-    display_label = heart_label(label)
-
-    if is_selected:
-        st.sidebar.markdown(
-            f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {display_label}</div></div>',
-            unsafe_allow_html=True
-        )
-    else:
-        if st.sidebar.button(display_label, key=f"menu_{page_key}", use_container_width=True):
-            st.session_state.current_page = page_key
-            st.rerun()
-
-page = st.session_state.current_page
-
-def heart_label(text: str) -> str:
-    if not st.session_state.get("heart_mode", False):
-        return str(text)
-
-    s = str(text)
-
-    # 先頭の番号・記号つきメニューをハート化
-    if len(s) >= 2 and s[1] == " ":
-        return f"💕 {s[2:]}"
-    if len(s) >= 3 and s[2] == " ":
-        return f"💕 {s[3:]}"
-
-    # knowbe ボタンもハート化
-    if "knowbe" in s:
-        return "💕knowbe日誌入力💕"
-
-    # それ以外は先頭にハート
-    return f"💕 {s}"
-
 
 if st.sidebar.button("ログアウト"):
     if "user" in st.session_state:
@@ -1454,13 +1399,6 @@ if st.sidebar.button("ログアウト"):
         del st.session_state.secret_bee_cmd
     st.rerun()
 
-if "bee_menu_unlocked" not in st.session_state:
-    st.session_state["bee_menu_unlocked"] = False
-if "secret_doc_mode" not in st.session_state:
-    st.session_state["secret_doc_mode"] = False
-if "heart_mode" not in st.session_state:
-    st.session_state["heart_mode"] = False
-
 with st.sidebar:
     secret_cmd = st.text_input("裏コマンド", key="secret_bee_cmd", label_visibility="collapsed")
 
@@ -1473,40 +1411,6 @@ with st.sidebar:
     elif secret_cmd == "💕":
         st.session_state["heart_mode"] = True
         st.rerun()
-
-    if st.session_state.get("bee_menu_unlocked", False):
-        knowbe_label = "🐝knowbe日誌入力🐝"
-        if st.session_state.get("heart_mode", False):
-            knowbe_label = "💕knowbe日誌入力💕"
-
-        if st.button(knowbe_label, use_container_width=True):
-            st.session_state.current_page = "🐝knowbe日誌入力🐝"
-            st.rerun()
-
-main_page_options = [
-    "⓪ 検索",
-    "① 未着手の任務（掲示板）",
-    "② タスクの引き受け・報告",
-    "③ 稼働状況・完了履歴",
-    "④ チームチャット",
-    "⑤ 業務マニュアル",
-    "⑥ 日誌入力状況",
-    "⑦ タスクカレンダー",
-    "⑧ 緊急一覧",
-    "⑨ 利用者情報",
-    "⑩ 書類アップロード",
-]
-
-document_page_options = [
-    ("書類_個別支援計画案", "🤫個別支援計画案🤫" if st.session_state.get("secret_doc_mode", False) else "個別支援計画案"),
-    ("書類_サービス担当者会議", "🤫サービス担当者会議🤫" if st.session_state.get("secret_doc_mode", False) else "サービス担当者会議"),
-    ("書類_個別支援計画", "🤫個別支援計画🤫" if st.session_state.get("secret_doc_mode", False) else "個別支援計画"),
-    ("書類_モニタリング", "🤫モニタリング🤫" if st.session_state.get("secret_doc_mode", False) else "モニタリング"),
-    ("書類_在宅評価シート", "在宅評価シート"),
-    ("書類_アセスメント", "アセスメント"),
-    ("書類_基本シート", "基本シート"),
-    ("書類_就労分野シート", "就労分野シート"),
-]
 
 for p in main_page_options:
     is_selected = (st.session_state.current_page == p)
@@ -1537,6 +1441,17 @@ for page_key, label in document_page_options:
         if st.sidebar.button(display_label, key=f"menu_{page_key}", use_container_width=True):
             st.session_state.current_page = page_key
             st.rerun()
+
+if st.session_state.get("bee_menu_unlocked", False):
+    knowbe_label = "🐝knowbe日誌入力🐝"
+    if st.session_state.get("heart_mode", False):
+        knowbe_label = "💕knowbe日誌入力💕"
+
+    if st.sidebar.button(knowbe_label, use_container_width=True):
+        st.session_state.current_page = "🐝knowbe日誌入力🐝"
+        st.rerun()
+
+page = st.session_state.current_page
 
 st.sidebar.divider()
 st.sidebar.caption("System Version 2.0")
