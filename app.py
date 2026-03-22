@@ -900,10 +900,35 @@ def render_urgent_banner():
 # ==========================================
 # 🔑 ユーザー認証
 # ==========================================
-if 'user' not in st.session_state:
+if "user" not in st.session_state:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
-    st.title("🛡️ 業務システム・ログイン")
-    st.warning("### 名前を選んでログインしてください💻")
+
+    st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
+    st.warning("### 事業所と担当者を選んでログインしてください💻")
+
+    if "office_key" not in st.session_state:
+        st.session_state.office_key = "support"
+
+    office_options = ["support", "home"]
+    office_labels = {
+        "support": "サポート",
+        "home": "ホーム",
+    }
+
+    st.markdown("接続先事業所を選択してください")
+    office_key = st.radio(
+        "接続先事業所を選択してください",
+        office_options,
+        index=0 if st.session_state.get("office_key", "support") == "support" else 1,
+        format_func=lambda x: office_labels.get(x, x),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="login_office_key",
+    )
+
+    st.session_state.office_key = office_key
+
+    st.divider()
 
     user_list = [
         "木村 由美", "秋吉 幸雄", "安心院 拓也", "粟田 絵利菜", "小宅 正嗣",
@@ -1147,6 +1172,8 @@ if st.sidebar.button("ログアウト"):
         del st.session_state.secret_doc_mode
     if "secret_bee_cmd" in st.session_state:
         del st.session_state.secret_bee_cmd
+    if "office_key" in st.session_state:
+        del st.session_state.office_key
     st.rerun()
 
 if "bee_menu_unlocked" not in st.session_state:
