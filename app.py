@@ -1121,6 +1121,23 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
+def heart_label(text: str) -> str:
+    if not st.session_state.get("heart_mode", False):
+        return text
+
+    s = str(text)
+
+    # 先頭の番号・記号つきメニューをハート化
+    if len(s) >= 2 and s[1] == " ":
+        return f"💕 {s[2:]}"
+    if len(s) >= 3 and s[2] == " ":
+        return f"💕 {s[3:]}"
+
+    # knowbe ボタンもハート化
+    if "knowbe" in s:
+        return "💕knowbe日誌入力💕"
+
+    # それ以外は先頭にハート
 
 main_page_options = [
     "⓪ 検索",
@@ -1149,14 +1166,15 @@ document_page_options = [
 
 for p in main_page_options:
     is_selected = (st.session_state.current_page == p)
+    display_p = heart_label(p)
 
     if is_selected:
         st.sidebar.markdown(
-            f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {p}</div></div>',
+            f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {display_p}</div></div>',
             unsafe_allow_html=True
         )
     else:
-        if st.sidebar.button(p, key=f"menu_{p}", use_container_width=True):
+        if st.sidebar.button(display_p, key=f"menu_{p}", use_container_width=True):
             st.session_state.current_page = p
             st.rerun()
 
@@ -1164,14 +1182,15 @@ st.sidebar.markdown("### 利用者書類")
 
 for page_key, label in document_page_options:
     is_selected = (st.session_state.current_page == page_key)
+    display_label = heart_label(label)
 
     if is_selected:
         st.sidebar.markdown(
-            f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {label}</div></div>',
+            f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {display_label}</div></div>',
             unsafe_allow_html=True
         )
     else:
-        if st.sidebar.button(label, key=f"menu_{page_key}", use_container_width=True):
+        if st.sidebar.button(display_label, key=f"menu_{page_key}", use_container_width=True):
             st.session_state.current_page = page_key
             st.rerun()
 
@@ -1199,12 +1218,16 @@ if st.sidebar.button("ログアウト"):
             del st.session_state.office_key
         if "login_at" in st.session_state:
             del st.session_state.login_at
+    if "heart_mode" in st.seesion_state:
+        del st.session_state.heart_mode
     st.rerun()
 
 if "bee_menu_unlocked" not in st.session_state:
     st.session_state["bee_menu_unlocked"] = False
 if "secret_doc_mode" not in st.session_state:
     st.session_state["secret_doc_mode"] = False
+if "heart_mode" not in st.session_state:
+    st.session_state["heart_mode"] = False
 
 with st.sidebar:
     if not st.session_state["bee_menu_unlocked"] or not st.session_state["secret_doc_mode"]:
@@ -1222,9 +1245,17 @@ with st.sidebar:
             st.session_state["secret_doc_mode"] = False
             st.session_state["secret_bee_cmd"] = ""
             st.rerun()
+        elif secret_cmd == "💕":
+            st.session_state["heart_mode"] = True
+            st.session_state["secret_bee_cmd"] = ""
+            st.rerun()
 
     if st.session_state["bee_menu_unlocked"]:
-        if st.button("🐝knowbe日誌入力🐝", use_container_width=True):
+        knowbe_label = "🐝knowbe日誌入力🐝"
+        if st.session_state.get("heart_mode", False):
+            knowbe_label = "💕knowbe日誌入力💕"
+
+        if st.button(knowbe_label, use_container_width=True):
             st.session_state.current_page = "🐝knowbe日誌入力🐝"
             st.rerun()
 
