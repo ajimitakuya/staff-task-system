@@ -45,168 +45,183 @@ st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
 # --- 🔌 スプレッドシート接続設定 ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+COMMON_SHEETS = {
+    "task",
+    "chat",
+    "manual",
+    "record_status",
+    "calendar",
+    "active_users",
+}
+
+OFFICE_SHEETS = {
+    "resident_master",
+    "resident_schedule",
+    "resident_notes",
+    "document_master",
+    "external_contacts",
+    "resident_links",
+    "saved_documents",
+    "diary_input_rules",
+    "staff_examples",
+    "personal_rules",
+    "assistant_plans",
+}
+
+def get_current_office_key():
+    office_key = str(st.session_state.get("office_key", "support")).strip().lower()
+    if office_key not in ("support", "home"):
+        office_key = "support"
+    return office_key
+
+def get_sheet_name_candidates(file):
+    if file in COMMON_SHEETS:
+        return [file]
+
+    if file in OFFICE_SHEETS:
+        office_key = get_current_office_key()
+        return [
+            f"{office_key}_{file}",
+            file,
+        ]
+
+    raise ValueError(f"未対応のシート名ある: {file}")
+
 def get_sheet_name(file):
-    if file == "task":
-        return "task"
-    elif file == "chat":
-        return "chat"
-    elif file == "manual":
-        return "manual"
-    elif file == "record_status":
-        return "record_status"
-    elif file == "calendar":
-        return "calendar"
-    elif file == "active_users":
-        return "active_users"
-    elif file == "resident_master":
-        return "resident_master"
-    elif file == "resident_schedule":
-        return "resident_schedule"
-    elif file == "resident_notes":
-        return "resident_notes"
-    elif file == "document_master":
-        return "document_master"
-    elif file == "external_contacts":
-        return "external_contacts"
-    elif file == "resident_links":
-        return "resident_links"
-    elif file == "saved_documents":
-        return "saved_documents"
-    elif file == "diary_input_rules":
-        return "diary_input_rules"
-    elif file == "staff_examples":
-        return "staff_examples"
-    elif file == "personal_rules":
-        return "personal_rules"
-    elif file == "assistant_plans":
-        return "assistant_plans"
-    else:
-        raise ValueError(f"未対応のシート名ある: {file}")
+    candidates = get_sheet_name_candidates(file)
+    return candidates[0]
 
 
 def load_db(file, retries=3, delay=0.8):
-    s_name = get_sheet_name(file)
+    sheet_candidates = get_sheet_name_candidates(file)
 
     last_error = None
-    for attempt in range(retries):
-        try:
-            df = conn.read(worksheet=s_name, ttl=60)
 
-            if df is None:
-                df = pd.DataFrame()
+    for s_name in sheet_candidates:
+        for attempt in range(retries):
+            try:
+                df = conn.read(worksheet=s_name, ttl=60)
 
-            # record_status の列名補正
-            if file == "record_status" and not df.empty:
-                cols = list(df.columns)
-                fixed_cols = []
-                current_year = None
+                if df is None:
+                    df = pd.DataFrame()
 
-                for col in cols:
-                    col_str = str(col).strip()
+                # record_status の列名補正
+                if file == "record_status" and not df.empty:
+                    cols = list(df.columns)
+                    fixed_cols = []
+                    current_year = None
 
-                    if col_str == "resident_name":
-                        fixed_cols.append("resident_name")
-                        continue
+                    for col in cols:
+                        col_str = str(col).strip()
 
-                    if "年" in col_str and "月" in col_str:
-                        current_year = col_str.split("年")[0]
-                        fixed_cols.append(col_str)
-                        continue
+                        if col_str == "resident_name":
+                            fixed_cols.append("resident_name")
+                            continue
 
-                    if col_str.endswith("月") and current_year is not None:
-                        fixed_cols.append(f"{current_year}年{col_str}")
-                    else:
-                        fixed_cols.append(col_str)
+                        if "年" in col_str and "月" in col_str:
+                            current_year = col_str.split("年")[0]
+                            fixed_cols.append(col_str)
+                            continue
 
-                df.columns = fixed_cols
+                        if col_str.endswith("月") and current_year is not None:
+                            fixed_cols.append(f"{current_year}年{col_str}")
+                        else:
+                            fixed_cols.append(col_str)
 
-            record_status_cols = ["resident_name"]
-            for year in range(2025, 2027):
-                for month in range(1, 13):
-                    record_status_cols.append(f"{year}年{month}月")
+                    df.columns = fixed_cols
 
-            calendar_cols = ["id", "title", "start", "end", "user", "memo", "source_type", "source_task_id"]
+                record_status_cols = ["resident_name"]
+                for year in range(2025, 2027):
+                    for month in range(1, 13):
+                        record_status_cols.append(f"{year}年{month}月")
 
-            expected_cols = {
-                "task": ["id", "task", "status", "user", "limit", "priority", "updated_at"],
-                "chat": ["date", "time", "user", "message", "image_data"],
-                "manual": ["id", "title", "content", "image_data", "created_at"],
-                "record_status": record_status_cols,
-                "calendar": calendar_cols,
-                "active_users": ["user", "login_at", "last_seen"],
-                                "resident_master": [
-                    "resident_id", "resident_name", "status",
-                    "consultant", "consultant_phone",
-                    "caseworker", "caseworker_phone",
-                    "hospital", "hospital_phone",
-                    "nurse", "nurse_phone",
-                    "care", "care_phone",
-                    "created_at", "updated_at"
-                ],
-                "resident_schedule": [
-                    "id", "resident_id", "weekday", "service_type",
-                    "start_time", "end_time", "place", "phone", "person_in_charge", "memo"
-                ],
-                "resident_notes": [
-                    "id", "resident_id", "date", "user", "note"
-                ],
-                "document_master": [
-                    "document_id", "category1", "category2", "category3",
-                    "title", "file_type", "url", "summary", "memo",
-                    "status", "updated_at", "created_at",
-                    "original_filename", "file_data_base64"
-                ],
-                "external_contacts": [
-                    "contact_id", "category1", "category2",
-                    "name", "organization", "phone", "memo"
-                ],
-                "resident_links": [
-                    "id", "resident_id", "contact_id", "role"
-                ],
-                "saved_documents": [
-                    "record_id",
-                    "resident_id",
-                    "resident_name",
-                    "doc_type",
-                    "created_at",
-                    "updated_at",
-                    "json_data"
-                ],
-                "diary_input_rules": [
-                    "record_id", "date", "resident_id", "resident_name",
-                    "start_time", "end_time", "meal_flag", "note",
-                    "start_memo", "end_memo", "staff_name",
-                    "generated_status", "generated_support", "created_at",
-                    "service_type", "knowbe_target", "send_status", "sent_at", "send_error",
-                    "record_mode"
-                ],
-                "staff_examples": [
-                    "staff_name",
-                    "home_start_example", "home_end_example",
-                    "day_start_example", "day_end_example",
-                    "outside_start_example", "outside_end_example",
-                    "updated_at"
-                ],
-                "personal_rules": [
-                    "staff_name", "rule_text", "updated_at"
-                ],
-                "assistant_plans": [
-                    "resident_id", "long_term_goal", "short_term_goal", "updated_at"
-                ],
-            }
+                calendar_cols = ["id", "title", "start", "end", "user", "memo", "source_type", "source_task_id"]
 
-            for col in expected_cols[file]:
-                if col not in df.columns:
-                    df[col] = ""
+                expected_cols = {
+                    "task": ["id", "task", "status", "user", "limit", "priority", "updated_at"],
+                    "chat": ["date", "time", "user", "message", "image_data"],
+                    "manual": ["id", "title", "content", "image_data", "created_at"],
+                    "record_status": record_status_cols,
+                    "calendar": calendar_cols,
+                    "active_users": ["user", "login_at", "last_seen"],
+                    "resident_master": [
+                        "resident_id", "resident_name", "status",
+                        "consultant", "consultant_phone",
+                        "caseworker", "caseworker_phone",
+                        "hospital", "hospital_phone",
+                        "nurse", "nurse_phone",
+                        "care", "care_phone",
+                        "created_at", "updated_at"
+                    ],
+                    "resident_schedule": [
+                        "id", "resident_id", "weekday", "service_type",
+                        "start_time", "end_time", "place", "phone", "person_in_charge", "memo"
+                    ],
+                    "resident_notes": [
+                        "id", "resident_id", "date", "user", "note"
+                    ],
+                    "document_master": [
+                        "document_id", "category1", "category2", "category3",
+                        "title", "file_type", "url", "summary", "memo",
+                        "status", "updated_at", "created_at",
+                        "original_filename", "file_data_base64"
+                    ],
+                    "external_contacts": [
+                        "contact_id", "category1", "category2",
+                        "name", "organization", "phone", "memo"
+                    ],
+                    "resident_links": [
+                        "id", "resident_id", "contact_id", "role"
+                    ],
+                    "saved_documents": [
+                        "record_id",
+                        "resident_id",
+                        "resident_name",
+                        "doc_type",
+                        "created_at",
+                        "updated_at",
+                        "json_data"
+                    ],
+                    "diary_input_rules": [
+                        "record_id", "date", "resident_id", "resident_name",
+                        "start_time", "end_time", "meal_flag", "note",
+                        "start_memo", "end_memo", "staff_name",
+                        "generated_status", "generated_support", "created_at",
+                        "service_type", "knowbe_target", "send_status", "sent_at", "send_error",
+                        "record_mode"
+                    ],
+                    "staff_examples": [
+                        "staff_name",
+                        "home_start_example", "home_end_example",
+                        "day_start_example", "day_end_example",
+                        "outside_start_example", "outside_end_example",
+                        "updated_at"
+                    ],
+                    "personal_rules": [
+                        "staff_name", "rule_text", "updated_at"
+                    ],
+                    "assistant_plans": [
+                        "resident_id", "long_term_goal", "short_term_goal", "updated_at"
+                    ],
+                }
 
-            return df
+                for col in expected_cols[file]:
+                    if col not in df.columns:
+                        df[col] = ""
 
-        except Exception as e:
-            last_error = e
-            if attempt < retries - 1:
-                time.sleep(delay + random.random() * 0.5)
-            else:
-                raise last_error
+                return df
+
+            except Exception as e:
+                last_error = e
+                if attempt < retries - 1:
+                    time.sleep(delay + random.random() * 0.5)
+                else:
+                    pass
+
+    if last_error is not None:
+        raise last_error
+
+    return pd.DataFrame()
 
 
 def get_resident_master_df():
@@ -643,20 +658,24 @@ def get_resident_links_df_cached():
     return df.fillna("")
 
 def save_db(df, file, retries=3, delay=1.0):
-    s_name = get_sheet_name(file)
+    sheet_candidates = get_sheet_name_candidates(file)
 
     last_error = None
-    for attempt in range(retries):
-        try:
-            conn.update(worksheet=s_name, data=df)
-            st.cache_data.clear()
-            return
-        except Exception as e:
-            last_error = e
-            if attempt < retries - 1:
-                time.sleep(delay + random.random() * 0.7)
-            else:
-                raise last_error
+    for s_name in sheet_candidates:
+        for attempt in range(retries):
+            try:
+                conn.update(worksheet=s_name, data=df)
+                st.cache_data.clear()
+                return
+            except Exception as e:
+                last_error = e
+                if attempt < retries - 1:
+                    time.sleep(delay + random.random() * 0.7)
+                else:
+                    pass
+
+    if last_error is not None:
+        raise last_error
 
 def update_active_user():
     active_df = load_db("active_users")
@@ -1174,6 +1193,12 @@ if st.sidebar.button("ログアウト"):
         del st.session_state.secret_bee_cmd
     if "office_key" in st.session_state:
         del st.session_state.office_key
+    if st.sidebar.button("ログアウト"):
+        del st.session_state.user
+        if "office_key" in st.session_state:
+            del st.session_state.office_key
+        if "login_at" in st.session_state:
+            del st.session_state.login_at
     st.rerun()
 
 if "bee_menu_unlocked" not in st.session_state:
