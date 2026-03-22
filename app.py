@@ -1399,18 +1399,17 @@ if st.sidebar.button("ログアウト"):
         del st.session_state.secret_bee_cmd
     st.rerun()
 
-with st.sidebar:
-    secret_cmd = st.text_input("裏コマンド", key="secret_bee_cmd", label_visibility="collapsed")
+def process_secret_command():
+    cmd = str(st.session_state.get("secret_bee_cmd", "")).strip()
 
-    if secret_cmd == "🐝":
+    if cmd == "🐝":
         st.session_state["bee_menu_unlocked"] = True
-        st.rerun()
-    elif secret_cmd == "🤫":
+    elif cmd == "🤫":
         st.session_state["secret_doc_mode"] = True
-        st.rerun()
-    elif secret_cmd == "💕":
+    elif cmd == "💕":
         st.session_state["heart_mode"] = True
-        st.rerun()
+
+    st.session_state["secret_bee_cmd"] = ""
 
 for p in main_page_options:
     is_selected = (st.session_state.current_page == p)
@@ -1442,6 +1441,17 @@ for page_key, label in document_page_options:
             st.session_state.current_page = page_key
             st.rerun()
 
+st.sidebar.divider()
+st.sidebar.caption("System Version 2.0")
+
+st.sidebar.text_input(
+    "裏コマンド",
+    key="secret_bee_cmd",
+    label_visibility="collapsed",
+    placeholder="裏コマンド",
+    on_change=process_secret_command,
+)
+
 if st.session_state.get("bee_menu_unlocked", False):
     knowbe_label = "🐝knowbe日誌入力🐝"
     if st.session_state.get("heart_mode", False):
@@ -1452,9 +1462,6 @@ if st.session_state.get("bee_menu_unlocked", False):
         st.rerun()
 
 page = st.session_state.current_page
-
-st.sidebar.divider()
-st.sidebar.caption("System Version 2.0")
 
 render_urgent_banner()
 
