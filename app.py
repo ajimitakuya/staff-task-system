@@ -4921,8 +4921,8 @@ def render_bee_journal_page():
     with work_time_col3:
         work_break_time = st.text_input(
             "休憩時間",
-            value=work_break_time,
-            key="bee_work_rest_time"
+            value="work_break_time",
+            key="bee_work_break_time"
         )
 
     knowbe_target = st.radio(
