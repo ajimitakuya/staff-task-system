@@ -4515,6 +4515,8 @@ def generate_bee_texts(
   "generated_support": "ここに職員考察"
 }}
 """
+    
+    
 
     response = model.generate_content(prompt)
     result_text = (response.text or "").strip()
