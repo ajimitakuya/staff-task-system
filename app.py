@@ -4920,8 +4920,7 @@ def render_bee_journal_page():
 
     with work_time_col3:
         work_break_time = st.text_input(
-            "休憩時間",
-            value="work_break_time",
+            "休憩時間",    
             key="bee_work_break_time"
         )
 
