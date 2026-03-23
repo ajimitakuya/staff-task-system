@@ -2184,9 +2184,9 @@ def send_one_record_from_app(
     knowbe_target,
     login_username,
     login_password,
-    work_start_time="",
-    work_end_time="",
-    work_break_time="0",
+    work_start_time,
+    work_end_time,
+    work_break_time,
     work_memo="",
 ):
     """

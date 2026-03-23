@@ -4880,22 +4880,6 @@ def render_bee_journal_page():
             placeholder="10:50"
         )
 
-    work_time_col1, work_time_col2 = st.columns(2)
-
-    with work_time_col1:
-        work_start_time = st.text_input(
-            "作業開始時間",
-            value=start_time,
-            key="bee_work_start_time"
-        )
-
-    with work_time_col2:
-        work_end_time = st.text_input(
-            "作業終了時間",
-            value=end_time,
-            key="bee_work_end_time"
-        )    
-
     with input_cols[2]:
         meal_flag = st.selectbox(
             "食事提供",
@@ -4915,23 +4899,28 @@ def render_bee_journal_page():
             ),
             key="bee_service_type"
         )
-        
-    st.markdown("### 作業時間")
 
-    work_cols = st.columns(2)
+    work_time_col1, work_time_col2, work_time_col3 = st.columns(3)
 
-    with work_cols[0]:
+    with work_time_col1:
         work_start_time = st.text_input(
             "作業開始時間",
             value=start_time,
             key="bee_work_start_time"
         )
 
-    with work_cols[1]:
+    with work_time_col2:
         work_end_time = st.text_input(
             "作業終了時間",
             value=end_time,
             key="bee_work_end_time"
+        )
+
+    with work_time_col3:
+        work_break_time = st.text_input(
+            "休憩時間",
+            value="0",
+            key="bee_work_rest_time"
         )
 
     knowbe_target = st.radio(
@@ -5231,6 +5220,7 @@ def render_bee_journal_page():
                         knowbe_target=knowbe_target,
                         work_start_time=work_start_time,
                         work_end_time=work_end_time,
+                        work_break_time=work_break_time,
                         work_break_time="0",
                         work_memo="",
                     )
@@ -5342,6 +5332,7 @@ def render_bee_journal_page():
                         knowbe_target=knowbe_target,
                         work_start_time=work_start_time,
                         work_end_time=work_end_time,
+                        work_break_time=work_break_time,
                         work_break_time="0",
                         work_memo="",
                     )
