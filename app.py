@@ -184,7 +184,7 @@ def load_db(file, retries=3, delay=0.8):
                     ],
                     "diary_input_rules": [
                         "record_id", "company_id", "date", "resident_id", "resident_name",
-                        "start_time", "end_time", "work_start_time", "work_end_time",
+                        "start_time", "end_time", "work_start_time", "work_end_time", "work_break_time",
                         "meal_flag", "note",
                         "start_memo", "end_memo", "staff_name",
                         "generated_status", "generated_support", "created_at",
@@ -263,7 +263,7 @@ def get_diary_input_rules_df_cached():
     if df is None or df.empty:
         df = pd.DataFrame(columns=[
             "record_id", "company_id", "date", "resident_id", "resident_name",
-            "start_time", "end_time", "work_start_time", "work_end_time",
+            "start_time", "end_time", "work_start_time", "work_end_time", "work_break_time",
             "meal_flag", "note",
             "start_memo", "end_memo", "staff_name",
             "generated_status", "generated_support", "created_at",
@@ -273,7 +273,7 @@ def get_diary_input_rules_df_cached():
     else:
         for col in [
             "record_id", "company_id", "date", "resident_id", "resident_name",
-            "start_time", "end_time", "work_start_time", "work_end_time",
+            "start_time", "end_time", "work_start_time", "work_end_time", "work_break_time",
             "meal_flag", "note",
             "start_memo", "end_memo", "staff_name",
             "generated_status", "generated_support", "created_at",
@@ -292,6 +292,7 @@ def save_diary_input_record(
     end_time,
     work_start_time,
     work_end_time,
+    work_break_time,
     meal_flag,
     note,
     start_memo,
@@ -330,6 +331,7 @@ def save_diary_input_record(
         "end_time": str(end_time),
         "work_start_time": str(work_start_time),
         "work_end_time": str(work_end_time),
+        "work_break_time": str(work_break_time),
         "meal_flag": str(meal_flag),
         "note": str(note),
         "start_memo": str(start_memo),
@@ -4697,7 +4699,7 @@ def send_to_knowbe_from_bee(
     knowbe_target="support",
     work_start_time="",
     work_end_time="",
-    work_break_time="0",
+    work_break_time="",
     work_memo="",
 ):
     import traceback
@@ -4919,7 +4921,7 @@ def render_bee_journal_page():
     with work_time_col3:
         work_break_time = st.text_input(
             "休憩時間",
-            value="0",
+            value=work_break_time,
             key="bee_work_rest_time"
         )
 
@@ -5332,7 +5334,6 @@ def render_bee_journal_page():
                         work_start_time=work_start_time,
                         work_end_time=work_end_time,
                         work_break_time=work_break_time,
-                        work_break_time="0",
                         work_memo="",
                     )
 
