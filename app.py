@@ -5221,7 +5221,6 @@ def render_bee_journal_page():
                         work_start_time=work_start_time,
                         work_end_time=work_end_time,
                         work_break_time=work_break_time,
-                        work_break_time=work_break_time,
                         work_memo="",
                     )
 
