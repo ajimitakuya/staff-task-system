@@ -183,8 +183,9 @@ def load_db(file, retries=3, delay=0.8):
                         "json_data"
                     ],
                     "diary_input_rules": [
-                        "record_id", "date", "resident_id", "resident_name",
-                        "start_time", "end_time", "meal_flag", "note",
+                        "record_id", "company_id", "date", "resident_id", "resident_name",
+                        "start_time", "end_time", "work_start_time", "work_end_time",
+                        "meal_flag", "note",
                         "start_memo", "end_memo", "staff_name",
                         "generated_status", "generated_support", "created_at",
                         "service_type", "knowbe_target", "send_status", "sent_at", "send_error",
@@ -261,8 +262,9 @@ def get_diary_input_rules_df_cached():
     df = load_db("diary_input_rules")
     if df is None or df.empty:
         df = pd.DataFrame(columns=[
-            "record_id", "date", "resident_id", "resident_name",
-            "start_time", "end_time", "meal_flag", "note",
+            "record_id", "company_id", "date", "resident_id", "resident_name",
+            "start_time", "end_time", "work_start_time", "work_end_time",
+            "meal_flag", "note",
             "start_memo", "end_memo", "staff_name",
             "generated_status", "generated_support", "created_at",
             "service_type", "knowbe_target", "send_status", "sent_at", "send_error",
@@ -270,8 +272,9 @@ def get_diary_input_rules_df_cached():
         ])
     else:
         for col in [
-            "record_id", "date", "resident_id", "resident_name",
-            "start_time", "end_time", "meal_flag", "note",
+            "record_id", "company_id", "date", "resident_id", "resident_name",
+            "start_time", "end_time", "work_start_time", "work_end_time",
+            "meal_flag", "note",
             "start_memo", "end_memo", "staff_name",
             "generated_status", "generated_support", "created_at",
             "service_type", "knowbe_target", "send_status", "sent_at", "send_error",
@@ -287,6 +290,8 @@ def save_diary_input_record(
     resident_name,
     start_time,
     end_time,
+    work_start_time,
+    work_end_time,
     meal_flag,
     note,
     start_memo,
@@ -299,7 +304,8 @@ def save_diary_input_record(
     send_status="draft",
     sent_at="",
     send_error="",
-    record_mode="gemini"
+    record_mode="gemini",
+    company_id=""
 ):
     df = get_diary_input_rules_df()
 
@@ -311,13 +317,19 @@ def save_diary_input_record(
 
     created_at = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
+    if not company_id:
+        company_id = get_current_office_key()
+
     new_row = pd.DataFrame([{
         "record_id": next_id,
+        "company_id": str(company_id),
         "date": str(date),
         "resident_id": str(resident_id),
         "resident_name": str(resident_name),
         "start_time": str(start_time),
         "end_time": str(end_time),
+        "work_start_time": str(work_start_time),
+        "work_end_time": str(work_end_time),
         "meal_flag": str(meal_flag),
         "note": str(note),
         "start_memo": str(start_memo),
@@ -357,7 +369,103 @@ def update_diary_input_record_status(record_id, send_status, sent_at="", send_er
     return True
 
 def get_diary_input_rules_df():
-    return get_diary_input_rules_df_cached().copy()    
+    return get_diary_input_rules_df_cached().copy()
+
+def _to_minutes(hhmm: str):
+    s = str(hhmm).strip()
+    if not s or ":" not in s:
+        return None
+    try:
+        h, m = s.split(":", 1)
+        return int(h) * 60 + int(m)
+    except Exception:
+        return None
+
+
+def _normalize_weekday_label(dt_value):
+    try:
+        if hasattr(dt_value, "weekday"):
+            wd = dt_value.weekday()
+        else:
+            wd = pd.to_datetime(dt_value).weekday()
+    except Exception:
+        return ""
+
+    weekday_map = {
+        0: "月",
+        1: "火",
+        2: "水",
+        3: "木",
+        4: "金",
+        5: "土",
+        6: "日",
+    }
+    return weekday_map.get(wd, "")
+
+
+def is_time_overlap(start1, end1, start2, end2):
+    s1 = _to_minutes(start1)
+    e1 = _to_minutes(end1)
+    s2 = _to_minutes(start2)
+    e2 = _to_minutes(end2)
+
+    if None in (s1, e1, s2, e2):
+        return False
+
+    return max(s1, s2) < min(e1, e2)
+
+
+def validate_bee_times(
+    resident_id,
+    target_date,
+    start_time,
+    end_time,
+    work_start_time,
+    work_end_time,
+):
+    errors = []
+
+    s = _to_minutes(start_time)
+    e = _to_minutes(end_time)
+    ws = _to_minutes(work_start_time)
+    we = _to_minutes(work_end_time)
+
+    if None in (s, e, ws, we):
+        errors.append("時間の形式が正しくないある。HH:MM で入れてほしいある。")
+        return errors
+
+    if s >= e:
+        errors.append("開始時間と終了時間の大小が正しくないある。")
+
+    if ws >= we:
+        errors.append("作業開始時間と作業終了時間の大小が正しくないある。")
+
+    if ws < s or we > e:
+        errors.append("作業時間が通所時間の範囲をはみ出してるある。")
+
+    weekday_label = _normalize_weekday_label(target_date)
+    schedule_df = get_resident_schedule_df()
+
+    if schedule_df is not None and not schedule_df.empty and weekday_label:
+        work = schedule_df.copy()
+        work["resident_id"] = work["resident_id"].astype(str)
+        work["weekday"] = work["weekday"].astype(str).str.strip()
+        work["service_type"] = work["service_type"].astype(str).str.strip()
+
+        target_rows = work[
+            (work["resident_id"] == str(resident_id)) &
+            (work["weekday"] == weekday_label)
+        ].copy()
+
+        for _, row in target_rows.iterrows():
+            sv = str(row.get("service_type", "")).strip()
+            rs = str(row.get("start_time", "")).strip()
+            re = str(row.get("end_time", "")).strip()
+
+            if sv in ["看護", "介護"] and is_time_overlap(work_start_time, work_end_time, rs, re):
+                errors.append(f"{sv}の予定（{rs}〜{re}）と作業時間が重なってるある。")
+
+    return errors
 
 def save_document_record(resident_id, resident_name, doc_type, form_data):
     df = get_saved_documents_df()
@@ -4516,7 +4624,7 @@ def generate_bee_texts(
 }}
 """
     
-    
+
 
     response = model.generate_content(prompt)
     result_text = (response.text or "").strip()
@@ -4574,17 +4682,23 @@ def get_knowbe_credentials_from_app():
     return str(username).strip(), str(password).strip()
 
 def send_to_knowbe_from_bee(
-    target_date,
-    resident_name,
-    service_type,
-    start_time,
-    end_time,
-    meal_flag,
-    note_text,
-    generated_status,
-    generated_support,
-    staff_name,
-    knowbe_target,
+    record_id=None,
+    company_id="",
+    target_date="",
+    resident_name="",
+    service_type="",
+    start_time="",
+    end_time="",
+    meal_flag="",
+    note_text="",
+    generated_status="",
+    generated_support="",
+    staff_name="",
+    knowbe_target="support",
+    work_start_time="",
+    work_end_time="",
+    work_break_time="0",
+    work_memo="",
 ):
     import traceback
 
@@ -4606,7 +4720,7 @@ def send_to_knowbe_from_bee(
 
         st.write("DEBUG 3: send_one_record_from_app start")
         ok = send_one_record_from_app(
-            target_date=str(target_date),
+            target_date=str(target_date).strip(),
             resident_name=str(resident_name).strip(),
             service_type=str(service_type).strip(),
             start_time=str(start_time).strip(),
@@ -4619,6 +4733,10 @@ def send_to_knowbe_from_bee(
             knowbe_target=str(knowbe_target).strip(),
             login_username=login_username,
             login_password=login_password,
+            work_start_time=str(work_start_time).strip(),
+            work_end_time=str(work_end_time).strip(),
+            work_break_time=str(work_break_time).strip(),
+            work_memo=str(work_memo).strip(),
         )
         st.write(f"DEBUG 4: send_one_record_from_app returned = {ok}")
 
@@ -4761,6 +4879,22 @@ def render_bee_journal_page():
             key="end_time",
             placeholder="10:50"
         )
+
+    work_time_col1, work_time_col2 = st.columns(2)
+
+    with work_time_col1:
+        work_start_time = st.text_input(
+            "作業開始時間",
+            value=start_time,
+            key="bee_work_start_time"
+        )
+
+    with work_time_col2:
+        work_end_time = st.text_input(
+            "作業終了時間",
+            value=end_time,
+            key="bee_work_end_time"
+        )    
 
     with input_cols[2]:
         meal_flag = st.selectbox(
@@ -4958,6 +5092,19 @@ def render_bee_journal_page():
     send_cols = st.columns([1, 1, 1, 4])
 
     with send_cols[0]:
+        time_errors = validate_bee_times(
+            resident_id=resident_id,
+            target_date=target_date,
+            start_time=start_time,
+            end_time=end_time,
+            work_start_time=work_start_time,
+            work_end_time=work_end_time,
+        )
+
+        if time_errors:
+            for err in time_errors:
+                st.error(err)
+            st.stop()
         if st.button("下書きを保存", key="bee_save_draft"):
             if not start_time.strip():
                 st.warning("開始時間を入れてほしいある。")
@@ -4974,6 +5121,8 @@ def render_bee_journal_page():
                 resident_id=resident_id,
                 resident_name=resident_name,
                 start_time=start_time,
+                work_start_time=work_start_time,
+                work_end_time=work_end_time,
                 end_time=end_time,
                 meal_flag=meal_flag,
                 note=preview_note,
@@ -4987,11 +5136,25 @@ def render_bee_journal_page():
                 send_status="draft",
                 sent_at="",
                 send_error="",
-                record_mode=record_mode
+                record_mode=record_mode,
+                company_id=get_current_office_key(),
             )
             st.success(f"下書きを保存したある！ record_id = {record_id}")
 
         with send_cols[1]:
+            time_errors = validate_bee_times(
+                resident_id=resident_id,
+                target_date=target_date,
+                start_time=start_time,
+                end_time=end_time,
+                work_start_time=work_start_time,
+                work_end_time=work_end_time,
+            )
+
+            if time_errors:
+                for err in time_errors:
+                    st.error(err)
+                st.stop()
             if st.button("Gemini編集なしでそのまま記録する", key="bee_send_raw"):
                 if not start_time.strip():
                     st.warning("開始時間を入れてほしいある。")
@@ -5013,6 +5176,8 @@ def render_bee_journal_page():
                     resident_name=resident_name,
                     start_time=start_time,
                     end_time=end_time,
+                    work_start_time=work_start_time,
+                    work_end_time=work_end_time,
                     meal_flag=meal_flag,
                     note=preview_note,
                     start_memo=start_memo,
@@ -5025,13 +5190,16 @@ def render_bee_journal_page():
                     send_status="sending",
                     sent_at="",
                     send_error="",
-                    record_mode=record_mode
+                    record_mode=record_mode,
+                    company_id=get_current_office_key(),
                 )
 
                 st.info(f"送信開始ある… record_id = {record_id}")
 
                 try:
                     ok = send_to_knowbe_from_bee(
+                        record_id=record_id,
+                        company_id=get_current_office_key(),
                         target_date=target_date,
                         resident_name=resident_name,
                         service_type=service_type,
@@ -5042,7 +5210,11 @@ def render_bee_journal_page():
                         generated_status=generated_status,
                         generated_support=generated_support,
                         staff_name=staff_name,
-                        knowbe_target=knowbe_target
+                        knowbe_target=knowbe_target,
+                        work_start_time=work_start_time,
+                        work_end_time=work_end_time,
+                        work_break_time="0",
+                        work_memo="",
                     )
 
                     if ok:
@@ -5072,6 +5244,19 @@ def render_bee_journal_page():
                     st.error(f"Knowbe送信失敗ある: {e}")
 
         with send_cols[2]:
+            time_errors = validate_bee_times(
+                resident_id=resident_id,
+                target_date=target_date,
+                start_time=start_time,
+                end_time=end_time,
+                work_start_time=work_start_time,
+                work_end_time=work_end_time,
+            )
+
+            if time_errors:
+                for err in time_errors:
+                    st.error(err)
+                st.stop()
             if st.button("Geminiで整えて送信", key="bee_send_gpt"):
                 if not start_time.strip():
                     st.warning("開始時間を入れてほしいある。")
@@ -5096,7 +5281,36 @@ def render_bee_journal_page():
                         plan_text=plan_text
                     )
 
-                    send_to_knowbe_from_bee(
+                    # 先に保存（送信中）
+                    record_id = save_diary_input_record(
+                        date=target_date,
+                        resident_id=resident_id,
+                        resident_name=resident_name,
+                        start_time=start_time,
+                        end_time=end_time,
+                        work_start_time=work_start_time,
+                        work_end_time=work_end_time,
+                        meal_flag=meal_flag,
+                        note=preview_note,
+                        start_memo=start_memo,
+                        end_memo=end_memo,
+                        staff_name=staff_name,
+                        generated_status=generated_status,
+                        generated_support=generated_support,
+                        service_type=service_type,
+                        knowbe_target=knowbe_target,
+                        send_status="sending",
+                        sent_at="",
+                        send_error="",
+                        record_mode=record_mode,
+                        company_id=get_current_office_key(),
+                    )
+
+                    st.info(f"送信開始ある… record_id = {record_id}")
+
+                    ok = send_to_knowbe_from_bee(
+                        record_id=record_id,
+                        company_id=get_current_office_key(),
                         target_date=target_date,
                         resident_name=resident_name,
                         service_type=service_type,
@@ -5107,52 +5321,31 @@ def render_bee_journal_page():
                         generated_status=generated_status,
                         generated_support=generated_support,
                         staff_name=staff_name,
-                        knowbe_target=knowbe_target
+                        knowbe_target=knowbe_target,
+                        work_start_time=work_start_time,
+                        work_end_time=work_end_time,
+                        work_break_time="0",
+                        work_memo="",
                     )
 
-                    record_id = save_diary_input_record(
-                        date=target_date,
-                        resident_id=resident_id,
-                        resident_name=resident_name,
-                        start_time=start_time,
-                        end_time=end_time,
-                        meal_flag=meal_flag,
-                        note=preview_note,
-                        start_memo=start_memo,
-                        end_memo=end_memo,
-                        staff_name=staff_name,
-                        generated_status=generated_status,
-                        generated_support=generated_support,
-                        service_type=service_type,
-                        knowbe_target=knowbe_target,
-                        send_status="sent",
-                        sent_at=now_jst().strftime("%Y-%m-%d %H:%M:%S"),
-                        send_error="",
-                        record_mode=record_mode
-                    )
-                    st.success(f"Knowbeへ送信完了ある！ record_id = {record_id}")
+                    if ok:
+                        update_diary_input_record_status(
+                            record_id=record_id,
+                            send_status="sent",
+                            sent_at=now_jst().strftime("%Y-%m-%d %H:%M:%S"),
+                            send_error=""
+                        )
+                        st.success(f"Knowbeへ送信完了ある！ record_id = {record_id}")
+                    else:
+                        update_diary_input_record_status(
+                            record_id=record_id,
+                            send_status="error",
+                            sent_at="",
+                            send_error="run_assistance.send_one_record_from_app returned False"
+                        )
+                        st.error(f"Knowbe送信失敗ある。 record_id = {record_id}")
 
                 except Exception as e:
-                    record_id = save_diary_input_record(
-                        date=target_date,
-                        resident_id=resident_id,
-                        resident_name=resident_name,
-                        start_time=start_time,
-                        end_time=end_time,
-                        meal_flag=meal_flag,
-                        note=preview_note,
-                        start_memo=start_memo,
-                        end_memo=end_memo,
-                        staff_name=staff_name,
-                        generated_status="",
-                        generated_support="",
-                        service_type=service_type,
-                        knowbe_target=knowbe_target,
-                        send_status="error",
-                        sent_at="",
-                        send_error=str(e),
-                        record_mode=record_mode
-                    )
                     st.error(f"Gemini生成エラーある: {e}")
 
     st.divider()

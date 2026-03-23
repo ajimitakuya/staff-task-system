@@ -123,6 +123,10 @@ class PersonItem:
     staff_note: str   # I列（今回未使用）
     staff_name: str   # K列（今回未使用）
     staff_mark: str   # L列（今回未使用）
+    work_start: str = ""
+    work_end: str = ""
+    work_break: str = "0"
+    work_memo: str = ""   
 
 
 # =========================
@@ -2023,7 +2027,11 @@ def _build_single_item_from_app(
     generated_status: str,
     generated_support: str,
     staff_name: str,
-    knowbe_target: str
+    knowbe_target: str,
+    work_start_time="",
+    work_end_time="",
+    work_break_time="0",
+    work_memo="",
 ) -> PersonItem:
     return PersonItem(
         name=norm(resident_name),
@@ -2036,8 +2044,88 @@ def _build_single_item_from_app(
         staff_note=norm(generated_support),
         staff_name=norm(staff_name),
         staff_mark="〇",
+        work_start=str(work_start_time).strip(),
+        work_end=str(work_end_time).strip(),
+        work_break=str(work_break_time).strip() or "0",
+        work_memo=str(work_memo).strip(),
     )
 
+def set_input_value(driver, el, value: str):
+    value = "" if value is None else str(value)
+    driver.execute_script("""
+        const el = arguments[0];
+        const val = arguments[1];
+        el.focus();
+        el.value = '';
+        el.dispatchEvent(new Event('input', {bubbles:true}));
+        el.value = val;
+        el.dispatchEvent(new Event('input', {bubbles:true}));
+        el.dispatchEvent(new Event('change', {bubbles:true}));
+        el.blur();
+    """, el, value)
+
+
+def _find_work_time_inputs(dialog):
+    start_el = None
+    end_el = None
+
+    try:
+        start_el = dialog.find_element(By.CSS_SELECTOR, "input[name='workRecord.startTime']")
+    except Exception:
+        start_el = None
+
+    try:
+        end_el = dialog.find_element(By.CSS_SELECTOR, "input[name='workRecord.endTime']")
+    except Exception:
+        end_el = None
+
+    # 保険: 00:00 が2つあるなら順番で取る
+    if start_el is None or end_el is None:
+        try:
+            hhmm_inputs = dialog.find_elements(By.CSS_SELECTOR, "input[placeholder='00:00']")
+            if len(hhmm_inputs) >= 2:
+                if start_el is None:
+                    start_el = hhmm_inputs[0]
+                if end_el is None:
+                    end_el = hhmm_inputs[1]
+        except Exception:
+            pass
+
+    return start_el, end_el
+
+
+def fill_work_record_section(driver, dialog, it):
+    # 「作業を実施した」チェック
+    try:
+        worked_chk = dialog.find_element(By.CSS_SELECTOR, "input[name='workRecord.worked']")
+        if not worked_chk.is_selected():
+            driver.execute_script("arguments[0].click();", worked_chk)
+            time.sleep(0.2)
+    except Exception:
+        pass
+
+    # 作業開始・終了
+    start_el, end_el = _find_work_time_inputs(dialog)
+
+    if start_el is not None and str(it.work_start).strip():
+        set_input_value(driver, start_el, str(it.work_start).strip())
+
+    if end_el is not None and str(it.work_end).strip():
+        set_input_value(driver, end_el, str(it.work_end).strip())
+
+    # 休憩
+    try:
+        break_el = dialog.find_element(By.CSS_SELECTOR, "input[name='workRecord.breakTime']")
+        set_input_value(driver, break_el, str(it.work_break).strip() or "0")
+    except Exception:
+        pass
+
+    # メモ
+    try:
+        memo_el = dialog.find_element(By.CSS_SELECTOR, "textarea[name='workRecord.memo']")
+        set_input_value(driver, memo_el, str(it.work_memo).strip())
+    except Exception:
+        pass
 
 def process_one_daily_record_direct(
     driver,
@@ -2052,13 +2140,12 @@ def process_one_daily_record_direct(
     if not click_daily_edit_button(driver):
         return False
 
-    row = _find_daily_record_row_by_name(driver, it.name)
+    row = find_row_by_name(driver, it.name)
     if row is None:
-        dump_debug(driver, f"daily_row_not_found_{it.name}")
-        log(f"⚠️ 日々の記録で行が見つからないある: {it.name}")
+        log(f"⚠️ 日々の記録 行発見失敗ある: {it.name}")
         return False
 
-    work_label = _daily_record_work_label(it)
+    work_label = _daily_record_work_label(it.service, it.note)
 
     if not _set_daily_work_for_row(driver, row, work_label):
         log(f"⚠️ 作業欄の選択失敗ある: {it.name}")
@@ -2072,6 +2159,10 @@ def process_one_daily_record_direct(
         log(f"⚠️ 記録者選択失敗ある: {it.name}")
         return False
 
+    dialog = get_top_dialog(driver)
+    if dialog is not None:
+        fill_work_record_section(driver, dialog, it)
+
     if not click_daily_save_button(driver):
         log(f"⚠️ 日々の記録 保存失敗ある: {it.name}")
         return False
@@ -2079,14 +2170,12 @@ def process_one_daily_record_direct(
     log(f"✅ 日々の記録 保存成功ある: {it.name}")
     return True
 
-
-
 def send_one_record_from_app(
     target_date,
     resident_name,
     service_type,
     start_time,
-    end_time,
+    end_time,    
     meal_flag,
     note_text,
     generated_status,
@@ -2095,6 +2184,10 @@ def send_one_record_from_app(
     knowbe_target,
     login_username,
     login_password,
+    work_start_time="",
+    work_end_time="",
+    work_break_time="0",
+    work_memo="",
 ):
     """
     appから1件だけ渡されたデータを Knowbe に送る
@@ -2129,6 +2222,10 @@ def send_one_record_from_app(
         generated_support=generated_support,
         staff_name=staff_name,
         knowbe_target=knowbe_target,
+        work_start_time=work_start_time,
+        work_end_time=work_end_time,
+        work_break_time=work_break_time,
+        work_memo=work_memo,
     )
 
     print("[STEP] build_chrome_driver start", flush=True)
