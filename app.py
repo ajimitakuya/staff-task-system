@@ -4915,6 +4915,24 @@ def render_bee_journal_page():
             ),
             key="bee_service_type"
         )
+        
+    st.markdown("### 作業時間")
+
+    work_cols = st.columns(2)
+
+    with work_cols[0]:
+        work_start_time = st.text_input(
+            "作業開始時間",
+            value=start_time,
+            key="bee_work_start_time"
+        )
+
+    with work_cols[1]:
+        work_end_time = st.text_input(
+            "作業終了時間",
+            value=end_time,
+            key="bee_work_end_time"
+        )
 
     knowbe_target = st.radio(
         "送信先",
