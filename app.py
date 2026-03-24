@@ -2092,18 +2092,18 @@ def set_company_user_status(user_id: str, company_id: str, new_status: str = "in
     save_db(perm_df, "user_company_permissions")
     return True, "更新したある。"
 
-def render_first_staff_register_block():
+def render_first_staff_register_block(key_prefix="first_staff"):
     company_id = str(st.session_state.get("company_id", "")).strip()
 
     st.info("この事業所にはまだ管理者がいないある。管理者が1人もいない間だけ、ここからスタッフ登録できるある。")
 
     with st.expander("＋ スタッフ登録", expanded=True):
-        display_name = st.text_input("表示名", key="first_staff_display_name")
-        user_login_id = st.text_input("ログインID", key="first_staff_login_id")
-        user_login_password = st.text_input("パスワード", type="password", key="first_staff_login_pw")
-        role_type = st.selectbox("権限", ["管理者", "職員"], key="first_staff_role_type")
+        display_name = st.text_input("表示名", key=f"{key_prefix}_display_name")
+        user_login_id = st.text_input("ログインID", key=f"{key_prefix}_login_id")
+        user_login_password = st.text_input("パスワード", type="password", key=f"{key_prefix}_login_pw")
+        role_type = st.selectbox("権限", ["管理者", "職員"], key=f"{key_prefix}_role_type")
 
-        if st.button("スタッフ登録", use_container_width=True, key="first_staff_register_button"):
+        if st.button("スタッフ登録", use_container_width=True, key=f"{key_prefix}_register_button"):
             is_admin = "1" if role_type == "管理者" else "0"
 
             ok, msg = create_user_with_permission(
@@ -3339,7 +3339,7 @@ if "user" not in st.session_state:
     admin_exists = company_has_any_admin(company_id)
 
     if not admin_exists:
-        render_first_staff_register_block()
+        render_first_staff_register_block(key_prefix="after_company_login_first_staff")
         st.divider()
 
     top_cols = st.columns([1, 1])
@@ -3365,7 +3365,7 @@ if "user" not in st.session_state:
     admin_exists = company_has_any_admin(company_id)
 
     if not admin_exists:
-        render_first_staff_register_block()
+        render_first_staff_register_block(key_prefix="company_login_first_staff")
         st.divider()
 
     if st.session_state.get("auth_mode", "login") == "login":
