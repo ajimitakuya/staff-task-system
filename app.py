@@ -561,7 +561,7 @@ def get_archive_download_data(row):
     return file_bytes, file_name, mime
 
 def render_archive_page():
-    st.title("🗂 書庫")
+    st.title("☁ 書類アップロード")
     st.caption("この事業所だけで共有する資料置き場ある。")
 
     current_company_id = str(st.session_state.get("company_id", "")).strip()
@@ -876,7 +876,7 @@ def create_chat_message(room_id, message_text):
 
 def render_break_room_page():
     st.title("☕ 休憩室")
-    st.caption("ここから チャットルーム・書庫・倉庫 に入るある。")
+    st.caption("ここから チャットルーム・書類アップロード・倉庫 に入るある。")
 
     st.markdown(
         f"""
@@ -897,10 +897,10 @@ def render_break_room_page():
             st.rerun()
 
     with cols[1]:
-        st.markdown("## 🚪 書庫")
-        st.caption("同じ事業所だけの資料置き場ある。")
-        if st.button("書庫へ", key="go_archive_page", use_container_width=True):
-            st.session_state.current_page = "休憩室_書庫"
+        st.markdown("## 🚪 書類アップロード")
+        st.caption("この事業所だけで共有する資料を登録・閲覧するある。")
+        if st.button("書類アップロードへ", key="go_archive_page", use_container_width=True):
+            st.session_state.current_page = "休憩室_書類アップロード"
             st.rerun()
 
     with cols[2]:
@@ -2405,7 +2405,8 @@ page_options = [
     "🐝knowbe日誌入力🐝",
     "休憩室",
     "休憩室_チャットルーム",
-    "休憩室_書庫",
+    "休憩室_書類アップロード",
+    "休憩室_倉庫",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -9530,5 +9531,7 @@ if page == "休憩室":
     render_break_room_page()
 elif page == "休憩室_チャットルーム":
     render_chat_room_page()
-elif page == "休憩室_書庫":
+elif page == "休憩室_書類アップロード":
+    render_archive_page()
+elif page == "⑩ 書類アップロード":
     render_archive_page()
