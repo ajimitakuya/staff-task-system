@@ -56,12 +56,12 @@ COMMON_SHEETS = {
     "active_users",
     "companies",
     "users",
+    "user_company_permissions",
     "chat_rooms",
     "chat_messages",
     "warehouse_files",
     "archive_files",
     "admin_logs",
-    "warehouse_files",
 }
 
 # st.write("DEBUG_COMMON_SHEETS", COMMON_SHEETS)
@@ -322,6 +322,17 @@ def load_db(file, retries=3, delay=0.8):
                         "target_id",
                         "action_detail",
                         "created_at",
+                    ],
+                    "user_company_permissions": [
+                        "permission_id",
+                        "user_id",
+                        "company_id",
+                        "can_use",
+                        "is_admin",
+                        "status",
+                        "created_at",
+                        "updated_at",
+                        "memo",
                     ],
                 }
 
@@ -1747,6 +1758,7 @@ def render_chat_room_page():
                             """,
                             unsafe_allow_html=True
                         )
+
                         display_name = str(msg.get("display_name", "")).strip()
                         company_id = str(msg.get("company_id", "")).strip()
                         message_text = str(msg.get("message_text", "")).strip()
@@ -1768,16 +1780,129 @@ def render_chat_room_page():
                         )
 
 @st.cache_data(ttl=60)
+def get_user_company_permissions_df_cached():
+    df = load_db("user_company_permissions")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "permission_id",
+            "user_id",
+            "company_id",
+            "can_use",
+            "is_admin",
+            "status",
+            "created_at",
+            "updated_at",
+            "memo",
+        ])
+    else:
+        for col in [
+            "permission_id",
+            "user_id",
+            "company_id",
+            "can_use",
+            "is_admin",
+            "status",
+            "created_at",
+            "updated_at",
+            "memo",
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_user_company_permissions_df():
+    return get_user_company_permissions_df_cached().copy()
+
+
+def get_company_permissions_df(company_id: str):
+    df = get_user_company_permissions_df()
+    if df is None or df.empty:
+        return pd.DataFrame(columns=[
+            "permission_id",
+            "user_id",
+            "company_id",
+            "can_use",
+            "is_admin",
+            "status",
+            "created_at",
+            "updated_at",
+            "memo",
+        ])
+
+    work = df.copy()
+    work["company_id"] = work["company_id"].astype(str).str.strip()
+    work["can_use"] = work["can_use"].astype(str).str.strip()
+    work["status"] = work["status"].astype(str).str.strip().str.lower()
+
+    work = work[
+        (work["company_id"] == str(company_id).strip()) &
+        (work["can_use"] == "1") &
+        (work["status"] != "inactive")
+    ].copy()
+
+    return work
+
+
+def get_company_admin_count(company_id: str) -> int:
+    perm_df = get_company_permissions_df(company_id)
+    if perm_df.empty:
+        return 0
+    return int((perm_df["is_admin"].astype(str).str.strip() == "1").sum())
+
+
+def company_has_any_admin(company_id: str) -> bool:
+    return get_company_admin_count(company_id) > 0
+
+
+def user_can_use_company(user_id: str, company_id: str) -> bool:
+    perm_df = get_company_permissions_df(company_id)
+    if perm_df.empty:
+        return False
+
+    target = perm_df[
+        perm_df["user_id"].astype(str).str.strip() == str(user_id).strip()
+    ]
+    return not target.empty
+
+
+def user_is_company_admin(user_id: str, company_id: str) -> bool:
+    perm_df = get_company_permissions_df(company_id)
+    if perm_df.empty:
+        return False
+
+    target = perm_df[
+        (perm_df["user_id"].astype(str).str.strip() == str(user_id).strip()) &
+        (perm_df["is_admin"].astype(str).str.strip() == "1")
+    ]
+    return not target.empty
+
+
+def get_next_permission_id():
+    df = get_user_company_permissions_df()
+    if df is None or df.empty:
+        return "P0001"
+
+    nums = []
+    for x in df["permission_id"].fillna("").astype(str):
+        x = x.strip().upper()
+        if x.startswith("P"):
+            num = x[1:]
+            if num.isdigit():
+                nums.append(int(num))
+
+    next_num = max(nums) + 1 if nums else 1
+    return f"P{next_num:04d}"
+
+@st.cache_data(ttl=60)
 def get_users_df_cached():
     df = load_db("users")
     if df is None or df.empty:
         df = pd.DataFrame(columns=[
             "user_id",
-            "company_id",
             "user_login_id",
             "user_login_password",
             "display_name",
-            "is_admin",
             "role_type",
             "login_card_id",
             "last_login_at",
@@ -1789,11 +1914,9 @@ def get_users_df_cached():
     else:
         for col in [
             "user_id",
-            "company_id",
             "user_login_id",
             "user_login_password",
             "display_name",
-            "is_admin",
             "role_type",
             "login_card_id",
             "last_login_at",
@@ -1805,7 +1928,6 @@ def get_users_df_cached():
             if col not in df.columns:
                 df[col] = ""
     return df.fillna("")
-
 
 def get_users_df():
     return get_users_df_cached().copy()
@@ -1834,18 +1956,16 @@ def authenticate_company_login(login_id: str, login_password: str):
 
 
 def authenticate_user_login(company_id: str, login_id: str, login_password: str):
-    df = get_users_df()
-    if df is None or df.empty:
+    users_df = get_users_df()
+    if users_df is None or users_df.empty:
         return None
 
-    work = df.copy()
-    work["company_id"] = work["company_id"].astype(str).str.strip()
+    work = users_df.copy()
     work["user_login_id"] = work["user_login_id"].astype(str).str.strip()
     work["user_login_password"] = work["user_login_password"].astype(str).str.strip()
     work["status"] = work["status"].astype(str).str.strip().str.lower()
 
     target = work[
-        (work["company_id"] == str(company_id).strip()) &
         (work["user_login_id"] == str(login_id).strip()) &
         (work["user_login_password"] == str(login_password).strip()) &
         (work["status"] == "active")
@@ -1855,17 +1975,253 @@ def authenticate_user_login(company_id: str, login_id: str, login_password: str)
         return None
 
     row = target.iloc[0].to_dict()
+    user_id = str(row.get("user_id", "")).strip()
 
-    login_id_str = str(row.get("user_login_id", "")).strip()
-    is_admin_val = str(row.get("is_admin", "")).strip()
+    if not user_can_use_company(user_id, company_id):
+        return None
 
-    row["is_admin_resolved"] = (
-        is_admin_val == "1" or
-        login_id_str.upper().startswith("SSV")
-    )
-
+    row["is_admin_resolved"] = user_is_company_admin(user_id, company_id)
     return row
 
+def get_next_user_id():
+    df = get_users_df()
+    if df is None or df.empty:
+        return "U0001"
+
+    nums = []
+    for x in df["user_id"].fillna("").astype(str):
+        x = x.strip().upper()
+        if x.startswith("U"):
+            num = x[1:]
+            if num.isdigit():
+                nums.append(int(num))
+
+    next_num = max(nums) + 1 if nums else 1
+    return f"U{next_num:04d}"
+
+
+def create_user_with_permission(
+    company_id: str,
+    user_login_id: str,
+    user_login_password: str,
+    display_name: str,
+    role_type: str = "職員",
+    is_admin: str = "0",
+):
+    users_df = get_users_df()
+    perm_df = get_user_company_permissions_df()
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    login_id = str(user_login_id).strip()
+    login_pw = str(user_login_password).strip()
+    display_name = str(display_name).strip()
+    role_type = str(role_type).strip()
+    is_admin = "1" if str(is_admin).strip() == "1" else "0"
+
+    if not login_id:
+        return False, "IDを入れてほしいある。"
+    if not display_name:
+        return False, "表示名を入れてほしいある。"
+    if not is_valid_user_password(login_pw):
+        return False, "パスワードは8文字以上・英数混合・大文字必須ある。"
+
+    dup_user = users_df[
+        users_df["user_login_id"].astype(str).str.strip() == login_id
+    ]
+    if not dup_user.empty:
+        return False, "そのIDはすでに使われてるある。"
+
+    user_id = get_next_user_id()
+
+    new_user_row = pd.DataFrame([{
+        "user_id": user_id,
+        "user_login_id": login_id,
+        "user_login_password": login_pw,
+        "display_name": display_name,
+        "role_type": role_type,
+        "login_card_id": "",
+        "last_login_at": "",
+        "status": "active",
+        "created_at": now_str,
+        "updated_at": now_str,
+        "memo": "",
+    }])
+
+    new_perm_row = pd.DataFrame([{
+        "permission_id": get_next_permission_id(),
+        "user_id": user_id,
+        "company_id": str(company_id).strip(),
+        "can_use": "1",
+        "is_admin": is_admin,
+        "status": "active",
+        "created_at": now_str,
+        "updated_at": now_str,
+        "memo": "",
+    }])
+
+    users_df = pd.concat([users_df, new_user_row], ignore_index=True)
+    perm_df = pd.concat([perm_df, new_perm_row], ignore_index=True)
+
+    save_db(users_df, "users")
+    save_db(perm_df, "user_company_permissions")
+
+    return True, user_id
+
+
+def set_company_user_status(user_id: str, company_id: str, new_status: str = "inactive"):
+    users_df = get_users_df()
+    perm_df = get_user_company_permissions_df()
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    user_mask = users_df["user_id"].astype(str).str.strip() == str(user_id).strip()
+    perm_mask = (
+        (perm_df["user_id"].astype(str).str.strip() == str(user_id).strip()) &
+        (perm_df["company_id"].astype(str).str.strip() == str(company_id).strip())
+    )
+
+    if not user_mask.any() or not perm_mask.any():
+        return False, "対象スタッフが見つからないある。"
+
+    users_df.loc[user_mask, "status"] = str(new_status).strip()
+    users_df.loc[user_mask, "updated_at"] = now_str
+
+    perm_df.loc[perm_mask, "status"] = str(new_status).strip()
+    perm_df.loc[perm_mask, "updated_at"] = now_str
+
+    save_db(users_df, "users")
+    save_db(perm_df, "user_company_permissions")
+    return True, "更新したある。"
+
+def render_first_staff_register_block():
+    company_id = str(st.session_state.get("company_id", "")).strip()
+
+    st.info("この事業所にはまだ管理者がいないある。管理者が1人もいない間だけ、ここからスタッフ登録できるある。")
+
+    with st.expander("＋ スタッフ登録", expanded=True):
+        display_name = st.text_input("表示名", key="first_staff_display_name")
+        user_login_id = st.text_input("ログインID", key="first_staff_login_id")
+        user_login_password = st.text_input("パスワード", type="password", key="first_staff_login_pw")
+        role_type = st.selectbox("権限", ["管理者", "職員"], key="first_staff_role_type")
+
+        if st.button("スタッフ登録", use_container_width=True, key="first_staff_register_button"):
+            is_admin = "1" if role_type == "管理者" else "0"
+
+            ok, msg = create_user_with_permission(
+                company_id=company_id,
+                user_login_id=user_login_id,
+                user_login_password=user_login_password,
+                display_name=display_name,
+                role_type=role_type,
+                is_admin=is_admin,
+            )
+            if ok:
+                create_admin_log(
+                    action_type="first_staff_create",
+                    target_type="user",
+                    target_id=msg,
+                    action_detail=f"display_name={display_name}, role_type={role_type}"
+                )
+                st.success(f"登録できたある！ user_id={msg}")
+                st.rerun()
+            else:
+                st.error(msg)
+
+
+def render_admin_staff_manage_block():
+    company_id = str(st.session_state.get("company_id", "")).strip()
+
+    st.divider()
+    st.subheader("👑 スタッフ管理")
+
+    reg_tab, list_tab = st.tabs(["スタッフ登録", "スタッフ一覧"])
+
+    with reg_tab:
+        display_name = st.text_input("表示名", key="admin_staff_display_name")
+        user_login_id = st.text_input("ログインID", key="admin_staff_login_id")
+        user_login_password = st.text_input("パスワード", type="password", key="admin_staff_login_pw")
+        role_type = st.selectbox("権限", ["管理者", "職員"], key="admin_staff_role_type")
+
+        if st.button("登録する", use_container_width=True, key="admin_staff_register_button"):
+            is_admin = "1" if role_type == "管理者" else "0"
+
+            ok, msg = create_user_with_permission(
+                company_id=company_id,
+                user_login_id=user_login_id,
+                user_login_password=user_login_password,
+                display_name=display_name,
+                role_type=role_type,
+                is_admin=is_admin,
+            )
+            if ok:
+                create_admin_log(
+                    action_type="staff_create",
+                    target_type="user",
+                    target_id=msg,
+                    action_detail=f"display_name={display_name}, role_type={role_type}"
+                )
+                st.success(f"登録できたある！ user_id={msg}")
+                st.rerun()
+            else:
+                st.error(msg)
+
+    with list_tab:
+        users_df = get_users_df()
+        perm_df = get_company_permissions_df(company_id)
+
+        if perm_df.empty:
+            st.info("この事業所のスタッフはまだいないある。")
+            return
+
+        merged = perm_df.merge(
+            users_df,
+            how="left",
+            on="user_id",
+            suffixes=("_perm", "_user")
+        )
+
+        merged = merged.fillna("")
+        try:
+            merged = merged.sort_values(["is_admin", "display_name"], ascending=[False, True])
+        except Exception:
+            pass
+
+        for _, row in merged.iterrows():
+            user_id = str(row.get("user_id", "")).strip()
+            display_name = str(row.get("display_name", "")).strip()
+            user_login_id = str(row.get("user_login_id", "")).strip()
+            role_type = str(row.get("role_type", "")).strip()
+            is_admin = str(row.get("is_admin_perm", row.get("is_admin", ""))).strip()
+            status = str(row.get("status_perm", row.get("status", ""))).strip()
+            last_login_at = str(row.get("last_login_at", "")).strip()
+
+            with st.container(border=True):
+                c1, c2 = st.columns([3, 1])
+
+                with c1:
+                    st.write(f"**{display_name}**")
+                    st.caption(
+                        f"user_id={user_id} / login_id={user_login_id} / "
+                        f"権限={'管理者' if is_admin == '1' else '職員'} / "
+                        f"状態={status} / "
+                        f"最終ログイン={last_login_at or '-'} / "
+                        f"PW=••••••••"
+                    )
+
+                with c2:
+                    if status != "inactive":
+                        if st.button("無効化", key=f"deactivate_staff_{company_id}_{user_id}", use_container_width=True):
+                            ok, msg = set_company_user_status(user_id, company_id, "inactive")
+                            if ok:
+                                create_admin_log(
+                                    action_type="staff_deactivate",
+                                    target_type="user",
+                                    target_id=user_id,
+                                    action_detail=f"display_name={display_name}"
+                                )
+                                st.success("無効化したある。")
+                                st.rerun()
+                            else:
+                                st.error(msg)
 
 def is_valid_user_password(pw: str) -> bool:
     s = str(pw)
@@ -2979,6 +3335,13 @@ if "user" not in st.session_state:
     st.success(f"事業所: {st.session_state.get('company_name', '')}")
     st.warning("### 個人ログインある💻")
 
+    company_id = str(st.session_state.get("company_id", "")).strip()
+    admin_exists = company_has_any_admin(company_id)
+
+    if not admin_exists:
+        render_first_staff_register_block()
+        st.divider()
+
     top_cols = st.columns([1, 1])
     with top_cols[0]:
         if st.button("ID・パスワード変更", use_container_width=True, key="open_change_idpw"):
@@ -2997,6 +3360,13 @@ if "user" not in st.session_state:
             st.rerun()
 
     st.divider()
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+    admin_exists = company_has_any_admin(company_id)
+
+    if not admin_exists:
+        render_first_staff_register_block()
+        st.divider()
 
     if st.session_state.get("auth_mode", "login") == "login":
         user_login_id = st.text_input("ID", key="user_login_id_input")
@@ -3017,6 +3387,12 @@ if "user" not in st.session_state:
                 st.session_state.login_at = now_jst().strftime("%Y-%m-%d %H:%M")
                 st.session_state.last_active_ping = 0
                 st.session_state.auth_mode = "login"
+                create_admin_log(
+                    action_type="user_login",
+                    target_type="user",
+                    target_id=str(row.get("user_id", "")).strip(),
+                    action_detail=f"display_name={str(row.get('display_name', '')).strip()}"
+                )
                 st.rerun()
 
     else:
@@ -3056,6 +3432,9 @@ if "user" not in st.session_state:
             if st.button("戻る", use_container_width=True, key="cancel_change_idpw"):
                 st.session_state.auth_mode = "login"
                 st.rerun()
+
+    if admin_exists and bool(st.session_state.get("is_admin_preview", False)):
+        render_admin_staff_manage_block()
 
     st.stop()
 
@@ -3206,6 +3585,8 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
+
+
 def heart_label(text: str) -> str:
     if not st.session_state.get("heart_mode", False):
         return str(text)
@@ -3344,6 +3725,13 @@ st.sidebar.text_input(
     on_change=process_secret_command,
 )
 
+# ===== 管理者メニュー =====
+if st.session_state.get("is_admin", False):
+    st.sidebar.divider()
+    st.sidebar.markdown("### 管理者メニュー")
+    if st.sidebar.button("スタッフ登録・削除", key="menu_staff_manage", use_container_width=True):
+        st.session_state.current_page = "スタッフ管理"
+        st.rerun()
 
 # ===== 最下部 =====
 st.sidebar.divider()
@@ -10267,3 +10655,8 @@ elif page == "⑩ 書類アップロード":
     render_archive_page()
 elif page == "休憩室_倉庫":
     render_warehouse_page()
+elif page == "スタッフ管理":
+    if not st.session_state.get("is_admin", False):
+        st.error("このページは管理者専用ある。")
+    else:
+        render_admin_staff_manage_block()
