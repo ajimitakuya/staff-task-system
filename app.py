@@ -52,6 +52,8 @@ COMMON_SHEETS = {
     "record_status",
     "calendar",
     "active_users",
+    "companies"
+    "users"
 }
 
 OFFICE_SHEETS = {
@@ -204,6 +206,32 @@ def load_db(file, retries=3, delay=0.8):
                     "assistant_plans": [
                         "resident_id", "long_term_goal", "short_term_goal", "updated_at"
                     ],
+                    "companies": [
+                        "company_id",
+                        "company_name",
+                        "company_code",
+                        "company_login_id",
+                        "company_login_password",
+                        "status",
+                        "created_at",
+                        "updated_at",
+                        "memo",
+                    ],
+                    "users": [
+                        "user_id",
+                        "company_id",
+                        "user_login_id",
+                        "user_login_password",
+                        "display_name",
+                        "is_admin",
+                        "role_type",
+                        "login_card_id",
+                        "last_login_at",
+                        "status",
+                        "created_at",
+                        "updated_at",
+                        "memo",
+                    ],                    
                 }
 
                 for col in expected_cols[file]:
@@ -224,6 +252,188 @@ def load_db(file, retries=3, delay=0.8):
 
     return pd.DataFrame()
 
+@st.cache_data(ttl=60)
+def get_companies_df_cached():
+    df = load_db("companies")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "company_id",
+            "company_name",
+            "company_code",
+            "company_login_id",
+            "company_login_password",
+            "status",
+            "created_at",
+            "updated_at",
+            "memo",
+        ])
+    else:
+        for col in [
+            "company_id",
+            "company_name",
+            "company_code",
+            "company_login_id",
+            "company_login_password",
+            "status",
+            "created_at",
+            "updated_at",
+            "memo",
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_companies_df():
+    return get_companies_df_cached().copy()
+
+
+@st.cache_data(ttl=60)
+def get_users_df_cached():
+    df = load_db("users")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "user_id",
+            "company_id",
+            "user_login_id",
+            "user_login_password",
+            "display_name",
+            "is_admin",
+            "role_type",
+            "login_card_id",
+            "last_login_at",
+            "status",
+            "created_at",
+            "updated_at",
+            "memo",
+        ])
+    else:
+        for col in [
+            "user_id",
+            "company_id",
+            "user_login_id",
+            "user_login_password",
+            "display_name",
+            "is_admin",
+            "role_type",
+            "login_card_id",
+            "last_login_at",
+            "status",
+            "created_at",
+            "updated_at",
+            "memo",
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_users_df():
+    return get_users_df_cached().copy()
+
+
+def authenticate_company_login(login_id: str, login_password: str):
+    df = get_companies_df()
+    if df is None or df.empty:
+        return None
+
+    work = df.copy()
+    work["company_login_id"] = work["company_login_id"].astype(str).str.strip()
+    work["company_login_password"] = work["company_login_password"].astype(str).str.strip()
+    work["status"] = work["status"].astype(str).str.strip().str.lower()
+
+    target = work[
+        (work["company_login_id"] == str(login_id).strip()) &
+        (work["company_login_password"] == str(login_password).strip()) &
+        (work["status"] == "active")
+    ]
+
+    if target.empty:
+        return None
+
+    return target.iloc[0].to_dict()
+
+
+def authenticate_user_login(company_id: str, login_id: str, login_password: str):
+    df = get_users_df()
+    if df is None or df.empty:
+        return None
+
+    work = df.copy()
+    work["company_id"] = work["company_id"].astype(str).str.strip()
+    work["user_login_id"] = work["user_login_id"].astype(str).str.strip()
+    work["user_login_password"] = work["user_login_password"].astype(str).str.strip()
+    work["status"] = work["status"].astype(str).str.strip().str.lower()
+
+    target = work[
+        (work["company_id"] == str(company_id).strip()) &
+        (work["user_login_id"] == str(login_id).strip()) &
+        (work["user_login_password"] == str(login_password).strip()) &
+        (work["status"] == "active")
+    ]
+
+    if target.empty:
+        return None
+
+    row = target.iloc[0].to_dict()
+
+    login_id_str = str(row.get("user_login_id", "")).strip()
+    is_admin_val = str(row.get("is_admin", "")).strip()
+
+    row["is_admin_resolved"] = (
+        is_admin_val == "1" or
+        login_id_str.upper().startswith("SSV")
+    )
+
+    return row
+
+
+def is_valid_user_password(pw: str) -> bool:
+    s = str(pw)
+    if len(s) < 8:
+        return False
+    if not any(ch.isupper() for ch in s):
+        return False
+    if not any(ch.islower() for ch in s):
+        return False
+    if not any(ch.isdigit() for ch in s):
+        return False
+    return True
+
+
+def update_user_login_credentials(company_id: str, current_id: str, current_pw: str, new_id: str, new_pw: str):
+    df = get_users_df()
+    if df is None or df.empty:
+        return False, "usersシートが空ある"
+
+    work = df.copy()
+    work["company_id"] = work["company_id"].astype(str).str.strip()
+    work["user_login_id"] = work["user_login_id"].astype(str).str.strip()
+    work["user_login_password"] = work["user_login_password"].astype(str).str.strip()
+
+    mask = (
+        (work["company_id"] == str(company_id).strip()) &
+        (work["user_login_id"] == str(current_id).strip()) &
+        (work["user_login_password"] == str(current_pw).strip())
+    )
+
+    if not mask.any():
+        return False, "現在のIDまたはパスワードが違うある"
+
+    dup_mask = (
+        (work["company_id"] == str(company_id).strip()) &
+        (work["user_login_id"] == str(new_id).strip()) &
+        (~mask)
+    )
+    if dup_mask.any():
+        return False, "その新しいIDはすでに使われてるある"
+
+    work.loc[mask, "user_login_id"] = str(new_id).strip()
+    work.loc[mask, "user_login_password"] = str(new_pw).strip()
+    work.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    save_db(work, "users")
+    return True, "IDとパスワードを変更したある"
 
 def get_resident_master_df():
     return get_resident_master_df_cached().copy()
@@ -1253,57 +1463,120 @@ def render_urgent_banner():
         st.caption("クリックして、至急・重要タスクの一覧を確認できるある。")
 
 # ==========================================
-# 🔑 ユーザー認証
+# 🔑 2段階ログイン
 # ==========================================
+if "company_authenticated" not in st.session_state:
+    st.session_state.company_authenticated = False
+
+if "auth_mode" not in st.session_state:
+    st.session_state.auth_mode = "login"   # login / change
+
+if "company_authenticated" not in st.session_state or not st.session_state.company_authenticated:
+    st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
+    st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
+    st.warning("### 事業所ログインある💻")
+
+    company_login_id = st.text_input("事業所ID", key="company_login_id_input")
+    company_login_password = st.text_input("事業所パスワード", type="password", key="company_login_password_input")
+
+    if st.button("事業所ログイン", use_container_width=True, key="company_login_button"):
+        row = authenticate_company_login(company_login_id, company_login_password)
+        if row is None:
+            st.error("事業所IDまたはパスワードが違うある。")
+        else:
+            st.session_state.company_authenticated = True
+            st.session_state.company_id = str(row.get("company_id", "")).strip()
+            st.session_state.company_name = str(row.get("company_name", "")).strip()
+            st.session_state.company_code = str(row.get("company_code", "")).strip()
+            st.session_state.company_login_id = str(row.get("company_login_id", "")).strip()
+            st.session_state.office_key = "support"
+            st.rerun()
+
+    st.stop()
+
 if "user" not in st.session_state:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
-
     st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
-    st.warning("### 事業所と担当者を選んでログインしてください💻")
+    st.success(f"事業所: {st.session_state.get('company_name', '')}")
+    st.warning("### 個人ログインある💻")
 
-    if "office_key" not in st.session_state:
-        st.session_state.office_key = "support"
-
-    office_options = ["support", "home"]
-    office_labels = {
-        "support": "サポート",
-        "home": "ホーム",
-    }
-
-    st.markdown("接続先事業所を選択してください")
-    office_key = st.radio(
-        "接続先事業所を選択してください",
-        office_options,
-        index=0 if st.session_state.get("office_key", "support") == "support" else 1,
-        format_func=lambda x: office_labels.get(x, x),
-        horizontal=True,
-        label_visibility="collapsed",
-        key="login_office_key",
-    )
-
-    st.session_state.office_key = office_key
+    top_cols = st.columns([1, 1])
+    with top_cols[0]:
+        if st.button("ID・パスワード変更", use_container_width=True, key="open_change_idpw"):
+            st.session_state.auth_mode = "change"
+            st.rerun()
+    with top_cols[1]:
+        if st.button("事業所切り替え", use_container_width=True, key="back_to_company_login"):
+            for k in [
+                "company_authenticated", "company_id", "company_name", "company_code",
+                "company_login_id", "user", "user_id", "is_admin", "login_at",
+                "last_active_ping"
+            ]:
+                if k in st.session_state:
+                    del st.session_state[k]
+            st.session_state.auth_mode = "login"
+            st.rerun()
 
     st.divider()
 
-    user_list = [
-        "木村 由美", "秋吉 幸雄", "安心院 拓也", "粟田 絵利菜", "小宅 正嗣",
-        "土居 容子", "中本 匡", "中本 文代", "中本 雄斗", "伴 法子", "栁川 幸恵", "山口 晴彦"
-    ]
+    if st.session_state.get("auth_mode", "login") == "login":
+        user_login_id = st.text_input("ID", key="user_login_id_input")
+        user_login_password = st.text_input("パスワード", type="password", key="user_login_password_input")
 
-    user = st.radio(
-        "担当者を選択してください",
-        user_list,
-        index=None
-    )
+        if st.button("個人ログイン", use_container_width=True, key="user_login_button"):
+            row = authenticate_user_login(
+                st.session_state.get("company_id", ""),
+                user_login_id,
+                user_login_password
+            )
+            if row is None:
+                st.error("IDまたはパスワードが違うある。")
+            else:
+                st.session_state.user = str(row.get("display_name", "")).strip()
+                st.session_state.user_id = str(row.get("user_id", "")).strip()
+                st.session_state.is_admin = bool(row.get("is_admin_resolved", False))
+                st.session_state.login_at = now_jst().strftime("%Y-%m-%d %H:%M")
+                st.session_state.last_active_ping = 0
+                st.session_state.auth_mode = "login"
+                st.rerun()
 
-    if st.button("システムへログイン", use_container_width=True):
-        if user:
-            st.session_state.user = user
-            st.session_state.login_at = now_jst().strftime("%Y-%m-%d %H:%M")
-            st.session_state.last_active_ping = 0
-            st.rerun()
-        else:
-            st.error("担当者を選択してください。")
+    else:
+        st.info("現在のID/パスワードが正しければ、新しいID/パスワードへ変更できるある。")
+
+        current_id = st.text_input("現在のID", key="chg_current_id")
+        current_pw = st.text_input("現在のパスワード", type="password", key="chg_current_pw")
+        new_id = st.text_input("新しいID", key="chg_new_id")
+        new_pw = st.text_input("新しいパスワード", type="password", key="chg_new_pw")
+        new_pw2 = st.text_input("新しいパスワード（確認）", type="password", key="chg_new_pw2")
+
+        change_cols = st.columns([1, 1])
+        with change_cols[0]:
+            if st.button("変更を保存", use_container_width=True, key="save_change_idpw"):
+                if not new_id.strip():
+                    st.error("新しいIDを入れてほしいある。")
+                elif new_pw != new_pw2:
+                    st.error("新しいパスワード確認が一致してないある。")
+                elif not is_valid_user_password(new_pw):
+                    st.error("パスワードは8文字以上・英数混合・大文字必須ある。")
+                else:
+                    ok, msg = update_user_login_credentials(
+                        st.session_state.get("company_id", ""),
+                        current_id,
+                        current_pw,
+                        new_id,
+                        new_pw
+                    )
+                    if ok:
+                        st.success(msg)
+                        st.session_state.auth_mode = "login"
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+        with change_cols[1]:
+            if st.button("戻る", use_container_width=True, key="cancel_change_idpw"):
+                st.session_state.auth_mode = "login"
+                st.rerun()
 
     st.stop()
 
@@ -1546,27 +1819,28 @@ for page_key, label in document_page_options:
 
 
 # ===== ログアウト（ここ固定） =====
-if st.sidebar.button("ログアウト", use_container_width=True):
-    if "user" in st.session_state:
-        del st.session_state.user
-    if "office_key" in st.session_state:
-        del st.session_state.office_key
-    if "login_at" in st.session_state:
-        del st.session_state.login_at
-    if "last_active_ping" in st.session_state:
-        del st.session_state.last_active_ping
-    if "current_page" in st.session_state:
-        del st.session_state.current_page
-    if "bee_menu_unlocked" in st.session_state:
-        del st.session_state.bee_menu_unlocked
-    if "secret_doc_mode" in st.session_state:
-        del st.session_state.secret_doc_mode
-    if "heart_mode" in st.session_state:
-        del st.session_state.heart_mode
-    if "secret_bee_cmd" in st.session_state:
-        del st.session_state.secret_bee_cmd
+if st.sidebar.button("個人ログアウト", use_container_width=True):
+    for k in [
+        "user", "user_id", "is_admin", "login_at", "last_active_ping",
+        "current_page", "bee_menu_unlocked", "secret_doc_mode",
+        "heart_mode", "secret_bee_cmd"
+    ]:
+        if k in st.session_state:
+            del st.session_state[k]
+    st.session_state.auth_mode = "login"
     st.rerun()
 
+if st.sidebar.button("事業所切り替え", use_container_width=True):
+    for k in [
+        "company_authenticated", "company_id", "company_name", "company_code",
+        "company_login_id", "user", "user_id", "is_admin", "login_at",
+        "last_active_ping", "current_page", "bee_menu_unlocked",
+        "secret_doc_mode", "heart_mode", "secret_bee_cmd"
+    ]:
+        if k in st.session_state:
+            del st.session_state[k]
+    st.session_state.auth_mode = "login"
+    st.rerun()
 
 # ===== 🐝 knowbe（条件表示） =====
 if st.session_state.get("bee_menu_unlocked", False):
