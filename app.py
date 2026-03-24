@@ -1285,8 +1285,7 @@ def render_archive_page():
         uploaded_by_user_id = str(row.get("uploaded_by_user_id", "")).strip()
         created_at = str(row.get("created_at", "")).strip()
         updated_at = str(row.get("updated_at", "")).strip()
-        has_attachment = str(msg.get("has_attachment", "")).strip()
-        linked_file_id = str(msg.get("linked_file_id", "")).strip()
+
 
         uploader_name = uploaded_by_user_id
         try:
@@ -1727,6 +1726,27 @@ def render_chat_room_page():
                     st.info("まだ投稿がないある。")
                 else:
                     for _, msg in room_msgs.iterrows():
+                        display_name = str(msg.get("display_name", "")).strip()
+                        company_id = str(msg.get("company_id", "")).strip()
+                        message_text = str(msg.get("message_text", "")).strip()
+                        created_at = str(msg.get("created_at", "")).strip()
+                        has_attachment = str(msg.get("has_attachment", "")).strip()
+                        linked_file_id = str(msg.get("linked_file_id", "")).strip()
+
+                        attach_text = ""
+                        if has_attachment == "1" and linked_file_id:
+                            attach_text = f"<div style='margin-top:6px;color:#2563eb;'>📎 添付あり（倉庫ID: {linked_file_id}）</div>"
+
+                        st.markdown(
+                            f"""
+                            <div style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:10px;background:#fff;">
+                                <div style="font-size:13px;color:#666;"><b>{display_name}</b> / {company_id} / {created_at}</div>
+                                <div style="margin-top:6px;white-space:pre-wrap;">{message_text}</div>
+                                {attach_text}
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
                         display_name = str(msg.get("display_name", "")).strip()
                         company_id = str(msg.get("company_id", "")).strip()
                         message_text = str(msg.get("message_text", "")).strip()
