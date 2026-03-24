@@ -268,6 +268,26 @@ def load_db(file, retries=3, delay=0.8):
                         "updated_at",
                         "deleted_by_user_id",
                         "deleted_at",
+                    ],
+                    "archive_files": [
+                        "archive_file_id",
+                        "company_id",
+                        "title",
+                        "description",
+                        "category_main",
+                        "category_sub",
+                        "tags",
+                        "file_name",
+                        "file_data",
+                        "file_type",
+                        "uploaded_by_user_id",
+                        "visibility_type",
+                        "download_password",
+                        "is_deleted",
+                        "created_at",
+                        "updated_at",
+                        "deleted_by_user_id",
+                        "deleted_at",
                     ],                    
                 }
 
@@ -361,6 +381,363 @@ def get_chat_rooms_df_cached():
 def get_chat_rooms_df():
     return get_chat_rooms_df_cached().copy()
 
+@st.cache_data(ttl=60)
+def get_archive_files_df_cached():
+    df = load_db("archive_files")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "archive_file_id",
+            "company_id",
+            "title",
+            "description",
+            "category_main",
+            "category_sub",
+            "tags",
+            "file_name",
+            "file_data",
+            "file_type",
+            "uploaded_by_user_id",
+            "visibility_type",
+            "download_password",
+            "is_deleted",
+            "created_at",
+            "updated_at",
+            "deleted_by_user_id",
+            "deleted_at",
+        ])
+    else:
+        for col in [
+            "archive_file_id",
+            "company_id",
+            "title",
+            "description",
+            "category_main",
+            "category_sub",
+            "tags",
+            "file_name",
+            "file_data",
+            "file_type",
+            "uploaded_by_user_id",
+            "visibility_type",
+            "download_password",
+            "is_deleted",
+            "created_at",
+            "updated_at",
+            "deleted_by_user_id",
+            "deleted_at",
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+def get_archive_files_df():
+    return get_archive_files_df_cached().copy()
+
+def get_next_archive_file_id():
+    df = get_archive_files_df()
+    if df is None or df.empty:
+        return "A0001"
+
+    nums = []
+    for x in df["archive_file_id"].fillna("").astype(str):
+        x = x.strip().upper()
+        if x.startswith("A"):
+            num = x[1:]
+            if num.isdigit():
+                nums.append(int(num))
+
+    next_num = max(nums) + 1 if nums else 1
+    return f"A{next_num:04d}"
+
+
+def save_archive_file(
+    title,
+    description,
+    category_main,
+    category_sub,
+    tags,
+    uploaded_file,
+    visibility_type="normal",
+    download_password="",
+):
+    df = get_archive_files_df()
+
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+    archive_file_id = get_next_archive_file_id()
+
+    file_bytes = uploaded_file.read()
+    file_data_base64 = base64.b64encode(file_bytes).decode("utf-8")
+    file_name = str(uploaded_file.name).strip()
+    lower_name = file_name.lower()
+
+    if lower_name.endswith(".xlsx"):
+        file_type = "xlsx"
+    elif lower_name.endswith(".xls"):
+        file_type = "xls"
+    elif lower_name.endswith(".pdf"):
+        file_type = "pdf"
+    elif lower_name.endswith(".docx"):
+        file_type = "docx"
+    elif lower_name.endswith(".doc"):
+        file_type = "doc"
+    elif lower_name.endswith(".jpg") or lower_name.endswith(".jpeg"):
+        file_type = "jpg"
+    elif lower_name.endswith(".png"):
+        file_type = "png"
+    else:
+        file_type = "other"
+
+    new_row = pd.DataFrame([{
+        "archive_file_id": archive_file_id,
+        "company_id": str(st.session_state.get("company_id", "")).strip(),
+        "title": str(title).strip(),
+        "description": str(description).strip(),
+        "category_main": str(category_main).strip(),
+        "category_sub": str(category_sub).strip(),
+        "tags": str(tags).strip(),
+        "file_name": file_name,
+        "file_data": file_data_base64,
+        "file_type": file_type,
+        "uploaded_by_user_id": str(st.session_state.get("user_id", "")).strip(),
+        "visibility_type": str(visibility_type).strip(),
+        "download_password": str(download_password).strip(),
+        "is_deleted": "0",
+        "created_at": now_str,
+        "updated_at": now_str,
+        "deleted_by_user_id": "",
+        "deleted_at": "",
+    }])
+
+    df = pd.concat([df, new_row], ignore_index=True)
+    save_db(df, "archive_files")
+    return archive_file_id
+
+
+def soft_delete_archive_file(archive_file_id):
+    df = get_archive_files_df()
+    if df is None or df.empty:
+        return False
+
+    mask = df["archive_file_id"].astype(str) == str(archive_file_id).strip()
+    if not mask.any():
+        return False
+
+    df.loc[mask, "is_deleted"] = "1"
+    df.loc[mask, "deleted_by_user_id"] = str(st.session_state.get("user_id", "")).strip()
+    df.loc[mask, "deleted_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+    df.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    save_db(df, "archive_files")
+    return True
+
+
+def get_archive_download_data(row):
+    file_data_base64 = str(row.get("file_data", "")).strip()
+    file_name = str(row.get("file_name", "")).strip()
+
+    if not file_data_base64 or not file_name:
+        return None, None, None
+
+    file_bytes = base64.b64decode(file_data_base64)
+
+    lower_name = file_name.lower()
+    if lower_name.endswith(".xlsx"):
+        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif lower_name.endswith(".xls"):
+        mime = "application/vnd.ms-excel"
+    elif lower_name.endswith(".pdf"):
+        mime = "application/pdf"
+    elif lower_name.endswith(".docx"):
+        mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    elif lower_name.endswith(".doc"):
+        mime = "application/msword"
+    elif lower_name.endswith(".jpg") or lower_name.endswith(".jpeg"):
+        mime = "image/jpeg"
+    elif lower_name.endswith(".png"):
+        mime = "image/png"
+    else:
+        mime = "application/octet-stream"
+
+    return file_bytes, file_name, mime
+
+def render_archive_page():
+    st.title("🗂 書庫")
+    st.caption("この事業所だけで共有する資料置き場ある。")
+
+    current_company_id = str(st.session_state.get("company_id", "")).strip()
+    current_user_id = str(st.session_state.get("user_id", "")).strip()
+    is_admin = bool(st.session_state.get("is_admin", False))
+
+    top_cols = st.columns([1, 1])
+
+    with top_cols[0]:
+        if st.button("← 休憩室へ戻る", key="back_from_archive", use_container_width=True):
+            st.session_state.current_page = "休憩室"
+            st.rerun()
+
+    with top_cols[1]:
+        st.info(f"事業所: {st.session_state.get('company_name', '')}")
+
+    st.divider()
+
+    with st.expander("＋ 新しい資料を登録する"):
+        title = st.text_input("タイトル", key="archive_title")
+        description = st.text_area("説明", key="archive_description", height=80)
+        category_main = st.text_input("カテゴリ大", key="archive_category_main")
+        category_sub = st.text_input("カテゴリ小", key="archive_category_sub")
+        tags = st.text_input("タグ（カンマ区切りでもOK）", key="archive_tags")
+        uploaded_file = st.file_uploader(
+            "ファイルを選択",
+            key="archive_uploaded_file"
+        )
+
+        if st.button("書庫へ保存", key="save_archive_button", use_container_width=True):
+            if not title.strip():
+                st.error("タイトルを入れてほしいある。")
+            elif uploaded_file is None:
+                st.error("ファイルを選んでほしいある。")
+            else:
+                archive_file_id = save_archive_file(
+                    title=title,
+                    description=description,
+                    category_main=category_main,
+                    category_sub=category_sub,
+                    tags=tags,
+                    uploaded_file=uploaded_file,
+                    visibility_type="normal",
+                    download_password="",
+                )
+                st.success(f"保存したある！ {archive_file_id}")
+                st.rerun()
+
+    st.divider()
+
+    df = get_archive_files_df()
+
+    if df is None or df.empty:
+        st.info("まだ書庫に資料がないある。")
+        return
+
+    work = df.copy()
+    work = work[
+        (work["company_id"].astype(str) == current_company_id) &
+        (work["is_deleted"].astype(str) != "1")
+    ].copy()
+
+    if work.empty:
+        st.info("この事業所の書庫にはまだ資料がないある。")
+        return
+
+    search_cols = st.columns([2, 1, 1])
+
+    with search_cols[0]:
+        keyword = st.text_input("検索", key="archive_search_keyword")
+
+    with search_cols[1]:
+        filter_main = st.text_input("カテゴリ大で絞る", key="archive_filter_main")
+
+    with search_cols[2]:
+        filter_sub = st.text_input("カテゴリ小で絞る", key="archive_filter_sub")
+
+    if keyword.strip():
+        kw = keyword.strip()
+        work = work[
+            work["title"].astype(str).str.contains(kw, case=False, na=False) |
+            work["description"].astype(str).str.contains(kw, case=False, na=False) |
+            work["tags"].astype(str).str.contains(kw, case=False, na=False) |
+            work["file_name"].astype(str).str.contains(kw, case=False, na=False)
+        ].copy()
+
+    if filter_main.strip():
+        work = work[
+            work["category_main"].astype(str).str.contains(filter_main.strip(), case=False, na=False)
+        ].copy()
+
+    if filter_sub.strip():
+        work = work[
+            work["category_sub"].astype(str).str.contains(filter_sub.strip(), case=False, na=False)
+        ].copy()
+
+    try:
+        work = work.sort_values(["updated_at", "created_at"], ascending=[False, False])
+    except Exception:
+        pass
+
+    st.markdown(f"### 一覧（{len(work)}件）")
+
+    if work.empty:
+        st.info("条件に合う資料がないある。")
+        return
+
+    users_df = get_users_df()
+
+    for _, row in work.iterrows():
+        archive_file_id = str(row.get("archive_file_id", "")).strip()
+        title = str(row.get("title", "")).strip()
+        description = str(row.get("description", "")).strip()
+        category_main = str(row.get("category_main", "")).strip()
+        category_sub = str(row.get("category_sub", "")).strip()
+        tags = str(row.get("tags", "")).strip()
+        file_name = str(row.get("file_name", "")).strip()
+        file_type = str(row.get("file_type", "")).strip()
+        uploaded_by_user_id = str(row.get("uploaded_by_user_id", "")).strip()
+        created_at = str(row.get("created_at", "")).strip()
+        updated_at = str(row.get("updated_at", "")).strip()
+
+        uploader_name = uploaded_by_user_id
+        try:
+            target_user = users_df[users_df["user_id"].astype(str) == uploaded_by_user_id]
+            if not target_user.empty:
+                uploader_name = str(target_user.iloc[0].get("display_name", uploaded_by_user_id)).strip()
+        except Exception:
+            pass
+
+        st.markdown("---")
+        st.markdown(f"## {title}")
+        st.caption(f"{archive_file_id} / {file_name} / {file_type}")
+
+        meta_cols = st.columns([2, 2, 2])
+        with meta_cols[0]:
+            st.write(f"カテゴリ: {category_main} / {category_sub}")
+        with meta_cols[1]:
+            st.write(f"登録者: {uploader_name}")
+        with meta_cols[2]:
+            st.write(f"更新: {updated_at or created_at}")
+
+        if description:
+            st.write(description)
+        if tags:
+            st.caption(f"タグ: {tags}")
+
+        file_bytes, dl_name, mime = get_archive_download_data(row)
+
+        action_cols = st.columns([1, 1, 1])
+
+        with action_cols[0]:
+            if file_bytes is not None:
+                st.download_button(
+                    label="ダウンロード",
+                    data=file_bytes,
+                    file_name=dl_name,
+                    mime=mime,
+                    key=f"archive_download_{archive_file_id}",
+                    use_container_width=True
+                )
+
+        can_delete = (uploaded_by_user_id == current_user_id) or is_admin
+
+        with action_cols[1]:
+            if can_delete:
+                if st.button("削除", key=f"archive_delete_{archive_file_id}", use_container_width=True):
+                    ok = soft_delete_archive_file(archive_file_id)
+                    if ok:
+                        st.success("削除したある。")
+                        st.rerun()
+                    else:
+                        st.error("削除に失敗したある。")
+
+        with action_cols[2]:
+            st.write("")
 
 @st.cache_data(ttl=60)
 def get_chat_messages_df_cached():
@@ -522,7 +899,9 @@ def render_break_room_page():
     with cols[1]:
         st.markdown("## 🚪 書庫")
         st.caption("同じ事業所だけの資料置き場ある。")
-        st.info("まだ準備中ある👀")
+        if st.button("書庫へ", key="go_archive_page", use_container_width=True):
+            st.session_state.current_page = "休憩室_書庫"
+            st.rerun()
 
     with cols[2]:
         st.markdown("## 🚪 倉庫")
@@ -2025,7 +2404,8 @@ page_options = [
     "書類_就労分野シート",
     "🐝knowbe日誌入力🐝",
     "休憩室",
-    "休憩室_チャットルーム",    
+    "休憩室_チャットルーム",
+    "休憩室_書庫",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -9150,3 +9530,5 @@ if page == "休憩室":
     render_break_room_page()
 elif page == "休憩室_チャットルーム":
     render_chat_room_page()
+elif page == "休憩室_書庫":
+    render_archive_page()
