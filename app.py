@@ -18,6 +18,8 @@ JST = timezone(timedelta(hours=9))
 def now_jst():
     return datetime.now(JST)
 
+st.caption("CHECK_COMPANIES_USERS_20260325")
+
 def get_genai_client():
     api_key = ""
 
@@ -55,6 +57,8 @@ COMMON_SHEETS = {
     "companies"
     "users"
 }
+
+st.write("DEBUG_COMMON_SHEETS", COMMON_SHEETS)
 
 OFFICE_SHEETS = {
     "resident_master",
