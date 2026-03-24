@@ -235,6 +235,34 @@ def load_db(file, retries=3, delay=0.8):
                         "created_at",
                         "updated_at",
                         "memo",
+                    ],
+                    "chat_rooms": [
+                        "room_id",
+                        "room_name",
+                        "room_type",
+                        "room_password",
+                        "created_by_user_id",
+                        "created_by_company_id",
+                        "description",
+                        "status",
+                        "created_at",
+                        "updated_at",
+                    ],
+                    "chat_messages": [
+                        "message_id",
+                        "room_id",
+                        "user_id",
+                        "display_name",
+                        "company_id",
+                        "message_text",
+                        "has_attachment",
+                        "attachment_type",
+                        "linked_file_id",
+                        "is_deleted",
+                        "created_at",
+                        "updated_at",
+                        "deleted_by_user_id",
+                        "deleted_at",
                     ],                    
                 }
 
@@ -291,6 +319,387 @@ def get_companies_df_cached():
 def get_companies_df():
     return get_companies_df_cached().copy()
 
+@st.cache_data(ttl=60)
+def get_chat_rooms_df_cached():
+    df = load_db("chat_rooms")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "room_id",
+            "room_name",
+            "room_type",
+            "room_password",
+            "created_by_user_id",
+            "created_by_company_id",
+            "description",
+            "status",
+            "created_at",
+            "updated_at",
+        ])
+    else:
+        for col in [
+            "room_id",
+            "room_name",
+            "room_type",
+            "room_password",
+            "created_by_user_id",
+            "created_by_company_id",
+            "description",
+            "status",
+            "created_at",
+            "updated_at",
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_chat_rooms_df():
+    return get_chat_rooms_df_cached().copy()
+
+
+@st.cache_data(ttl=60)
+def get_chat_messages_df_cached():
+    df = load_db("chat_messages")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "message_id",
+            "room_id",
+            "user_id",
+            "display_name",
+            "company_id",
+            "message_text",
+            "has_attachment",
+            "attachment_type",
+            "linked_file_id",
+            "is_deleted",
+            "created_at",
+            "updated_at",
+            "deleted_by_user_id",
+            "deleted_at",
+        ])
+    else:
+        for col in [
+            "message_id",
+            "room_id",
+            "user_id",
+            "display_name",
+            "company_id",
+            "message_text",
+            "has_attachment",
+            "attachment_type",
+            "linked_file_id",
+            "is_deleted",
+            "created_at",
+            "updated_at",
+            "deleted_by_user_id",
+            "deleted_at",
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_chat_messages_df():
+    return get_chat_messages_df_cached().copy()
+
+def get_next_room_id():
+    df = get_chat_rooms_df()
+    if df is None or df.empty:
+        return "R0001"
+
+    nums = []
+    for x in df["room_id"].fillna("").astype(str):
+        x = x.strip().upper()
+        if x.startswith("R"):
+            num = x[1:]
+            if num.isdigit():
+                nums.append(int(num))
+
+    next_num = max(nums) + 1 if nums else 1
+    return f"R{next_num:04d}"
+
+
+def get_next_message_id():
+    df = get_chat_messages_df()
+    if df is None or df.empty:
+        return "M0001"
+
+    nums = []
+    for x in df["message_id"].fillna("").astype(str):
+        x = x.strip().upper()
+        if x.startswith("M"):
+            num = x[1:]
+            if num.isdigit():
+                nums.append(int(num))
+
+    next_num = max(nums) + 1 if nums else 1
+    return f"M{next_num:04d}"
+
+
+def create_chat_room(
+    room_name,
+    room_type,
+    room_password="",
+    description="",
+):
+    df = get_chat_rooms_df()
+
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+    room_id = get_next_room_id()
+
+    new_row = pd.DataFrame([{
+        "room_id": room_id,
+        "room_name": str(room_name).strip(),
+        "room_type": str(room_type).strip(),
+        "room_password": str(room_password).strip(),
+        "created_by_user_id": str(st.session_state.get("user_id", "")).strip(),
+        "created_by_company_id": str(st.session_state.get("company_id", "")).strip(),
+        "description": str(description).strip(),
+        "status": "active",
+        "created_at": now_str,
+        "updated_at": now_str,
+    }])
+
+    df = pd.concat([df, new_row], ignore_index=True)
+    save_db(df, "chat_rooms")
+    return room_id
+
+
+def create_chat_message(room_id, message_text):
+    df = get_chat_messages_df()
+
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+    message_id = get_next_message_id()
+
+    new_row = pd.DataFrame([{
+        "message_id": message_id,
+        "room_id": str(room_id).strip(),
+        "user_id": str(st.session_state.get("user_id", "")).strip(),
+        "display_name": str(st.session_state.get("user", "")).strip(),
+        "company_id": str(st.session_state.get("company_id", "")).strip(),
+        "message_text": str(message_text).strip(),
+        "has_attachment": "0",
+        "attachment_type": "",
+        "linked_file_id": "",
+        "is_deleted": "0",
+        "created_at": now_str,
+        "updated_at": now_str,
+        "deleted_by_user_id": "",
+        "deleted_at": "",
+    }])
+
+    df = pd.concat([df, new_row], ignore_index=True)
+    save_db(df, "chat_messages")
+    return message_id
+
+def render_break_room_page():
+    st.title("☕ 休憩室")
+    st.caption("ここから チャットルーム・書庫・倉庫 に入るある。")
+
+    st.markdown(
+        f"""
+        **現在の事業所**: {st.session_state.get("company_name", "")}  
+        **ログイン中**: {st.session_state.get("user", "")}
+        """
+    )
+
+    st.divider()
+
+    cols = st.columns(3)
+
+    with cols[0]:
+        st.markdown("## 🚪 チャットルーム")
+        st.caption("全事業所共通の交流・共有スペースある。")
+        if st.button("チャットルームへ", key="go_chat_rooms", use_container_width=True):
+            st.session_state.current_page = "休憩室_チャットルーム"
+            st.rerun()
+
+    with cols[1]:
+        st.markdown("## 🚪 書庫")
+        st.caption("同じ事業所だけの資料置き場ある。")
+        st.info("まだ準備中ある👀")
+
+    with cols[2]:
+        st.markdown("## 🚪 倉庫")
+        st.caption("全事業所共通の資料置き場ある。")
+        st.info("まだ準備中ある👀")
+
+def render_chat_room_page():
+    st.title("💬 チャットルーム")
+    st.caption("ルーム一覧・新規作成・投稿ができるある。")
+
+    rooms_df = get_chat_rooms_df()
+    msgs_df = get_chat_messages_df()
+
+    if "selected_room_id" not in st.session_state:
+        st.session_state.selected_room_id = ""
+
+    top_cols = st.columns([1, 1])
+
+    with top_cols[0]:
+        if st.button("← 休憩室へ戻る", key="back_break_room", use_container_width=True):
+            st.session_state.current_page = "休憩室"
+            st.rerun()
+
+    with top_cols[1]:
+        if st.button("選択中ルームを解除", key="clear_selected_room", use_container_width=True):
+            st.session_state.selected_room_id = ""
+            st.rerun()
+
+    st.divider()
+
+    with st.expander("＋ 新しいルームを作る"):
+        room_name = st.text_input("ルーム名", key="new_room_name")
+        room_type = st.selectbox(
+            "公開設定",
+            ["public", "limited", "private"],
+            key="new_room_type"
+        )
+        room_password = st.text_input(
+            "ルームパスワード（limited/private用。1文字でもOK）",
+            key="new_room_password"
+        )
+        room_description = st.text_area("説明", key="new_room_description", height=80)
+
+        if st.button("ルームを作成", key="create_new_room_button", use_container_width=True):
+            if not room_name.strip():
+                st.error("ルーム名を入れてほしいある。")
+            elif room_type in ["limited", "private"] and not room_password.strip():
+                st.error("その公開設定ならパスワードが必要ある。")
+            else:
+                new_room_id = create_chat_room(
+                    room_name=room_name,
+                    room_type=room_type,
+                    room_password=room_password,
+                    description=room_description,
+                )
+                st.success(f"ルーム作成完了ある！ {new_room_id}")
+                st.session_state.selected_room_id = new_room_id
+                st.rerun()
+
+    st.divider()
+
+    left_col, right_col = st.columns([1, 2])
+
+    with left_col:
+        st.markdown("### ルーム一覧")
+
+        if rooms_df is None or rooms_df.empty:
+            st.info("まだルームがないある。")
+        else:
+            work = rooms_df.copy()
+            work = work[work["status"].astype(str).str.strip().str.lower() == "active"].copy()
+
+            try:
+                work = work.sort_values(["created_at"], ascending=[False])
+            except Exception:
+                pass
+
+            for _, row in work.iterrows():
+                room_id = str(row.get("room_id", "")).strip()
+                room_name = str(row.get("room_name", "")).strip()
+                room_type = str(row.get("room_type", "")).strip()
+                desc = str(row.get("description", "")).strip()
+
+                label = f"{room_name} ({room_type})"
+
+                if st.button(label, key=f"select_room_{room_id}", use_container_width=True):
+                    if room_type in ["limited", "private"]:
+                        st.session_state.pending_room_id = room_id
+                        st.session_state.pending_room_type = room_type
+                    else:
+                        st.session_state.selected_room_id = room_id
+                    st.rerun()
+
+                if desc:
+                    st.caption(desc)
+
+        if st.session_state.get("pending_room_id"):
+            st.divider()
+            st.markdown("### パスワード入力")
+            pw = st.text_input("ルームパスワード", type="password", key="room_access_password")
+
+            if st.button("入室する", key="enter_limited_room", use_container_width=True):
+                room_id = st.session_state.get("pending_room_id", "")
+                target = rooms_df[rooms_df["room_id"].astype(str) == str(room_id)].copy()
+
+                if target.empty:
+                    st.error("ルームが見つからないある。")
+                else:
+                    real_pw = str(target.iloc[0].get("room_password", "")).strip()
+                    if str(pw).strip() == real_pw:
+                        st.session_state.selected_room_id = room_id
+                        st.session_state.pending_room_id = ""
+                        st.session_state.pending_room_type = ""
+                        st.success("入室できたある。")
+                        st.rerun()
+                    else:
+                        st.error("パスワードが違うある。")
+
+    with right_col:
+        selected_room_id = str(st.session_state.get("selected_room_id", "")).strip()
+
+        if not selected_room_id:
+            st.info("左からルームを選ぶある。")
+        else:
+            room_row = rooms_df[rooms_df["room_id"].astype(str) == selected_room_id].copy()
+
+            if room_row.empty:
+                st.warning("選択中ルームが見つからないある。")
+            else:
+                room_name = str(room_row.iloc[0].get("room_name", "")).strip()
+                room_type = str(room_row.iloc[0].get("room_type", "")).strip()
+                room_desc = str(room_row.iloc[0].get("description", "")).strip()
+
+                st.markdown(f"## {room_name}")
+                st.caption(f"公開設定: {room_type}")
+                if room_desc:
+                    st.write(room_desc)
+
+                st.divider()
+
+                post_text = st.text_area("メッセージ", key="chat_post_text", height=100)
+
+                if st.button("投稿する", key="chat_post_button", use_container_width=True):
+                    if not post_text.strip():
+                        st.error("メッセージを入れてほしいある。")
+                    else:
+                        create_chat_message(selected_room_id, post_text)
+                        st.success("投稿したある！")
+                        st.rerun()
+
+                st.divider()
+                st.markdown("### 投稿一覧")
+
+                room_msgs = msgs_df.copy()
+                room_msgs = room_msgs[
+                    (room_msgs["room_id"].astype(str) == selected_room_id) &
+                    (room_msgs["is_deleted"].astype(str) != "1")
+                ].copy()
+
+                try:
+                    room_msgs = room_msgs.sort_values(["created_at"], ascending=[True])
+                except Exception:
+                    pass
+
+                if room_msgs.empty:
+                    st.info("まだ投稿がないある。")
+                else:
+                    for _, msg in room_msgs.iterrows():
+                        display_name = str(msg.get("display_name", "")).strip()
+                        company_id = str(msg.get("company_id", "")).strip()
+                        message_text = str(msg.get("message_text", "")).strip()
+                        created_at = str(msg.get("created_at", "")).strip()
+
+                        st.markdown(
+                            f"""
+                            <div style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:10px;background:#fff;">
+                                <div style="font-size:13px;color:#666;"><b>{display_name}</b> / {company_id} / {created_at}</div>
+                                <div style="margin-top:6px;white-space:pre-wrap;">{message_text}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
 
 @st.cache_data(ttl=60)
 def get_users_df_cached():
@@ -1610,6 +2019,8 @@ page_options = [
     "書類_基本シート",
     "書類_就労分野シート",
     "🐝knowbe日誌入力🐝",
+    "休憩室",
+    "休憩室_チャットルーム",    
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -1762,6 +2173,7 @@ main_page_options = [
     "⑧ 緊急一覧",
     "⑨ 利用者情報",
     "⑩ 書類アップロード",
+    "🍵休憩室🍵",
 ]
 
 document_page_options = [
@@ -8716,3 +9128,7 @@ elif page == "書類_就労分野シート":
     render_work_field_form_page("就労分野シート")
 elif page == "🐝knowbe日誌入力🐝":
     render_bee_journal_page()
+if page == "休憩室":
+    render_break_room_page()
+elif page == "休憩室_チャットルーム":
+    render_chat_room_page()
