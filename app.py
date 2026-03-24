@@ -311,7 +311,18 @@ def load_db(file, retries=3, delay=0.8):
                         "updated_at",
                         "deleted_by_user_id",
                         "deleted_at",
-                    ],                   
+                    ],   
+                    "admin_logs": [
+                        "log_id",
+                        "company_id",
+                        "acted_by_user_id",
+                        "acted_by_display_name",
+                        "action_type",
+                        "target_type",
+                        "target_id",
+                        "action_detail",
+                        "created_at",
+                    ],
                 }
 
                 for col in expected_cols[file]:
@@ -456,7 +467,6 @@ def get_warehouse_files_df_cached():
             if col not in df.columns:
                 df[col] = ""
     return df.fillna("")
-
 
 def get_warehouse_files_df():
     return get_warehouse_files_df_cached().copy()
@@ -808,6 +818,12 @@ def render_warehouse_page():
                 if st.button("削除", key=f"warehouse_delete_{file_id}", use_container_width=True):
                     ok = soft_delete_warehouse_file(file_id)
                     if ok:
+                        create_admin_log(
+                            action_type="delete_warehouse_file",
+                            target_type="warehouse_file",
+                            target_id=file_id,
+                            action_detail=f"title={title}"
+                        )
                         st.success("削除したある。")
                         st.rerun()
                     else:
@@ -815,6 +831,77 @@ def render_warehouse_page():
 
         with action_cols[2]:
             st.write("")
+
+@st.cache_data(ttl=60)
+def get_admin_logs_df_cached():
+    df = load_db("admin_logs")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "log_id",
+            "company_id",
+            "acted_by_user_id",
+            "acted_by_display_name",
+            "action_type",
+            "target_type",
+            "target_id",
+            "action_detail",
+            "created_at",
+        ])
+    else:
+        for col in [
+            "log_id",
+            "company_id",
+            "acted_by_user_id",
+            "acted_by_display_name",
+            "action_type",
+            "target_type",
+            "target_id",
+            "action_detail",
+            "created_at",
+        ]:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_admin_logs_df():
+    return get_admin_logs_df_cached().copy()
+
+
+def get_next_admin_log_id():
+    df = get_admin_logs_df()
+    if df is None or df.empty:
+        return "L0001"
+
+    nums = []
+    for x in df["log_id"].fillna("").astype(str):
+        x = x.strip().upper()
+        if x.startswith("L"):
+            num = x[1:]
+            if num.isdigit():
+                nums.append(int(num))
+
+    next_num = max(nums) + 1 if nums else 1
+    return f"L{next_num:04d}"
+
+
+def create_admin_log(action_type, target_type, target_id, action_detail=""):
+    df = get_admin_logs_df()
+
+    new_row = pd.DataFrame([{
+        "log_id": get_next_admin_log_id(),
+        "company_id": str(st.session_state.get("company_id", "")).strip(),
+        "acted_by_user_id": str(st.session_state.get("user_id", "")).strip(),
+        "acted_by_display_name": str(st.session_state.get("user", "")).strip(),
+        "action_type": str(action_type).strip(),
+        "target_type": str(target_type).strip(),
+        "target_id": str(target_id).strip(),
+        "action_detail": str(action_detail).strip(),
+        "created_at": now_jst().strftime("%Y-%m-%d %H:%M:%S"),
+    }])
+
+    df = pd.concat([df, new_row], ignore_index=True)
+    save_db(df, "admin_logs")
 
 @st.cache_data(ttl=60)
 def get_archive_files_df_cached():
@@ -864,6 +951,86 @@ def get_archive_files_df_cached():
             if col not in df.columns:
                 df[col] = ""
     return df.fillna("")
+
+def search_shared_documents(keyword: str):
+    keyword = str(keyword).strip()
+    if not keyword:
+        return pd.DataFrame()
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+
+    archive_df = get_archive_files_df()
+    warehouse_df = get_warehouse_files_df()
+
+    result_rows = []
+
+    # 書類アップロード（事業所内限定）
+    if archive_df is not None and not archive_df.empty:
+        work = archive_df.copy()
+        work = work[
+            (work["company_id"].astype(str) == company_id) &
+            (work["is_deleted"].astype(str) != "1")
+        ].copy()
+
+        hit = work[
+            work["title"].astype(str).str.contains(keyword, case=False, na=False) |
+            work["description"].astype(str).str.contains(keyword, case=False, na=False) |
+            work["tags"].astype(str).str.contains(keyword, case=False, na=False) |
+            work["file_name"].astype(str).str.contains(keyword, case=False, na=False)
+        ].copy()
+
+        for _, row in hit.iterrows():
+            result_rows.append({
+                "source": "書類アップロード",
+                "id": str(row.get("archive_file_id", "")).strip(),
+                "title": str(row.get("title", "")).strip(),
+                "description": str(row.get("description", "")).strip(),
+                "category_main": str(row.get("category_main", "")).strip(),
+                "category_sub": str(row.get("category_sub", "")).strip(),
+                "file_name": str(row.get("file_name", "")).strip(),
+                "visibility_type": "normal",
+                "updated_at": str(row.get("updated_at", "")).strip(),
+            })
+
+    # 倉庫（全体共通）
+    if warehouse_df is not None and not warehouse_df.empty:
+        work = warehouse_df.copy()
+        work = work[
+            (work["is_deleted"].astype(str) != "1") &
+            (work["is_searchable"].astype(str) == "1")
+        ].copy()
+
+        hit = work[
+            work["title"].astype(str).str.contains(keyword, case=False, na=False) |
+            work["description"].astype(str).str.contains(keyword, case=False, na=False) |
+            work["tags"].astype(str).str.contains(keyword, case=False, na=False) |
+            work["file_name"].astype(str).str.contains(keyword, case=False, na=False)
+        ].copy()
+
+        for _, row in hit.iterrows():
+            result_rows.append({
+                "source": "倉庫",
+                "id": str(row.get("file_id", "")).strip(),
+                "title": str(row.get("title", "")).strip(),
+                "description": str(row.get("description", "")).strip(),
+                "category_main": str(row.get("category_main", "")).strip(),
+                "category_sub": str(row.get("category_sub", "")).strip(),
+                "file_name": str(row.get("file_name", "")).strip(),
+                "visibility_type": str(row.get("visibility_type", "")).strip(),
+                "updated_at": str(row.get("updated_at", "")).strip(),
+            })
+
+    if not result_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(result_rows)
+
+    try:
+        df = df.sort_values(["updated_at"], ascending=[False])
+    except Exception:
+        pass
+
+    return df
 
 def get_archive_files_df():
     return get_archive_files_df_cached().copy()
@@ -1118,6 +1285,8 @@ def render_archive_page():
         uploaded_by_user_id = str(row.get("uploaded_by_user_id", "")).strip()
         created_at = str(row.get("created_at", "")).strip()
         updated_at = str(row.get("updated_at", "")).strip()
+        has_attachment = str(msg.get("has_attachment", "")).strip()
+        linked_file_id = str(msg.get("linked_file_id", "")).strip()
 
         uploader_name = uploaded_by_user_id
         try:
@@ -1166,6 +1335,12 @@ def render_archive_page():
                 if st.button("削除", key=f"archive_delete_{archive_file_id}", use_container_width=True):
                     ok = soft_delete_archive_file(archive_file_id)
                     if ok:
+                        create_admin_log(
+                            action_type="delete_archive_file",
+                            target_type="archive_file",
+                            target_id=archive_file_id,
+                            action_detail=f"title={title}"
+                        )
                         st.success("削除したある。")
                         st.rerun()
                     else:
@@ -1282,11 +1457,52 @@ def create_chat_room(
     return room_id
 
 
-def create_chat_message(room_id, message_text):
+def create_chat_message(room_id, message_text, attached_file=None):
     df = get_chat_messages_df()
 
     now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
     message_id = get_next_message_id()
+
+    has_attachment = "0"
+    attachment_type = ""
+    linked_file_id = ""
+
+    if attached_file is not None:
+        # チャット添付は倉庫へ自動保存
+        visibility_type = "public"
+        room_df = get_chat_rooms_df()
+        room_row = room_df[room_df["room_id"].astype(str) == str(room_id).strip()].copy()
+
+        if not room_row.empty:
+            room_type = str(room_row.iloc[0].get("room_type", "")).strip()
+            room_pw = str(room_row.iloc[0].get("room_password", "")).strip()
+
+            if room_type == "limited":
+                visibility_type = "limited"
+            elif room_type == "private":
+                visibility_type = "private"
+            else:
+                visibility_type = "public"
+
+            linked_file_id = save_warehouse_file(
+                title=f"[チャット添付] {attached_file.name}",
+                description=f"チャットルーム {room_id} から自動保存",
+                category_main="チャット添付",
+                category_sub=str(room_id).strip(),
+                tags="チャット添付,自動保存",
+                uploaded_file=attached_file,
+                visibility_type=visibility_type,
+                download_password=room_pw if room_type in ["limited", "private"] else "",
+                is_searchable="1",
+                source_room_id=str(room_id).strip(),
+            )
+
+            has_attachment = "1"
+            lower_name = str(attached_file.name).lower()
+            if "." in lower_name:
+                attachment_type = lower_name.rsplit(".", 1)[-1]
+            else:
+                attachment_type = "other"
 
     new_row = pd.DataFrame([{
         "message_id": message_id,
@@ -1295,9 +1511,9 @@ def create_chat_message(room_id, message_text):
         "display_name": str(st.session_state.get("user", "")).strip(),
         "company_id": str(st.session_state.get("company_id", "")).strip(),
         "message_text": str(message_text).strip(),
-        "has_attachment": "0",
-        "attachment_type": "",
-        "linked_file_id": "",
+        "has_attachment": has_attachment,
+        "attachment_type": attachment_type,
+        "linked_file_id": linked_file_id,
         "is_deleted": "0",
         "created_at": now_str,
         "updated_at": now_str,
@@ -1480,12 +1696,16 @@ def render_chat_room_page():
                 st.divider()
 
                 post_text = st.text_area("メッセージ", key="chat_post_text", height=100)
+                attached_file = st.file_uploader(
+                    "添付ファイル（あれば倉庫へ自動保存）",
+                    key=f"chat_attach_{selected_room_id}"
+                )
 
                 if st.button("投稿する", key="chat_post_button", use_container_width=True):
-                    if not post_text.strip():
-                        st.error("メッセージを入れてほしいある。")
+                    if not post_text.strip() and attached_file is None:
+                        st.error("メッセージか添付のどちらかを入れてほしいある。")
                     else:
-                        create_chat_message(selected_room_id, post_text)
+                        create_chat_message(selected_room_id, post_text, attached_file=attached_file)
                         st.success("投稿したある！")
                         st.rerun()
 
@@ -1512,11 +1732,16 @@ def render_chat_room_page():
                         message_text = str(msg.get("message_text", "")).strip()
                         created_at = str(msg.get("created_at", "")).strip()
 
+                        attach_text = ""
+                        if has_attachment == "1" and linked_file_id:
+                            attach_text = f"<div style='margin-top:6px;color:#2563eb;'>📎 添付あり（倉庫ID: {linked_file_id}）</div>"
+
                         st.markdown(
                             f"""
                             <div style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:10px;background:#fff;">
                                 <div style="font-size:13px;color:#666;"><b>{display_name}</b> / {company_id} / {created_at}</div>
                                 <div style="margin-top:6px;white-space:pre-wrap;">{message_text}</div>
+                                {attach_text}
                             </div>
                             """,
                             unsafe_allow_html=True
@@ -9655,7 +9880,23 @@ elif page == "⓪ 検索":
     # ------------------------------------------
     st.markdown("## 書類検索")
 
-    keyword = st.text_input("キーワード")
+    shared_keyword = st.text_input("書類アップロード・倉庫を検索", key="shared_doc_search")
+
+    if shared_keyword.strip():
+        result_df = search_shared_documents(shared_keyword)
+
+        if result_df.empty:
+            st.info("該当する資料がないある。")
+        else:
+            st.markdown(f"### 検索結果（{len(result_df)}件）")
+            for _, row in result_df.iterrows():
+                st.markdown("---")
+                st.markdown(f"## {row['title']}")
+                st.caption(f"{row['source']} / {row['id']} / {row['file_name']}")
+                st.write(row["description"])
+                st.caption(f"カテゴリ: {row['category_main']} / {row['category_sub']}")
+                if row["source"] == "倉庫":
+                    st.caption(f"公開設定: {row['visibility_type']}")
 
     # ------------------------------------------
     # 関係者検索
@@ -9915,6 +10156,38 @@ elif page == "⓪ 検索":
                         use_container_width=True
                     )
 
+def render_admin_logs_mini():
+    if not bool(st.session_state.get("is_admin", False)):
+        return
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+    df = get_admin_logs_df()
+
+    if df is None or df.empty:
+        return
+
+    work = df[df["company_id"].astype(str) == company_id].copy()
+
+    try:
+        work = work.sort_values(["created_at"], ascending=[False])
+    except Exception:
+        pass
+
+    with st.expander("管理者ログを見る"):
+        if work.empty:
+            st.info("まだログがないある。")
+        else:
+            st.dataframe(
+                work[[
+                    "created_at",
+                    "acted_by_display_name",
+                    "action_type",
+                    "target_type",
+                    "target_id",
+                    "action_detail",
+                ]],
+                use_container_width=True
+            )
 
 def render_secret_generation_panel(doc_title: str):
     st.info("🤫 秘密モードある。ここに後で『新しい方針欄』『過去のデータから作成』『Gemini自動入力』を追加していくある。")
