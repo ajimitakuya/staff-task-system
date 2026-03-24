@@ -561,7 +561,7 @@ def get_archive_download_data(row):
     return file_bytes, file_name, mime
 
 def render_archive_page():
-    st.title("☁ 書類アップロード")
+    st.title("📤 書類アップロード")
     st.caption("この事業所だけで共有する資料置き場ある。")
 
     current_company_id = str(st.session_state.get("company_id", "")).strip()
