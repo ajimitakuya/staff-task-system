@@ -56,6 +56,11 @@ COMMON_SHEETS = {
     "active_users",
     "companies",
     "users",
+    "chat_rooms",
+    "chat_messages",
+    "warehouse_files",
+    "archive_files",
+    "admin_logs",
 }
 
 # st.write("DEBUG_COMMON_SHEETS", COMMON_SHEETS)
