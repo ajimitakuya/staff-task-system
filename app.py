@@ -2173,7 +2173,6 @@ main_page_options = [
     "⑧ 緊急一覧",
     "⑨ 利用者情報",
     "⑩ 書類アップロード",
-    "休憩室",
 ]
 
 document_page_options = [
@@ -6386,6 +6385,20 @@ if st.sidebar.button(f"未着手全体: {todo_count}件", key="go_todo_board", u
 
 # ここを追加するある
 page = st.session_state.get("current_page", "① 未着手の任務（掲示板）")
+
+st.sidebar.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+
+is_break_selected = (st.session_state.current_page == "休憩室")
+
+if is_break_selected:
+    st.sidebar.markdown(
+        '<div class="menu-selected-wrap"><div class="menu-selected-box">● 🍵休憩室🍵</div></div>',
+        unsafe_allow_html=True
+    )
+else:
+    if st.sidebar.button("🍵休憩室🍵", key="menu_break_room_fixed", use_container_width=True):
+        st.session_state.current_page = "休憩室"
+        st.rerun()
 # ==========================================
 # ① 未着手の任務（掲示板）
 # ==========================================
