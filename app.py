@@ -42,7 +42,7 @@ def get_genai_client():
 
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
-st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
+# st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
 
 # --- 🔌 スプレッドシート接続設定 ---
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -58,7 +58,7 @@ COMMON_SHEETS = {
     "users",
 }
 
-st.write("DEBUG_COMMON_SHEETS", COMMON_SHEETS)
+# st.write("DEBUG_COMMON_SHEETS", COMMON_SHEETS)
 
 OFFICE_SHEETS = {
     "resident_master",
@@ -1886,7 +1886,7 @@ if "auth_mode" not in st.session_state:
 
 if "company_authenticated" not in st.session_state or not st.session_state.company_authenticated:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
-    st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
+    # st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
     st.warning("### 事業所ログインある💻")
 
     company_login_id = st.text_input("事業所ID", key="company_login_id_input")
@@ -1909,7 +1909,7 @@ if "company_authenticated" not in st.session_state or not st.session_state.compa
 
 if "user" not in st.session_state:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
-    st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
+    # st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
     st.success(f"事業所: {st.session_state.get('company_name', '')}")
     st.warning("### 個人ログインある💻")
 
@@ -2173,7 +2173,7 @@ main_page_options = [
     "⑧ 緊急一覧",
     "⑨ 利用者情報",
     "⑩ 書類アップロード",
-    "🍵休憩室🍵",
+    "休憩室",
 ]
 
 document_page_options = [
@@ -5364,12 +5364,12 @@ def get_knowbe_credentials_from_app():
         import os
         password = os.environ.get(secret_pass_key, "")
 
-    st.info(f"DEBUG office_key = {office_key}")
-    st.info(f"DEBUG user_key = {secret_user_key}")
-    st.info(f"DEBUG pass_key = {secret_pass_key}")
-    st.info(f"DEBUG username exists = {bool(str(username).strip())}")
-    st.info(f"DEBUG password exists = {bool(str(password).strip())}")
-    st.write("DEBUG keys:", list(st.secrets.keys()))
+    # st.info(f"DEBUG office_key = {office_key}")
+    # st.info(f"DEBUG user_key = {secret_user_key}")
+    # st.info(f"DEBUG pass_key = {secret_pass_key}")
+    # st.info(f"DEBUG username exists = {bool(str(username).strip())}")
+    # st.info(f"DEBUG password exists = {bool(str(password).strip())}")
+    # st.write("DEBUG keys:", list(st.secrets.keys()))
 
     return str(username).strip(), str(password).strip()
 
@@ -5394,23 +5394,23 @@ def send_to_knowbe_from_bee(
 ):
     import traceback
 
-    st.warning("SEND_TO_KNOWBE_FROM_BEE CALLED / 2026-03-21-knowbe-debug-02")
+    # st.warning("SEND_TO_KNOWBE_FROM_BEE CALLED / 2026-03-21-knowbe-debug-02")
 
     login_username, login_password = get_knowbe_credentials_from_app()
 
-    st.info(f"DEBUG username exists = {bool(str(login_username).strip())}")
-    st.info(f"DEBUG password exists = {bool(str(login_password).strip())}")
-    st.write("DEBUG keys:", list(st.secrets.keys()))
+    # st.info(f"DEBUG username exists = {bool(str(login_username).strip())}")
+    # st.info(f"DEBUG password exists = {bool(str(login_password).strip())}")
+    # st.write("DEBUG keys:", list(st.secrets.keys()))
 
     if not login_username or not login_password:
         raise RuntimeError("app.py 側で KB_LOGIN_USERNAME / KB_LOGIN_PASSWORD を取得できなかったある")
 
     try:
-        st.write("DEBUG 1: import send_one_record_from_app start")
+        # st.write("DEBUG 1: import send_one_record_from_app start")
         from run_assistance import send_one_record_from_app  # type: ignore
-        st.write("DEBUG 2: import send_one_record_from_app done")
+        # st.write("DEBUG 2: import send_one_record_from_app done")
 
-        st.write("DEBUG 3: send_one_record_from_app start")
+        # st.write("DEBUG 3: send_one_record_from_app start")
         ok = send_one_record_from_app(
             target_date=str(target_date).strip(),
             resident_name=str(resident_name).strip(),
@@ -5430,11 +5430,11 @@ def send_to_knowbe_from_bee(
             work_break_time=str(work_break_time).strip(),
             work_memo=str(work_memo).strip(),
         )
-        st.write(f"DEBUG 4: send_one_record_from_app returned = {ok}")
+        # st.write(f"DEBUG 4: send_one_record_from_app returned = {ok}")
 
     except Exception as e:
-        st.error(f"DEBUG EXCEPTION TYPE: {type(e).__name__}")
-        st.error(f"DEBUG EXCEPTION MSG: {e}")
+        # st.error(f"DEBUG EXCEPTION TYPE: {type(e).__name__}")
+        # st.error(f"DEBUG EXCEPTION MSG: {e}")
         st.code(traceback.format_exc())
         raise
 
