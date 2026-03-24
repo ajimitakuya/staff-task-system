@@ -54,8 +54,8 @@ COMMON_SHEETS = {
     "record_status",
     "calendar",
     "active_users",
-    "companies"
-    "users"
+    "companies",
+    "users",
 }
 
 st.write("DEBUG_COMMON_SHEETS", COMMON_SHEETS)
