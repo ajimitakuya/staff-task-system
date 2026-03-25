@@ -1999,14 +1999,11 @@ def run_daily_records(driver, excel_path: str, items: List[PersonItem], targets:
 
 def _normalize_service_for_app(service_type: str, knowbe_target: str) -> str:
     s = norm(service_type)
-    k = norm(knowbe_target)
 
-    if s in ("通所", "施設外就労"):
-        return s
-
-    if k in ("facility_outside", "outside", "施設外", "施設外就労"):
+    if s == "施設外就労":
         return "施設外就労"
 
+    # 在宅も通所も、Knowbeの実績送信用には通所扱いに寄せる
     return "通所"
 
 
