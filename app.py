@@ -1759,26 +1759,6 @@ def render_chat_room_page():
                             unsafe_allow_html=True
                         )
 
-                        display_name = str(msg.get("display_name", "")).strip()
-                        company_id = str(msg.get("company_id", "")).strip()
-                        message_text = str(msg.get("message_text", "")).strip()
-                        created_at = str(msg.get("created_at", "")).strip()
-
-                        attach_text = ""
-                        if has_attachment == "1" and linked_file_id:
-                            attach_text = f"<div style='margin-top:6px;color:#2563eb;'>📎 添付あり（倉庫ID: {linked_file_id}）</div>"
-
-                        st.markdown(
-                            f"""
-                            <div style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:10px;background:#fff;">
-                                <div style="font-size:13px;color:#666;"><b>{display_name}</b> / {company_id} / {created_at}</div>
-                                <div style="margin-top:6px;white-space:pre-wrap;">{message_text}</div>
-                                {attach_text}
-                            </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
-
 @st.cache_data(ttl=60)
 def get_user_company_permissions_df_cached():
     df = load_db("user_company_permissions")
@@ -1978,6 +1958,10 @@ def authenticate_user_login(company_id: str, login_id: str, login_password: str)
     st.write("DEBUG auth matched users =", len(target))
 
     if target.empty:
+        return None
+
+    if not company_id:
+        st.error("company_idが空ある（事業所ログイン壊れてる）")
         return None
 
     row = target.iloc[0].to_dict()
@@ -3337,14 +3321,13 @@ if "company_authenticated" not in st.session_state or not st.session_state.compa
             st.session_state.company_name = str(row.get("company_name", "")).strip()
             st.session_state.company_code = str(row.get("company_code", "")).strip()
 
-            # 既存で使ってるなら残す
             st.session_state.office_key = (
-                "home" if str(row.get("company_code", "")).strip() == "relife_home" else "support"
+                "home" if st.session_state.company_code == "relife_home" else "support"
             )
 
-            # 事業所ログイン済みフラグがあるならそれも
             st.session_state.company_logged_in = True
 
+            st.success(f"{st.session_state.company_name} にログインしたある")
             st.rerun()
 
 if "user" not in st.session_state:
