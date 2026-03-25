@@ -3092,43 +3092,59 @@ def save_db(df, file, retries=3, delay=1.0):
 
 def update_active_user():
     current_user = str(st.session_state.get("user", "")).strip()
-    current_company_id = str(st.session_state.get("company_id", "")).strip()
-
-    # まだ個人ログイン前なら何もしない
-    if not current_user or not current_company_id:
+    if not current_user:
         return
 
-    df = load_db("active_users")
+    active_df = load_db("active_users")
 
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=["user", "login_at", "last_seen"])
+    if active_df is None or active_df.empty:
+        active_df = pd.DataFrame(columns=["user", "login_at", "last_seen"])
+    else:
+        for col in ["user", "login_at", "last_seen"]:
+            if col not in active_df.columns:
+                active_df[col] = ""
 
-    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M")
 
-    mask = df["user"].astype(str).str.strip() == current_user
+    keep_rows = []
+    now_naive = now_jst().replace(tzinfo=None)
 
-    if mask.any():
-        df.loc[mask, "last_seen"] = now_str
+    for _, row in active_df.fillna("").iterrows():
+        last_seen = str(row.get("last_seen", "")).strip()
+        if not last_seen:
+            continue
+        try:
+            last_dt = pd.to_datetime(last_seen).to_pydatetime()
+            if (now_naive - last_dt).total_seconds() <= 15 * 60:
+                keep_rows.append(row)
+        except Exception:
+            pass
+
+    active_df = pd.DataFrame(keep_rows) if keep_rows else pd.DataFrame(columns=["user", "login_at", "last_seen"])
+
+    if current_user in active_df["user"].astype(str).tolist():
+        active_df.loc[active_df["user"] == current_user, "last_seen"] = now_str
     else:
         new_row = pd.DataFrame([{
             "user": current_user,
-            "login_at": now_str,
-            "last_seen": now_str,
+            "login_at": st.session_state.get("login_at", now_str),
+            "last_seen": now_str
         }])
-        df = pd.concat([df, new_row], ignore_index=True)
+        active_df = pd.concat([active_df, new_row], ignore_index=True)
 
-    save_db(df, "active_users")
+    save_db(active_df, "active_users")
 
 def heartbeat_active_user():
     if "user" not in st.session_state:
         return
-    update_active_user()
 
-    # 5分に1回だけ更新
+    now_ts = now_jst().timestamp()
+    last_ping = st.session_state.get("last_active_ping", 0)
+
     if now_ts - last_ping >= 300:
         update_active_user()
         st.session_state["last_active_ping"] = now_ts
-
+        
 def sync_task_events_to_calendar():
     task_df = load_db("task")
     cal_df = load_db("calendar")
@@ -3326,6 +3342,8 @@ if "company_authenticated" not in st.session_state:
 if "auth_mode" not in st.session_state:
     st.session_state.auth_mode = "login"   # login / change
 
+
+# ---------- 事業所ログイン前 ----------
 if not st.session_state.get("company_authenticated", False):
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
     st.warning("### 事業所ログインある💻")
@@ -3350,7 +3368,11 @@ if not st.session_state.get("company_authenticated", False):
             st.session_state.company_authenticated = True
             st.rerun()
 
-if st.session_state.get("company_authenticated", False) and "user" not in st.session_state:
+    st.stop()
+
+
+# ---------- 個人ログイン前 ----------
+if "user" not in st.session_state:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
     st.success(f"事業所: {st.session_state.get('company_name', '')}")
     st.warning("### 個人ログインある💻")
@@ -3367,6 +3389,7 @@ if st.session_state.get("company_authenticated", False) and "user" not in st.ses
         if st.button("ID・パスワード変更", use_container_width=True, key="open_change_idpw"):
             st.session_state.auth_mode = "change"
             st.rerun()
+
     with top_cols[1]:
         if st.button("事業所切り替え", use_container_width=True, key="back_to_company_login"):
             for k in [
@@ -3391,6 +3414,7 @@ if st.session_state.get("company_authenticated", False) and "user" not in st.ses
                 user_login_id,
                 user_login_password
             )
+
             if row is None:
                 st.error("ID・パスワード、または事業所権限を確認してほしいある。")
             else:
@@ -3400,54 +3424,7 @@ if st.session_state.get("company_authenticated", False) and "user" not in st.ses
                 st.session_state.login_at = now_jst().strftime("%Y-%m-%d %H:%M")
                 st.session_state.last_active_ping = 0
                 st.session_state.auth_mode = "login"
-                create_admin_log(
-                    action_type="user_login",
-                    target_type="user",
-                    target_id=str(row.get("user_id", "")).strip(),
-                    action_detail=f"display_name={str(row.get('display_name', '')).strip()}"
-                )
                 st.rerun()
-
-    else:
-        st.info("現在のID/パスワードが正しければ、新しいID/パスワードへ変更できるある。")
-
-        current_id = st.text_input("現在のID", key="chg_current_id")
-        current_pw = st.text_input("現在のパスワード", type="password", key="chg_current_pw")
-        new_id = st.text_input("新しいID", key="chg_new_id")
-        new_pw = st.text_input("新しいパスワード", type="password", key="chg_new_pw")
-        new_pw2 = st.text_input("新しいパスワード（確認）", type="password", key="chg_new_pw2")
-
-        change_cols = st.columns([1, 1])
-        with change_cols[0]:
-            if st.button("変更を保存", use_container_width=True, key="save_change_idpw"):
-                if not new_id.strip():
-                    st.error("新しいIDを入れてほしいある。")
-                elif new_pw != new_pw2:
-                    st.error("新しいパスワード確認が一致してないある。")
-                elif not is_valid_user_password(new_pw):
-                    st.error("パスワードは8文字以上・英数混合・大文字必須ある。")
-                else:
-                    ok, msg = update_user_login_credentials(
-                        st.session_state.get("company_id", ""),
-                        current_id,
-                        current_pw,
-                        new_id,
-                        new_pw
-                    )
-                    if ok:
-                        st.success(msg)
-                        st.session_state.auth_mode = "login"
-                        st.rerun()
-                    else:
-                        st.error(msg)
-
-        with change_cols[1]:
-            if st.button("戻る", use_container_width=True, key="cancel_change_idpw"):
-                st.session_state.auth_mode = "login"
-                st.rerun()
-
-    if admin_exists and bool(st.session_state.get("is_admin_preview", False)):
-        render_admin_staff_manage_block()
 
     st.stop()
 
