@@ -1929,6 +1929,7 @@ def get_users_df_cached():
                 df[col] = ""
     return df.fillna("")
 
+
 def get_users_df():
     return get_users_df_cached().copy()
 
@@ -3360,13 +3361,6 @@ if "user" not in st.session_state:
             st.rerun()
 
     st.divider()
-
-    company_id = str(st.session_state.get("company_id", "")).strip()
-    admin_exists = company_has_any_admin(company_id)
-
-    if not admin_exists:
-        render_first_staff_register_block(key_prefix="company_login_first_staff")
-        st.divider()
 
     if st.session_state.get("auth_mode", "login") == "login":
         user_login_id = st.text_input("ID", key="user_login_id_input")
