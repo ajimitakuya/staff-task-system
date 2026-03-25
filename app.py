@@ -3091,50 +3091,38 @@ def save_db(df, file, retries=3, delay=1.0):
         raise last_error
 
 def update_active_user():
-    active_df = load_db("active_users")
+    current_user = str(st.session_state.get("user", "")).strip()
+    current_company_id = str(st.session_state.get("company_id", "")).strip()
 
-    if active_df is None or active_df.empty:
-        active_df = pd.DataFrame(columns=["user", "login_at", "last_seen"])
-    else:
-        for col in ["user", "login_at", "last_seen"]:
-            if col not in active_df.columns:
-                active_df[col] = ""
+    # まだ個人ログイン前なら何もしない
+    if not current_user or not current_company_id:
+        return
 
-    now_str = now_jst().strftime("%Y-%m-%d %H:%M")
+    df = load_db("active_users")
 
-    keep_rows = []
-    now_naive = now_jst().replace(tzinfo=None)
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["user", "login_at", "last_seen"])
 
-    for _, row in active_df.fillna("").iterrows():
-        last_seen = str(row.get("last_seen", "")).strip()
-        if not last_seen:
-            continue
-        try:
-            last_dt = pd.to_datetime(last_seen).to_pydatetime()
-            if (now_naive - last_dt).total_seconds() <= 15 * 60:
-                keep_rows.append(row)
-        except Exception:
-            pass
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
-    active_df = pd.DataFrame(keep_rows) if keep_rows else pd.DataFrame(columns=["user", "login_at", "last_seen"])
+    mask = df["user"].astype(str).str.strip() == current_user
 
-    current_user = st.session_state.user
-
-    if current_user in active_df["user"].astype(str).tolist():
-        active_df.loc[active_df["user"] == current_user, "last_seen"] = now_str
+    if mask.any():
+        df.loc[mask, "last_seen"] = now_str
     else:
         new_row = pd.DataFrame([{
             "user": current_user,
-            "login_at": st.session_state.get("login_at", now_str),
-            "last_seen": now_str
+            "login_at": now_str,
+            "last_seen": now_str,
         }])
-        active_df = pd.concat([active_df, new_row], ignore_index=True)
+        df = pd.concat([df, new_row], ignore_index=True)
 
-    save_db(active_df, "active_users")
+    save_db(df, "active_users")
 
 def heartbeat_active_user():
-    now_ts = now_jst().timestamp()
-    last_ping = st.session_state.get("last_active_ping", 0)
+    if "user" not in st.session_state:
+        return
+    update_active_user()
 
     # 5分に1回だけ更新
     if now_ts - last_ping >= 300:
