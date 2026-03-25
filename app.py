@@ -3950,6 +3950,10 @@ for p in main_page_options:
             f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {display_p}</div></div>',
             unsafe_allow_html=True
         )
+    else:
+        if st.sidebar.button(display_p, key=f"menu_{p}", use_container_width=True):
+            st.session_state.current_page = p
+            st.rerun()
 
 # ===== 利用者書類 =====
 st.sidebar.markdown("### 利用者書類")
