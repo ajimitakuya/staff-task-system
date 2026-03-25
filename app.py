@@ -1800,10 +1800,10 @@ def get_user_company_permissions_df():
 def get_company_permissions_df(company_id: str):
     df = get_user_company_permissions_df()
 
-    st.write("DEBUG raw permissions df =", df)
+    # st.write("DEBUG raw permissions df =", df)
 
     if df is None or df.empty:
-        st.write("DEBUG permissions df is empty")
+        # st.write("DEBUG permissions df is empty")
         return pd.DataFrame(columns=[
             "permission_id",
             "user_id",
@@ -1818,8 +1818,8 @@ def get_company_permissions_df(company_id: str):
 
     work = df.copy()
 
-    st.write("DEBUG input company_id =", company_id)
-    st.write("DEBUG before normalize =", work)
+    # st.write("DEBUG input company_id =", company_id)
+    # st.write("DEBUG before normalize =", work)
 
     work["company_id"] = work["company_id"].fillna("").astype(str).str.strip()
     work["user_id"] = work["user_id"].fillna("").astype(str).str.strip()
@@ -1840,12 +1840,12 @@ def get_company_permissions_df(company_id: str):
 
     work["status"] = work["status"].fillna("").astype(str).str.strip().str.lower()
 
-    st.write("DEBUG company_id unique =", work["company_id"].unique())
-    st.write("DEBUG user_id unique =", work["user_id"].unique())
-    st.write("DEBUG can_use unique =", work["can_use"].unique())
-    st.write("DEBUG is_admin unique =", work["is_admin"].unique())
-    st.write("DEBUG status unique =", work["status"].unique())
-    st.write("DEBUG before filter =", work)
+    # st.write("DEBUG company_id unique =", work["company_id"].unique())
+    # st.write("DEBUG user_id unique =", work["user_id"].unique())
+    # st.write("DEBUG can_use unique =", work["can_use"].unique())
+    # st.write("DEBUG is_admin unique =", work["is_admin"].unique())
+    # st.write("DEBUG status unique =", work["status"].unique())
+    # st.write("DEBUG before filter =", work)
 
     work = work[
         (work["company_id"] == str(company_id).strip()) &
@@ -1853,7 +1853,7 @@ def get_company_permissions_df(company_id: str):
         (work["status"] != "inactive")
     ].copy()
 
-    st.write("DEBUG after filter =", work)
+    # st.write("DEBUG after filter =", work)
 
     return work
 
@@ -1972,11 +1972,11 @@ def authenticate_company_login(login_id: str, login_password: str):
 
 def authenticate_user_login(company_id: str, login_id: str, login_password: str):
     users_df = get_users_df()
-    st.write("DEBUG auth company_id =", company_id)
-    st.write("DEBUG auth login_id =", login_id)
+    # st.write("DEBUG auth company_id =", company_id)
+    # st.write("DEBUG auth login_id =", login_id)
 
     if users_df is None or users_df.empty:
-        st.write("DEBUG users empty")
+        # st.write("DEBUG users empty")
         return None
 
     work = users_df.copy()
@@ -1984,7 +1984,7 @@ def authenticate_user_login(company_id: str, login_id: str, login_password: str)
     work["user_login_password"] = work["user_login_password"].astype(str).str.strip()
     work["status"] = work["status"].astype(str).str.strip().str.lower()
 
-    st.write("DEBUG users before filter =", work)
+    # st.write("DEBUG users before filter =", work)
 
     target = work[
         (work["user_login_id"] == str(login_id).strip()) &
@@ -1992,8 +1992,8 @@ def authenticate_user_login(company_id: str, login_id: str, login_password: str)
         (work["status"] == "active")
     ]
 
-    st.write("DEBUG auth matched users =", len(target))
-    st.write("DEBUG auth matched rows =", target)
+    # st.write("DEBUG auth matched users =", len(target))
+    # st.write("DEBUG auth matched rows =", target)
 
     if target.empty:
         return None
@@ -2001,13 +2001,13 @@ def authenticate_user_login(company_id: str, login_id: str, login_password: str)
     row = target.iloc[0].to_dict()
     user_id = str(row.get("user_id", "")).strip()
 
-    st.write("DEBUG auth user_id =", user_id)
+    # st.write("DEBUG auth user_id =", user_id)
 
     can_use = user_can_use_company(user_id, company_id)
     is_admin = user_is_company_admin(user_id, company_id)
 
-    st.write("DEBUG auth can_use =", can_use)
-    st.write("DEBUG auth is_admin =", is_admin)
+    # st.write("DEBUG auth can_use =", can_use)
+    # st.write("DEBUG auth is_admin =", is_admin)
 
     if not can_use:
         return None
