@@ -1824,6 +1824,41 @@ def render_chat_room_page():
                             unsafe_allow_html=True
                         )
 
+def render_other_office_register_page():
+    st.title("🪪 他事業所へ登録")
+    st.caption("現在ログインしている自分を、別の事業所にも登録するページある。")
+
+    top_cols = st.columns([1, 1])
+
+    with top_cols[0]:
+        if st.button("← 戻る", key="back_from_other_office_register", use_container_width=True):
+            st.session_state.current_page = "① 未着手の任務（掲示板）"
+            st.rerun()
+
+    with top_cols[1]:
+        st.info(f"現在ログイン中: {st.session_state.get('company_name', '')} / {st.session_state.get('user', '')}")
+
+    st.divider()
+
+    st.write("### 他の事業所へ登録する")
+
+    target_company_login_id = st.text_input("事業所ID", key="cross_reg_company_login_id")
+    target_company_login_password = st.text_input("事業所パスワード", type="password", key="cross_reg_company_login_pw")
+    entered_user_login_id = st.text_input("職員ID", key="cross_reg_user_login_id")
+    entered_display_name = st.text_input("名前（ハンドルネーム）", key="cross_reg_display_name")
+
+    if st.button("登録する", key="cross_reg_submit", use_container_width=True):
+        ok, msg = register_current_user_to_other_company(
+            target_company_login_id=target_company_login_id,
+            target_company_login_password=target_company_login_password,
+            entered_user_login_id=entered_user_login_id,
+            entered_display_name=entered_display_name,
+        )
+        if ok:
+            st.success(msg)
+        else:
+            st.warning(msg)
+
 @st.cache_data(ttl=60)
 def get_user_company_permissions_df_cached():
     df = load_db("user_company_permissions")
@@ -2164,6 +2199,108 @@ def create_user_with_permission(
 
     return True, user_id
 
+def register_current_user_to_other_company(
+    target_company_login_id: str,
+    target_company_login_password: str,
+    entered_user_login_id: str,
+    entered_display_name: str,
+):
+    current_company_id = str(st.session_state.get("company_id", "")).strip()
+    current_user_id = str(st.session_state.get("user_id", "")).strip()
+
+    if not current_user_id:
+        return False, "個人ログイン情報が見つからないある。"
+
+    target_company_login_id = str(target_company_login_id).strip()
+    target_company_login_password = str(target_company_login_password).strip()
+    entered_user_login_id = str(entered_user_login_id).strip()
+    entered_display_name = str(entered_display_name).strip()
+
+    if not target_company_login_id:
+        return False, "事業所IDを入れてほしいある。"
+    if not target_company_login_password:
+        return False, "事業所パスワードを入れてほしいある。"
+    if not entered_user_login_id:
+        return False, "職員IDを入れてほしいある。"
+    if not entered_display_name:
+        return False, "名前（ハンドルネーム）を入れてほしいある。"
+
+    # 入力された事業所ID/パスワードで対象事業所を認証
+    company_row = authenticate_company_login(
+        target_company_login_id,
+        target_company_login_password
+    )
+    if company_row is None:
+        return False, "事業所IDまたは事業所パスワードが違うある。"
+
+    target_company_id = str(company_row.get("company_id", "")).strip()
+    target_company_name = str(company_row.get("company_name", "")).strip()
+
+    if not target_company_id:
+        return False, "対象事業所が見つからないある。"
+
+    if target_company_id == current_company_id:
+        return False, "現在ログインしている事業所と同じある。別事業所を入れてほしいある。"
+
+    users_df = get_users_df()
+    my_row_df = users_df[
+        users_df["user_id"].astype(str).str.strip() == current_user_id
+    ].copy()
+
+    if my_row_df.empty:
+        return False, "現在の職員情報が見つからないある。"
+
+    my_row = my_row_df.iloc[0]
+    real_user_login_id = str(my_row.get("user_login_id", "")).strip()
+    real_display_name = str(my_row.get("display_name", "")).strip()
+    user_status = str(my_row.get("status", "")).strip().lower()
+
+    if user_status != "active":
+        return False, "この職員は現在有効ではないある。"
+
+    if entered_user_login_id != real_user_login_id or entered_display_name != real_display_name:
+        return False, "職員IDまたは名前（ハンドルネーム）が現在ログイン中の情報と一致しないある。"
+
+    perm_df = get_user_company_permissions_df()
+
+    same_perm = perm_df[
+        (perm_df["user_id"].astype(str).str.strip() == current_user_id) &
+        (perm_df["company_id"].astype(str).str.strip() == target_company_id)
+    ].copy()
+
+    if not same_perm.empty:
+        active_perm = same_perm[
+            (same_perm["can_use"].astype(str).str.strip() == "1") &
+            (same_perm["status"].astype(str).str.strip().str.lower() != "inactive")
+        ]
+        if not active_perm.empty:
+            return False, "もうすでに登録されています"
+
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    new_perm_row = pd.DataFrame([{
+        "permission_id": get_next_permission_id(),
+        "user_id": current_user_id,
+        "company_id": target_company_id,
+        "can_use": "1",
+        "is_admin": "0",
+        "status": "active",
+        "created_at": now_str,
+        "updated_at": now_str,
+        "memo": "cross_company_register",
+    }])
+
+    perm_df = pd.concat([perm_df, new_perm_row], ignore_index=True)
+    save_db(perm_df, "user_company_permissions")
+
+    create_admin_log(
+        action_type="cross_company_register",
+        target_type="company_permission",
+        target_id=target_company_id,
+        action_detail=f"user_id={current_user_id}, company_name={target_company_name}"
+    )
+
+    return True, f"{target_company_name} に登録できたある。"
 
 def set_company_user_status(user_id: str, company_id: str, new_status: str = "inactive"):
     users_df = get_users_df()
@@ -3756,6 +3893,7 @@ page_options = [
     "書類_基本シート",
     "書類_就労分野シート",
     "🐝knowbe日誌入力🐝",
+    "💻他事業所へ登録💻"
     "休憩室",
     "休憩室_チャットルーム",
     "休憩室_書類アップロード",
@@ -3897,6 +4035,8 @@ def heart_label(text: str) -> str:
 
 if "bee_menu_unlocked" not in st.session_state:
     st.session_state["bee_menu_unlocked"] = False
+if "other_office_register_unlocked" not in st.session_state:
+    st.session_state["other_office_register_unlocked"] = False
 if "secret_doc_mode" not in st.session_state:
     st.session_state["secret_doc_mode"] = False
 if "heart_mode" not in st.session_state:
@@ -3932,6 +4072,8 @@ def process_secret_command():
 
     if cmd == "🐝":
         st.session_state["bee_menu_unlocked"] = True
+    elif cmd == "登録💻":
+        st.session_state["other_office_register_unlocked"] = True
     elif cmd == "🤫":
         st.session_state["secret_doc_mode"] = True
     elif cmd == "💕":
@@ -3977,7 +4119,7 @@ for page_key, label in document_page_options:
 if st.sidebar.button("個人ログアウト", use_container_width=True):
     for k in [
         "user", "user_id", "is_admin", "login_at", "last_active_ping",
-        "current_page", "bee_menu_unlocked", "secret_doc_mode",
+        "current_page", "bee_menu_unlocked", "other_office_register_unlocked", "secret_doc_mode",
         "heart_mode", "secret_bee_cmd"
     ]:
         if k in st.session_state:
@@ -3990,7 +4132,7 @@ if st.sidebar.button("事業所切り替え", use_container_width=True):
         "company_authenticated", "company_id", "company_name", "company_code",
         "company_login_id", "user", "user_id", "is_admin", "login_at",
         "last_active_ping", "current_page", "bee_menu_unlocked",
-        "secret_doc_mode", "heart_mode", "secret_bee_cmd"
+        "other_office_register_unlocked", "secret_doc_mode", "heart_mode", "secret_bee_cmd"
     ]:
         if k in st.session_state:
             del st.session_state[k]
@@ -4005,6 +4147,13 @@ if st.session_state.get("bee_menu_unlocked", False):
 
     if st.sidebar.button(knowbe_label, key="knowbe_menu_button", use_container_width=True):
         st.session_state.current_page = "🐝knowbe日誌入力🐝"
+        st.rerun()
+
+# ===== 💻他事業所へ登録（条件表示） =====
+if st.session_state.get("other_office_register_unlocked", False):
+    register_label = "💻他事業所へ登録💻"
+    if st.sidebar.button(register_label, key="other_office_register_menu_button", use_container_width=True):
+        st.session_state.current_page = "💻他事業所へ登録💻"
         st.rerun()
 
 
@@ -10940,6 +11089,8 @@ elif page == "書類_就労分野シート":
     render_work_field_form_page("就労分野シート")
 elif page == "🐝knowbe日誌入力🐝":
     render_bee_journal_page()
+elif page == "他事業所へ登録":
+    render_other_office_register_page()
 if page == "休憩室":
     render_break_room_page()
 elif page == "休憩室_チャットルーム":
