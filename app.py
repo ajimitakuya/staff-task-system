@@ -1500,7 +1500,7 @@ def create_chat_message(room_id, message_text, attached_file=None):
                 tags="チャット添付,自動保存",
                 uploaded_file=attached_file,
                 visibility_type=visibility_type,
-                download_password=room_pw if room_type in ["limited", "private"] else "",
+                download_password=room_pw if room_type == "limited" else "",
                 is_searchable="1",
                 source_room_id=str(room_id).strip(),
             )
@@ -2366,6 +2366,243 @@ def update_user_login_credentials(company_id: str, current_id: str, current_pw: 
 
     save_db(work, "users")
     return True, "IDとパスワードを変更したある"
+
+def get_company_users_for_admin(company_id: str):
+    users_df = get_users_df()
+    perm_df = get_company_permissions_df(company_id)
+
+    if users_df is None or users_df.empty or perm_df is None or perm_df.empty:
+        return pd.DataFrame()
+
+    merged = users_df.merge(
+        perm_df,
+        on="user_id",
+        how="inner",
+        suffixes=("", "_perm")
+    )
+
+    merged["display_name"] = merged["display_name"].fillna("").astype(str).str.strip()
+    merged["status_perm"] = merged["status_perm"].fillna("").astype(str).str.strip().str.lower()
+    merged["login_card_id"] = merged["login_card_id"].fillna("").astype(str).str.strip()
+
+    merged = merged[merged["status_perm"] != "inactive"].copy()
+
+    try:
+        merged = merged.sort_values(["display_name"], ascending=[True])
+    except Exception:
+        pass
+
+    return merged
+
+
+def set_user_login_card_id(user_id: str, card_id: str):
+    df = get_users_df()
+    if df is None or df.empty:
+        return False, "usersシートが空ある"
+
+    work = df.copy()
+    work["user_id"] = work["user_id"].fillna("").astype(str).str.strip()
+
+    mask = work["user_id"] == str(user_id).strip()
+    if not mask.any():
+        return False, "対象ユーザーが見つからないある"
+
+    new_card_id = str(card_id).strip()
+    if not new_card_id:
+        return False, "カードIDが空ある"
+
+    dup_mask = (
+        work["login_card_id"].fillna("").astype(str).str.strip() == new_card_id
+    ) & (~mask)
+
+    if dup_mask.any():
+        dup_name = str(work.loc[dup_mask, "display_name"].iloc[0]).strip()
+        return False, f"そのカードIDはすでに別ユーザーに登録済みある（{dup_name}）"
+
+    work.loc[mask, "login_card_id"] = new_card_id
+    work.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    save_db(work, "users")
+    return True, "カードIDを登録したある"
+
+
+def clear_user_login_card_id(user_id: str):
+    df = get_users_df()
+    if df is None or df.empty:
+        return False, "usersシートが空ある"
+
+    work = df.copy()
+    work["user_id"] = work["user_id"].fillna("").astype(str).str.strip()
+
+    mask = work["user_id"] == str(user_id).strip()
+    if not mask.any():
+        return False, "対象ユーザーが見つからないある"
+
+    work.loc[mask, "login_card_id"] = ""
+    work.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    save_db(work, "users")
+    return True, "カードIDを削除したある"
+
+
+def render_ic_card_manage_page():
+    if not bool(st.session_state.get("is_admin", False)):
+        st.error("このページは管理者専用ある。")
+        return
+
+    st.title("💳 非接触ICカード登録")
+    st.caption("usersシートの login_card_id を管理するページある。")
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+    staff_df = get_company_users_for_admin(company_id)
+
+    if staff_df is None or staff_df.empty:
+        st.info("登録対象のスタッフがまだいないある。")
+        return
+
+    tab1, tab2, tab3 = st.tabs(["新規登録", "登録変更", "登録削除"])
+
+    staff_options = [
+        (
+            str(row.get("user_id", "")).strip(),
+            f"{str(row.get('display_name', '')).strip()} "
+            f"({str(row.get('user_login_id', '')).strip()})"
+        )
+        for _, row in staff_df.iterrows()
+    ]
+
+    option_map = {label: user_id for user_id, label in staff_options}
+    labels = list(option_map.keys())
+
+    with tab1:
+        st.subheader("新規登録")
+        unregistered = staff_df[
+            staff_df["login_card_id"].fillna("").astype(str).str.strip() == ""
+        ].copy()
+
+        if unregistered.empty:
+            st.info("未登録スタッフはいないある。")
+        else:
+            new_labels = [
+                f"{str(row.get('display_name', '')).strip()} ({str(row.get('user_login_id', '')).strip()})"
+                for _, row in unregistered.iterrows()
+            ]
+            new_label_map = {
+                f"{str(row.get('display_name', '')).strip()} ({str(row.get('user_login_id', '')).strip()})":
+                str(row.get("user_id", "")).strip()
+                for _, row in unregistered.iterrows()
+            }
+
+            selected_label = st.selectbox("登録するスタッフ", new_labels, key="ic_new_user")
+            card_id_input = st.text_input(
+                "カードID",
+                key="ic_new_card_id",
+                help="当面は手入力でもOK。あとでタッチ読取につなぐある。"
+            )
+
+            if st.button("新規登録する", key="ic_register_button", use_container_width=True):
+                ok, msg = set_user_login_card_id(new_label_map[selected_label], card_id_input)
+                if ok:
+                    create_admin_log(
+                        action_type="ic_card_register",
+                        target_type="user",
+                        target_id=new_label_map[selected_label],
+                        action_detail=f"login_card_id={str(card_id_input).strip()}"
+                    )
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+
+    with tab2:
+        st.subheader("登録変更")
+        registered = staff_df[
+            staff_df["login_card_id"].fillna("").astype(str).str.strip() != ""
+        ].copy()
+
+        if registered.empty:
+            st.info("登録済みスタッフがいないある。")
+        else:
+            change_labels = [
+                f"{str(row.get('display_name', '')).strip()} "
+                f"({str(row.get('user_login_id', '')).strip()}) / "
+                f"現在: {str(row.get('login_card_id', '')).strip()}"
+                for _, row in registered.iterrows()
+            ]
+            change_label_map = {
+                f"{str(row.get('display_name', '')).strip()} "
+                f"({str(row.get('user_login_id', '')).strip()}) / "
+                f"現在: {str(row.get('login_card_id', '')).strip()}":
+                str(row.get("user_id", "")).strip()
+                for _, row in registered.iterrows()
+            }
+
+            selected_label = st.selectbox("変更するスタッフ", change_labels, key="ic_change_user")
+            new_card_id = st.text_input("新しいカードID", key="ic_change_card_id")
+
+            if st.button("登録変更する", key="ic_change_button", use_container_width=True):
+                ok, msg = set_user_login_card_id(change_label_map[selected_label], new_card_id)
+                if ok:
+                    create_admin_log(
+                        action_type="ic_card_change",
+                        target_type="user",
+                        target_id=change_label_map[selected_label],
+                        action_detail=f"new_login_card_id={str(new_card_id).strip()}"
+                    )
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+
+    with tab3:
+        st.subheader("登録削除")
+        registered = staff_df[
+            staff_df["login_card_id"].fillna("").astype(str).str.strip() != ""
+        ].copy()
+
+        if registered.empty:
+            st.info("削除対象の登録はないある。")
+        else:
+            delete_labels = [
+                f"{str(row.get('display_name', '')).strip()} "
+                f"({str(row.get('user_login_id', '')).strip()}) / "
+                f"現在: {str(row.get('login_card_id', '')).strip()}"
+                for _, row in registered.iterrows()
+            ]
+            delete_label_map = {
+                f"{str(row.get('display_name', '')).strip()} "
+                f"({str(row.get('user_login_id', '')).strip()}) / "
+                f"現在: {str(row.get('login_card_id', '')).strip()}":
+                str(row.get("user_id", "")).strip()
+                for _, row in registered.iterrows()
+            }
+
+            selected_label = st.selectbox("削除するスタッフ", delete_labels, key="ic_delete_user")
+
+            if st.button("登録削除する", key="ic_delete_button", use_container_width=True):
+                ok, msg = clear_user_login_card_id(delete_label_map[selected_label])
+                if ok:
+                    create_admin_log(
+                        action_type="ic_card_delete",
+                        target_type="user",
+                        target_id=delete_label_map[selected_label],
+                        action_detail="login_card_id cleared"
+                    )
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+
+    st.divider()
+    with st.expander("現在の登録状況を見る"):
+        view_df = staff_df[[
+            "display_name",
+            "user_login_id",
+            "login_card_id",
+            "status_perm"
+        ]].copy()
+        view_df.columns = ["表示名", "ログインID", "カードID", "状態"]
+        st.dataframe(view_df, use_container_width=True)
 
 def get_resident_master_df():
     return get_resident_master_df_cached().copy()
@@ -3782,10 +4019,14 @@ st.sidebar.text_input(
 
 # ===== 管理者メニュー =====
 if st.session_state.get("is_admin", False):
-    st.sidebar.divider()
+
     st.sidebar.markdown("### 管理者メニュー")
     if st.sidebar.button("スタッフ登録・削除", key="menu_staff_manage", use_container_width=True):
         st.session_state.current_page = "スタッフ管理"
+        st.rerun()
+
+    if st.sidebar.button("非接触ICカード登録", key="menu_ic_card_manage", use_container_width=True):
+        st.session_state.current_page = "ICカード管理"
         st.rerun()
 
 # ===== 最下部 =====
@@ -10715,3 +10956,5 @@ elif page == "スタッフ管理":
         st.error("このページは管理者専用ある。")
     else:
         render_admin_staff_manage_block()
+elif page == "ICカード管理":
+    render_ic_card_manage_page()
