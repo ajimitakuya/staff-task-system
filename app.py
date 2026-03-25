@@ -3951,8 +3951,9 @@ for p in main_page_options:
             unsafe_allow_html=True
         )
     else:
-        if st.sidebar.button(display_p, key=f"menu_{p}", use_container_width=True):
-            st.session_state.current_page = p
+        if st.sidebar.button("非接触ICカード登録", key="menu_ic_card_manage", use_container_width=True):
+            st.session_state.current_page = "ICカード管理"
+            st.write(st.session_state.current_page)
             st.rerun()
 
 
