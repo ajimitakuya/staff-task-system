@@ -2129,7 +2129,7 @@ def render_first_staff_register_block(key_prefix="first_staff"):
 
     st.info("この事業所にはまだ管理者がいないある。管理者が1人もいない間だけ、ここからスタッフ登録できるある。")
 
-    with st.expander("＋ スタッフ登録", expanded=True):
+    with st.expander("＋ スタッフ登録", expanded=False):
         display_name = st.text_input("表示名", key=f"{key_prefix}_display_name")
         user_login_id = st.text_input("ログインID", key=f"{key_prefix}_login_id")
         user_login_password = st.text_input("パスワード", type="password", key=f"{key_prefix}_login_pw")
@@ -3360,7 +3360,7 @@ if "company_authenticated" not in st.session_state or not st.session_state.compa
                 "home" if st.session_state.company_code == "relife_home" else "support"
             )
 
-            st.session_state.company_logged_in = True
+            st.session_state.company_authenticated = True
 
             st.success(f"{st.session_state.company_name} にログインしたある")
             st.rerun()
