@@ -1489,8 +1489,6 @@ def create_chat_message(room_id, message_text, attached_file=None):
 
             if room_type == "limited":
                 visibility_type = "limited"
-            elif room_type == "private":
-                visibility_type = "private"
             else:
                 visibility_type = "public"
 
@@ -1581,6 +1579,12 @@ def render_chat_room_page():
     if "selected_room_id" not in st.session_state:
         st.session_state.selected_room_id = ""
 
+    if "pending_room_id" not in st.session_state:
+        st.session_state.pending_room_id = ""
+
+    if "pending_room_type" not in st.session_state:
+        st.session_state.pending_room_type = ""
+
     top_cols = st.columns([1, 1])
 
     with top_cols[0]:
@@ -1591,6 +1595,8 @@ def render_chat_room_page():
     with top_cols[1]:
         if st.button("選択中ルームを解除", key="clear_selected_room", use_container_width=True):
             st.session_state.selected_room_id = ""
+            st.session_state.pending_room_id = ""
+            st.session_state.pending_room_type = ""
             st.rerun()
 
     st.divider()
@@ -1599,11 +1605,12 @@ def render_chat_room_page():
         room_name = st.text_input("ルーム名", key="new_room_name")
         room_type = st.selectbox(
             "公開設定",
-            ["public", "limited", "private"],
+            ["public", "limited"],
+            format_func=lambda x: "公開ルーム" if x == "public" else "制限ルーム",
             key="new_room_type"
         )
         room_password = st.text_input(
-            "ルームパスワード（limited/private用。1文字でもOK）",
+            "ルームパスワード（制限ルーム用）",
             key="new_room_password"
         )
         room_description = st.text_area("説明", key="new_room_description", height=80)
@@ -1611,8 +1618,8 @@ def render_chat_room_page():
         if st.button("ルームを作成", key="create_new_room_button", use_container_width=True):
             if not room_name.strip():
                 st.error("ルーム名を入れてほしいある。")
-            elif room_type in ["limited", "private"] and not room_password.strip():
-                st.error("その公開設定ならパスワードが必要ある。")
+            elif room_type == "limited" and not room_password.strip():
+                st.error("制限ルームにはパスワードが必要ある。")
             else:
                 new_room_id = create_chat_room(
                     room_name=room_name,
@@ -1622,6 +1629,8 @@ def render_chat_room_page():
                 )
                 st.success(f"ルーム作成完了ある！ {new_room_id}")
                 st.session_state.selected_room_id = new_room_id
+                st.session_state.pending_room_id = ""
+                st.session_state.pending_room_type = ""
                 st.rerun()
 
     st.divider()
@@ -1637,6 +1646,10 @@ def render_chat_room_page():
             work = rooms_df.copy()
             work = work[work["status"].astype(str).str.strip().str.lower() == "active"].copy()
 
+            # 部屋タイプは public / limited の2種類だけ扱う
+            work["room_type"] = work["room_type"].fillna("").astype(str).str.strip().str.lower()
+            work = work[work["room_type"].isin(["public", "limited"])].copy()
+
             try:
                 work = work.sort_values(["created_at"], ascending=[False])
             except Exception:
@@ -1645,21 +1658,73 @@ def render_chat_room_page():
             for _, row in work.iterrows():
                 room_id = str(row.get("room_id", "")).strip()
                 room_name = str(row.get("room_name", "")).strip()
-                room_type = str(row.get("room_type", "")).strip()
+                room_type = str(row.get("room_type", "")).strip().lower()
                 desc = str(row.get("description", "")).strip()
 
-                label = f"{room_name} ({room_type})"
+                if room_type == "public":
+                    room_type_label = "公開ルーム"
+                    bg_color = "#EAF7EE"
+                    line_color = "#2ECC71"
+                    dot_color = "#2ECC71"
+                else:
+                    room_type_label = "制限ルーム"
+                    bg_color = "#FCEEF5"
+                    line_color = "#F3A6C8"
+                    dot_color = "#F3A6C8"
 
-                if st.button(label, key=f"select_room_{room_id}", use_container_width=True):
-                    if room_type in ["limited", "private"]:
+                safe_desc = desc if desc else "説明なし"
+                is_selected = str(st.session_state.get("selected_room_id", "")).strip() == room_id
+                border_style = "2px solid #111827" if is_selected else "1px solid #E5E7EB"
+
+                st.markdown(
+                    f"""
+                    <div style="
+                        background:{bg_color};
+                        border-left:8px solid {line_color};
+                        border:{border_style};
+                        border-radius:14px;
+                        padding:16px 18px;
+                        margin-bottom:10px;
+                        box-shadow:0 1px 3px rgba(0,0,0,0.05);
+                    ">
+                        <div style="font-size:24px;font-weight:700;color:#1F2937;line-height:1.2;">
+                            {room_name}
+                        </div>
+
+                        <div style="margin-top:10px;font-size:15px;color:#374151;">
+                            <span style="
+                                display:inline-block;
+                                width:12px;
+                                height:12px;
+                                border-radius:999px;
+                                background:{dot_color};
+                                margin-right:8px;
+                                vertical-align:middle;
+                            "></span>
+                            {room_type_label}
+                        </div>
+
+                        <div style="margin-top:10px;font-size:14px;color:#4B5563;">
+                            説明: {safe_desc}
+                        </div>
+
+                        <div style="margin-top:6px;font-size:14px;color:#4B5563;">
+                            ID: {room_id}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                if st.button("詳細を見る", key=f"select_room_{room_id}", use_container_width=True):
+                    if room_type == "limited":
                         st.session_state.pending_room_id = room_id
                         st.session_state.pending_room_type = room_type
                     else:
                         st.session_state.selected_room_id = room_id
+                        st.session_state.pending_room_id = ""
+                        st.session_state.pending_room_type = ""
                     st.rerun()
-
-                if desc:
-                    st.caption(desc)
 
         if st.session_state.get("pending_room_id"):
             st.divider()
@@ -3144,7 +3209,7 @@ def heartbeat_active_user():
     if now_ts - last_ping >= 300:
         update_active_user()
         st.session_state["last_active_ping"] = now_ts
-        
+
 def sync_task_events_to_calendar():
     task_df = load_db("task")
     cal_df = load_db("calendar")
