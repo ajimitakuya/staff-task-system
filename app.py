@@ -18,7 +18,7 @@ JST = timezone(timedelta(hours=9))
 def now_jst():
     return datetime.now(JST)
 
-st.caption("CHECK_COMPANIES_USERS_20260325")
+# st.caption("CHECK_COMPANIES_USERS_20260325")
 
 def get_genai_client():
     api_key = ""
@@ -3371,10 +3371,10 @@ if "user" not in st.session_state:
     st.success(f"事業所: {st.session_state.get('company_name', '')}")
     st.warning("### 個人ログインある💻")
 
-    st.write("DEBUG company_id =", st.session_state.get("company_id", ""))
-    st.write("DEBUG company_name =", st.session_state.get("company_name", ""))
-    st.write("DEBUG company_code =", st.session_state.get("company_code", ""))
-    st.write("DEBUG admin_count =", get_company_admin_count(str(st.session_state.get("company_id", "")).strip()))
+    # st.write("DEBUG company_id =", st.session_state.get("company_id", ""))
+    # st.write("DEBUG company_name =", st.session_state.get("company_name", ""))
+    # st.write("DEBUG company_code =", st.session_state.get("company_code", ""))
+    # st.write("DEBUG admin_count =", get_company_admin_count(str(st.session_state.get("company_id", "")).strip()))
 
     company_id = str(st.session_state.get("company_id", "")).strip()
     admin_exists = company_has_any_admin(company_id)
