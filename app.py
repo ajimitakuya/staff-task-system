@@ -1958,7 +1958,10 @@ def authenticate_company_login(login_id: str, login_password: str):
 
 def authenticate_user_login(company_id: str, login_id: str, login_password: str):
     users_df = get_users_df()
+    st.write("DEBUG auth company_id =", company_id)
+
     if users_df is None or users_df.empty:
+        st.write("DEBUG users empty")
         return None
 
     work = users_df.copy()
@@ -1972,16 +1975,25 @@ def authenticate_user_login(company_id: str, login_id: str, login_password: str)
         (work["status"] == "active")
     ]
 
+    st.write("DEBUG auth matched users =", len(target))
+
     if target.empty:
         return None
 
     row = target.iloc[0].to_dict()
     user_id = str(row.get("user_id", "")).strip()
 
-    if not user_can_use_company(user_id, company_id):
+    can_use = user_can_use_company(user_id, company_id)
+    is_admin = user_is_company_admin(user_id, company_id)
+
+    st.write("DEBUG auth user_id =", user_id)
+    st.write("DEBUG auth can_use =", can_use)
+    st.write("DEBUG auth is_admin =", is_admin)
+
+    if not can_use:
         return None
 
-    row["is_admin_resolved"] = user_is_company_admin(user_id, company_id)
+    row["is_admin_resolved"] = is_admin
     return row
 
 def get_next_user_id():
@@ -3317,24 +3329,34 @@ if "company_authenticated" not in st.session_state or not st.session_state.compa
 
     if st.button("事業所ログイン", use_container_width=True, key="company_login_button"):
         row = authenticate_company_login(company_login_id, company_login_password)
+
         if row is None:
             st.error("事業所IDまたはパスワードが違うある。")
         else:
-            st.session_state.company_authenticated = True
             st.session_state.company_id = str(row.get("company_id", "")).strip()
             st.session_state.company_name = str(row.get("company_name", "")).strip()
             st.session_state.company_code = str(row.get("company_code", "")).strip()
-            st.session_state.company_login_id = str(row.get("company_login_id", "")).strip()
-            st.session_state.office_key = "support"
-            st.rerun()
 
-    st.stop()
+            # 既存で使ってるなら残す
+            st.session_state.office_key = (
+                "home" if str(row.get("company_code", "")).strip() == "relife_home" else "support"
+            )
+
+            # 事業所ログイン済みフラグがあるならそれも
+            st.session_state.company_logged_in = True
+
+            st.rerun()
 
 if "user" not in st.session_state:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
     # st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
     st.success(f"事業所: {st.session_state.get('company_name', '')}")
     st.warning("### 個人ログインある💻")
+
+    st.write("DEBUG company_id =", st.session_state.get("company_id", ""))
+    st.write("DEBUG company_name =", st.session_state.get("company_name", ""))
+    st.write("DEBUG company_code =", st.session_state.get("company_code", ""))
+    st.write("DEBUG admin_count =", get_company_admin_count(str(st.session_state.get("company_id", "")).strip()))
 
     company_id = str(st.session_state.get("company_id", "")).strip()
     admin_exists = company_has_any_admin(company_id)
