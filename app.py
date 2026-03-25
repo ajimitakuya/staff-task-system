@@ -1795,9 +1795,15 @@ def get_user_company_permissions_df():
     return get_user_company_permissions_df_cached().copy()
 
 
+
+
 def get_company_permissions_df(company_id: str):
     df = get_user_company_permissions_df()
+
+    st.write("DEBUG raw permissions df =", df)
+
     if df is None or df.empty:
+        st.write("DEBUG permissions df is empty")
         return pd.DataFrame(columns=[
             "permission_id",
             "user_id",
@@ -1811,15 +1817,43 @@ def get_company_permissions_df(company_id: str):
         ])
 
     work = df.copy()
-    work["company_id"] = work["company_id"].astype(str).str.strip()
-    work["can_use"] = work["can_use"].astype(str).str.strip()
-    work["status"] = work["status"].astype(str).str.strip().str.lower()
+
+    st.write("DEBUG input company_id =", company_id)
+    st.write("DEBUG before normalize =", work)
+
+    work["company_id"] = work["company_id"].fillna("").astype(str).str.strip()
+    work["user_id"] = work["user_id"].fillna("").astype(str).str.strip()
+
+    # 1 / 1.0 / "1" 問題を全部吸収するある
+    work["can_use"] = (
+        pd.to_numeric(work["can_use"], errors="coerce")
+        .fillna(0)
+        .astype(int)
+        .astype(str)
+    )
+    work["is_admin"] = (
+        pd.to_numeric(work["is_admin"], errors="coerce")
+        .fillna(0)
+        .astype(int)
+        .astype(str)
+    )
+
+    work["status"] = work["status"].fillna("").astype(str).str.strip().str.lower()
+
+    st.write("DEBUG company_id unique =", work["company_id"].unique())
+    st.write("DEBUG user_id unique =", work["user_id"].unique())
+    st.write("DEBUG can_use unique =", work["can_use"].unique())
+    st.write("DEBUG is_admin unique =", work["is_admin"].unique())
+    st.write("DEBUG status unique =", work["status"].unique())
+    st.write("DEBUG before filter =", work)
 
     work = work[
         (work["company_id"] == str(company_id).strip()) &
         (work["can_use"] == "1") &
         (work["status"] != "inactive")
     ].copy()
+
+    st.write("DEBUG after filter =", work)
 
     return work
 
@@ -1939,6 +1973,7 @@ def authenticate_company_login(login_id: str, login_password: str):
 def authenticate_user_login(company_id: str, login_id: str, login_password: str):
     users_df = get_users_df()
     st.write("DEBUG auth company_id =", company_id)
+    st.write("DEBUG auth login_id =", login_id)
 
     if users_df is None or users_df.empty:
         st.write("DEBUG users empty")
@@ -1949,6 +1984,8 @@ def authenticate_user_login(company_id: str, login_id: str, login_password: str)
     work["user_login_password"] = work["user_login_password"].astype(str).str.strip()
     work["status"] = work["status"].astype(str).str.strip().str.lower()
 
+    st.write("DEBUG users before filter =", work)
+
     target = work[
         (work["user_login_id"] == str(login_id).strip()) &
         (work["user_login_password"] == str(login_password).strip()) &
@@ -1956,21 +1993,19 @@ def authenticate_user_login(company_id: str, login_id: str, login_password: str)
     ]
 
     st.write("DEBUG auth matched users =", len(target))
+    st.write("DEBUG auth matched rows =", target)
 
     if target.empty:
-        return None
-
-    if not company_id:
-        st.error("company_idが空ある（事業所ログイン壊れてる）")
         return None
 
     row = target.iloc[0].to_dict()
     user_id = str(row.get("user_id", "")).strip()
 
+    st.write("DEBUG auth user_id =", user_id)
+
     can_use = user_can_use_company(user_id, company_id)
     is_admin = user_is_company_admin(user_id, company_id)
 
-    st.write("DEBUG auth user_id =", user_id)
     st.write("DEBUG auth can_use =", can_use)
     st.write("DEBUG auth is_admin =", is_admin)
 
@@ -3378,7 +3413,7 @@ if "user" not in st.session_state:
                 user_login_password
             )
             if row is None:
-                st.error("IDまたはパスワードが違うある。")
+                st.error("ID・パスワード、または事業所権限を確認してほしいある。")
             else:
                 st.session_state.user = str(row.get("display_name", "")).strip()
                 st.session_state.user_id = str(row.get("user_id", "")).strip()
