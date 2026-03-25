@@ -3834,7 +3834,8 @@ if "user" not in st.session_state:
             for k in [
                 "company_authenticated", "company_id", "company_name", "company_code",
                 "company_login_id", "user", "user_id", "is_admin", "login_at",
-                "last_active_ping"
+                "last_active_ping", "current_page", "bee_menu_unlocked",
+                "other_office_register_unlocked", "secret_doc_mode", "heart_mode", "secret_bee_cmd"
             ]:
                 if k in st.session_state:
                     del st.session_state[k]
@@ -4149,9 +4150,10 @@ if st.session_state.get("bee_menu_unlocked", False):
         st.session_state.current_page = "🐝knowbe日誌入力🐝"
         st.rerun()
 
-# ===== 💻他事業所へ登録（条件表示） =====
+# ===== 💻 他事業所へ登録（条件表示） =====
 if st.session_state.get("other_office_register_unlocked", False):
     register_label = "💻他事業所へ登録💻"
+
     if st.sidebar.button(register_label, key="other_office_register_menu_button", use_container_width=True):
         st.session_state.current_page = "💻他事業所へ登録💻"
         st.rerun()
@@ -11089,7 +11091,7 @@ elif page == "書類_就労分野シート":
     render_work_field_form_page("就労分野シート")
 elif page == "🐝knowbe日誌入力🐝":
     render_bee_journal_page()
-elif page == "他事業所へ登録":
+elif page == "💻他事業所へ登録💻":
     render_other_office_register_page()
 if page == "休憩室":
     render_break_room_page()
