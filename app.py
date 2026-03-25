@@ -3338,9 +3338,8 @@ if "company_authenticated" not in st.session_state:
 if "auth_mode" not in st.session_state:
     st.session_state.auth_mode = "login"   # login / change
 
-if "company_authenticated" not in st.session_state or not st.session_state.company_authenticated:
+if not st.session_state.get("company_authenticated", False):
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
-    # st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
     st.warning("### 事業所ログインある💻")
 
     company_login_id = st.text_input("事業所ID", key="company_login_id_input")
@@ -3361,20 +3360,12 @@ if "company_authenticated" not in st.session_state or not st.session_state.compa
             )
 
             st.session_state.company_authenticated = True
-
-            st.success(f"{st.session_state.company_name} にログインしたある")
             st.rerun()
 
-if "user" not in st.session_state:
+if st.session_state.get("company_authenticated", False) and "user" not in st.session_state:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
-    # st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
     st.success(f"事業所: {st.session_state.get('company_name', '')}")
     st.warning("### 個人ログインある💻")
-
-    # st.write("DEBUG company_id =", st.session_state.get("company_id", ""))
-    # st.write("DEBUG company_name =", st.session_state.get("company_name", ""))
-    # st.write("DEBUG company_code =", st.session_state.get("company_code", ""))
-    # st.write("DEBUG admin_count =", get_company_admin_count(str(st.session_state.get("company_id", "")).strip()))
 
     company_id = str(st.session_state.get("company_id", "")).strip()
     admin_exists = company_has_any_admin(company_id)
