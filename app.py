@@ -2410,18 +2410,33 @@ def save_personal_rules_record(company_id, staff_name, rule_text):
 
 def get_plan_row(company_id, resident_id):
     df = load_db("assistant_plans")
-    required_cols = [
+
+    if df is None or df.empty:
+        return None
+
+    df = df.fillna("").copy()
+
+    for col in [
         "company_id",
-        "resident_id", "long_term_goal", "short_term_goal", "updated_at"
-    ]
-    df = normalize_company_scoped_df(df, required_cols)
+        "resident_id",
+        "long_term_goal",
+        "short_term_goal",
+        "updated_at",
+    ]:
+        if col not in df.columns:
+            df[col] = ""
+
+    df["company_id"] = df["company_id"].astype(str).str.strip()
+    df["resident_id"] = df["resident_id"].astype(str).str.strip()
 
     hit = df[
         (df["company_id"] == str(company_id).strip()) &
-        (df["resident_id"].astype(str).str.strip() == str(resident_id).strip())
-    ]
+        (df["resident_id"] == str(resident_id).strip())
+    ].copy()
+
     if hit.empty:
         return None
+
     return hit.iloc[0].to_dict()
 
 def get_company_row_by_id(company_id: str):
