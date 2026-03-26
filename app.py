@@ -8285,6 +8285,27 @@ def render_bee_journal_page():
     </style>
     """, unsafe_allow_html=True)
 
+    if "bee_use_plan" not in st.session_state:
+        st.session_state["bee_use_plan"] = True
+
+    use_plan = st.session_state.get("bee_use_plan", True)
+
+    plan_row = get_plan_row(target_company_id, resident_id)
+    plan_text = ""
+    if use_plan and plan_row:
+        plan_text = (
+            f"長期目標: {plan_row.get('long_term_goal', '')}\n"
+            f"短期目標: {plan_row.get('short_term_goal', '')}"
+        )
+
+    example_row = get_staff_example_row(target_company_id, staff_name)
+    rule_row = get_personal_rule_row(target_company_id, staff_name)
+
+    examples_text = build_examples_text(service_type, example_row)
+    loaded_rule_text = rule_row.get("rule_text", "") if rule_row else ""
+
+    preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
+
     memo_cols = st.columns(2)
 
     with memo_cols[0]:
@@ -8303,6 +8324,131 @@ def render_bee_journal_page():
             height=140
         )
 
+    # メモのすぐ下に4ボタン
+    send_memo_cols = st.columns(4)
+
+    with send_memo_cols[0]:
+        start_send_raw = st.button(
+            "開始メモを\n編集無しでknowbeへ送信",
+            key="bee_send_start_raw",
+            use_container_width=True
+        )
+
+    with send_memo_cols[1]:
+        start_send_gemini = st.button(
+            "開始メモを\nGeminiで編集してknowbeへ送信",
+            key="bee_send_start_gemini",
+            use_container_width=True
+        )
+
+    with send_memo_cols[2]:
+        end_send_raw = st.button(
+            "終了メモを\n編集無しでknowbeへ送信",
+            key="bee_send_end_raw",
+            use_container_width=True
+        )
+
+    with send_memo_cols[3]:
+        end_send_gemini = st.button(
+            "終了メモを\nGeminiで編集してknowbeへ送信",
+            key="bee_send_end_gemini",
+            use_container_width=True
+        )
+
+    save_payload = {
+        "company_id": target_company_id,
+        "company_name": target_company_name,
+        "date": str(target_date),
+        "resident_id": resident_id,
+        "resident_name": resident_name,
+        "start_time": start_time,
+        "end_time": end_time,
+        "meal_flag": meal_flag,
+        "note": preview_note,
+        "start_memo": start_memo,
+        "end_memo": end_memo,
+        "staff_name": staff_name,
+        "service_type": service_type,
+        "knowbe_user": st.session_state.get("bee_knownbe_user_name", "未登録"),
+        "use_plan": st.session_state.get("bee_use_plan", True),
+    }
+
+    st.divider()
+    st.markdown("## 保存・送信")
+
+    send_top_cols = st.columns([1, 1, 3])
+
+    with send_top_cols[0]:
+        show_time_errors = False
+        if (
+            str(start_time).strip()
+            or str(end_time).strip()
+            or str(work_start_time).strip()
+            or str(work_end_time).strip()
+        ):
+            show_time_errors = True
+
+        if show_time_errors:
+            time_errors = validate_bee_times(
+                resident_id=resident_id,
+                target_date=target_date,
+                start_time=start_time,
+                end_time=end_time,
+                work_start_time=work_start_time,
+                work_end_time=work_end_time,
+            )
+        else:
+            time_errors = []
+
+        if show_time_errors and time_errors:
+            for err in time_errors:
+                st.error(err)
+
+        if st.button(
+            "Gemini生成",
+            key="bee_generate_button",
+            use_container_width=True,
+            disabled=bool(time_errors)
+        ):
+            try:
+                generated_status, generated_support = generate_bee_texts(
+                    resident_name=resident_name,
+                    service_type=service_type,
+                    start_time=start_time,
+                    end_time=end_time,
+                    meal_flag=meal_flag,
+                    note_text=preview_note,
+                    start_memo=start_memo,
+                    end_memo=end_memo,
+                    staff_name=staff_name,
+                    plan_text=plan_text,
+                    examples_text=examples_text,
+                    rule_text=loaded_rule_text,
+                )
+
+                st.session_state["bee_generated_status"] = generated_status
+                st.session_state["bee_generated_support"] = generated_support
+                st.success("Gemini生成できたある！")
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Gemini生成失敗ある: {e}")
+
+    with send_top_cols[1]:
+        if st.button("保存", key="bee_save_button", use_container_width=True):
+            try:
+                save_db("diary_input_rules", save_payload)
+                st.success("保存できたある！")
+            except Exception as e:
+                st.error(f"保存失敗ある: {e}")
+
+    with send_top_cols[2]:
+        st.write("開始/終了メモ入力後、下のボタンから送信するある")
+
+    st.warning(
+        "Knowbe送信を使うには、画面上でKnowbe情報を入力するか、管理者メニューの『Knowbe情報登録』で保存してほしいある。"
+    )
+
     st.divider()
     st.markdown("## 補助設定")
 
@@ -8311,20 +8457,6 @@ def render_bee_journal_page():
         value=st.session_state.get("bee_use_plan", True),
         key="bee_use_plan"
     )
-
-    plan_row = get_plan_row(target_company_id, resident_id)
-    plan_text = ""
-    if use_plan and plan_row:
-        plan_text = (
-            f"長期目標: {plan_row.get('long_term_goal', '')}\n"
-            f"短期目標: {plan_row.get('short_term_goal', '')}"
-        )
-
-    example_row = get_staff_example_row(target_company_id, staff_name)
-    rule_row = get_personal_rule_row(target_company_id, staff_name)
-
-    examples_text = build_examples_text(service_type, example_row)
-    loaded_rule_text = rule_row.get("rule_text", "") if rule_row else ""
 
     st.divider()
     st.markdown("## スタッフ例文・個人ルール")
@@ -8434,27 +8566,6 @@ def render_bee_journal_page():
 
     st.divider()
     st.markdown("## 入力内容確認")
-
-    preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
-
-    save_payload = {
-        "company_id": target_company_id,
-        "company_name": target_company_name,
-        "date": str(target_date),
-        "resident_id": resident_id,
-        "resident_name": resident_name,
-        "start_time": start_time,
-        "end_time": end_time,
-        "meal_flag": meal_flag,
-        "note": preview_note,
-        "start_memo": start_memo,
-        "end_memo": end_memo,
-        "staff_name": staff_name,
-        "service_type": service_type,
-        "knowbe_user": st.session_state.get("bee_knownbe_user_name", "未登録"),
-        "use_plan": st.session_state.get("bee_use_plan", True),
-    }
-
     st.json(save_payload)
 
     st.divider()
