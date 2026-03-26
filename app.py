@@ -8395,109 +8395,108 @@ def render_bee_journal_page():
             disabled=True
         )
 
-    # 編集エリアの開閉状態を初期化
+    # 編集状態
     if "bee_rule_edit_open" not in st.session_state:
         st.session_state["bee_rule_edit_open"] = False
 
-    rule_show_cols = st.columns([5, 1])
-    with rule_show_cols[0]:
-        st.text_area(
+    is_editing = st.session_state["bee_rule_edit_open"]
+
+    # 表示・編集 共通欄
+    ex_cols1 = st.columns(2)
+    with ex_cols1[0]:
+        home_start_value = st.text_area(
+            "在宅作業開始例文",
+            value=default_home_start,
+            key="bee_home_start_example_unified",
+            height=100,
+            disabled=not is_editing
+        )
+    with ex_cols1[1]:
+        home_end_value = st.text_area(
+            "在宅作業終了例文",
+            value=default_home_end,
+            key="bee_home_end_example_unified",
+            height=100,
+            disabled=not is_editing
+        )
+
+    ex_cols2 = st.columns(2)
+    with ex_cols2[0]:
+        day_start_value = st.text_area(
+            "通所作業開始例文",
+            value=default_day_start,
+            key="bee_day_start_example_unified",
+            height=100,
+            disabled=not is_editing
+        )
+    with ex_cols2[1]:
+        day_end_value = st.text_area(
+            "通所作業終了例文",
+            value=default_day_end,
+            key="bee_day_end_example_unified",
+            height=100,
+            disabled=not is_editing
+        )
+
+    ex_cols3 = st.columns(2)
+    with ex_cols3[0]:
+        outside_start_value = st.text_area(
+            "施設外作業開始例文",
+            value=default_outside_start,
+            key="bee_outside_start_example_unified",
+            height=100,
+            disabled=not is_editing
+        )
+    with ex_cols3[1]:
+        outside_end_value = st.text_area(
+            "施設外作業終了例文",
+            value=default_outside_end,
+            key="bee_outside_end_example_unified",
+            height=100,
+            disabled=not is_editing
+        )
+
+    btn_cols = st.columns([5, 1])
+
+    with btn_cols[0]:
+        rule_text_value = st.text_area(
             "個人ルール",
             value=default_rule_text,
-            key="bee_rule_text_view",
+            key="bee_rule_text_unified",
             height=160,
-            disabled=True,
+            disabled=not is_editing,
             placeholder="未登録ある"
         )
-    with rule_show_cols[1]:
+
+    with btn_cols[1]:
         st.write("")
         st.write("")
-        if st.button("編集", key="bee_rule_edit_open_btn", use_container_width=True):
-            st.session_state["bee_rule_edit_open"] = True
-            st.rerun()
 
-    if st.session_state["bee_rule_edit_open"]:
-        st.markdown("### スタッフ例文・個人ルール 編集")
-
-        edit_ex_cols1 = st.columns(2)
-        with edit_ex_cols1[0]:
-            edit_home_start = st.text_area(
-                "在宅作業開始例文（編集）",
-                value=default_home_start,
-                key="bee_home_start_example_edit",
-                height=100
-            )
-        with edit_ex_cols1[1]:
-            edit_home_end = st.text_area(
-                "在宅作業終了例文（編集）",
-                value=default_home_end,
-                key="bee_home_end_example_edit",
-                height=100
-            )
-
-        edit_ex_cols2 = st.columns(2)
-        with edit_ex_cols2[0]:
-            edit_day_start = st.text_area(
-                "通所作業開始例文（編集）",
-                value=default_day_start,
-                key="bee_day_start_example_edit",
-                height=100
-            )
-        with edit_ex_cols2[1]:
-            edit_day_end = st.text_area(
-                "通所作業終了例文（編集）",
-                value=default_day_end,
-                key="bee_day_end_example_edit",
-                height=100
-            )
-
-        edit_ex_cols3 = st.columns(2)
-        with edit_ex_cols3[0]:
-            edit_outside_start = st.text_area(
-                "施設外作業開始例文（編集）",
-                value=default_outside_start,
-                key="bee_outside_start_example_edit",
-                height=100
-            )
-        with edit_ex_cols3[1]:
-            edit_outside_end = st.text_area(
-                "施設外作業終了例文（編集）",
-                value=default_outside_end,
-                key="bee_outside_end_example_edit",
-                height=100
-            )
-
-        edit_rule_text = st.text_area(
-            "個人ルール（編集）",
-            value=default_rule_text,
-            key="bee_rule_text_edit",
-            height=160
-        )
-
-        edit_btn_cols = st.columns([1, 1, 4])
-
-        with edit_btn_cols[0]:
+        if not is_editing:
+            if st.button("編集", key="bee_rule_edit_open_btn", use_container_width=True):
+                st.session_state["bee_rule_edit_open"] = True
+                st.rerun()
+        else:
             if st.button("登録", key="bee_save_examples_rules", use_container_width=True):
                 save_staff_examples_record(
                     company_id=target_company_id,
                     staff_name=staff_name,
-                    home_start_example=edit_home_start,
-                    home_end_example=edit_home_end,
-                    day_start_example=edit_day_start,
-                    day_end_example=edit_day_end,
-                    outside_start_example=edit_outside_start,
-                    outside_end_example=edit_outside_end,
+                    home_start_example=home_start_value,
+                    home_end_example=home_end_value,
+                    day_start_example=day_start_value,
+                    day_end_example=day_end_value,
+                    outside_start_example=outside_start_value,
+                    outside_end_example=outside_end_value,
                 )
                 save_personal_rules_record(
                     company_id=target_company_id,
                     staff_name=staff_name,
-                    rule_text=edit_rule_text,
+                    rule_text=rule_text_value,
                 )
                 st.success("スタッフ例文・個人ルールを登録したある！")
                 st.session_state["bee_rule_edit_open"] = False
                 st.rerun()
 
-        with edit_btn_cols[1]:
             if st.button("閉じる", key="bee_close_examples_rules", use_container_width=True):
                 st.session_state["bee_rule_edit_open"] = False
                 st.rerun()
