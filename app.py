@@ -7638,15 +7638,6 @@ def save_personal_rules_record(company_id, staff_name, rule_text):
     save_db(df, "personal_rules")
     return True
 
-
-def get_plan_row(resident_id):
-    df = get_assistant_plans_df()
-    hit = df[df["resident_id"].astype(str) == str(resident_id)]
-    if hit.empty:
-        return None
-    return hit.iloc[0].to_dict()
-
-
 def build_examples_text(service_type, example_row):
     if not example_row:
         return ""
