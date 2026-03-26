@@ -1734,9 +1734,18 @@ def _set_daily_work_for_row(driver, row, work_label: str) -> bool:
     return True
 
 
-def _set_daily_textareas_for_row(driver, row, user_status_text: str, staff_comment_text: str) -> bool:
+def _set_daily_textareas_for_row(
+    driver,
+    row,
+    user_status_text: str,
+    staff_comment_text: str,
+    send_user_status: bool = True,
+    send_staff_comment: bool = True,
+) -> bool:
     """
     その行の 利用者状態 / 職員考察 textarea に入力
+    send_user_status=False のときは利用者状態を触らない
+    send_staff_comment=False のときは職員考察を触らない
     """
     try:
         user_area = row.find_element(By.XPATH, ".//textarea[contains(@name,'user_status')]")
@@ -1745,12 +1754,32 @@ def _set_daily_textareas_for_row(driver, row, user_status_text: str, staff_comme
         dump_debug(driver, "daily_textarea_not_found")
         return False
 
-    set_input_value(driver, user_area, user_status_text)
+    try:
+        current_user_value = (
+            user_area.get_attribute("value")
+            or user_area.get_attribute("textContent")
+            or ""
+        )
+    except Exception:
+        current_user_value = ""
+
+    try:
+        current_staff_value = (
+            staff_area.get_attribute("value")
+            or staff_area.get_attribute("textContent")
+            or ""
+        )
+    except Exception:
+        current_staff_value = ""
+
+    final_user_text = user_status_text if send_user_status else current_user_value
+    final_staff_text = staff_comment_text if send_staff_comment else current_staff_value
+
+    set_input_value(driver, user_area, final_user_text)
     time.sleep(0.1)
-    set_input_value(driver, staff_area, staff_comment_text)
+    set_input_value(driver, staff_area, final_staff_text)
     time.sleep(0.1)
     return True
-
 
 def _set_daily_recorder_for_row(driver, row, recorder_name: str) -> bool:
     """
@@ -2172,7 +2201,7 @@ def send_one_record_from_app(
     resident_name,
     service_type,
     start_time,
-    end_time,    
+    end_time,
     meal_flag,
     note_text,
     generated_status,
@@ -2185,9 +2214,13 @@ def send_one_record_from_app(
     work_end_time,
     work_break_time,
     work_memo="",
+    send_user_status=True,
+    send_staff_comment=True,
 ):
     """
     appから1件だけ渡されたデータを Knowbe に送る
+    send_user_status=False なら利用者状態は触らない
+    send_staff_comment=False なら職員考察は触らない
     """
     if not target_date:
         raise RuntimeError("[FATAL] target_date が空ある")
@@ -2252,16 +2285,33 @@ def send_one_record_from_app(
             raise RuntimeError("[FATAL] 日々の記録ページへ行けないある")
         print("[STEP] open_daily_record_page done", flush=True)
 
-        log(f"🧾 app単発 日々の記録入力: {it.name}")
-        ok = process_one_daily_record_direct(
-            driver=driver,
-            it=it,
-            recorder_name=staff_name,
-            user_text=generated_status,
-            staff_text=generated_support,
-        )
-        if not ok:
-            raise RuntimeError(f"[FATAL] 日々の記録の入力失敗ある: {it.name}")
+        if not click_daily_edit_button(driver):
+            raise RuntimeError("[FATAL] 日々の記録の編集ボタンが押せないある")
+
+        row = find_row_by_name(driver, it.name)
+        if row is None:
+            raise RuntimeError(f"[FATAL] 日々の記録 行発見失敗ある: {it.name}")
+
+        work_label = _daily_record_work_label(it.service, it.note)
+
+        if not _set_daily_work_for_row(driver, row, work_label):
+            raise RuntimeError(f"[FATAL] 作業欄の選択失敗ある: {it.name}")
+
+        if not _set_daily_textareas_for_row(
+            driver,
+            row,
+            generated_status,
+            generated_support,
+            send_user_status=bool(send_user_status),
+            send_staff_comment=bool(send_staff_comment),
+        ):
+            raise RuntimeError(f"[FATAL] 日々の記録 textarea 入力失敗ある: {it.name}")
+
+        if not _set_daily_recorder_for_row(driver, row, staff_name):
+            raise RuntimeError(f"[FATAL] 記録者選択失敗ある: {it.name}")
+
+        if not click_daily_save_button(driver):
+            raise RuntimeError(f"[FATAL] 日々の記録 保存失敗ある: {it.name}")
 
         log("🎊 app単発送信 完了ある！")
         return True

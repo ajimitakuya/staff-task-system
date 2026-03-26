@@ -217,17 +217,6 @@ def load_db(file, retries=3, delay=0.8):
                     "assistant_plans": [
                         "resident_id", "long_term_goal", "short_term_goal", "updated_at"
                     ],
-                    "companies": [
-                        "company_id",
-                        "company_name",
-                        "company_code",
-                        "company_login_id",
-                        "company_login_password",
-                        "status",
-                        "created_at",
-                        "updated_at",
-                        "memo",
-                    ],
                     "users": [
                         "user_id",
                         "company_id",
@@ -392,6 +381,8 @@ def get_companies_df_cached():
             "company_code",
             "company_login_id",
             "company_login_password",
+            "knowbe_login_username",
+            "knowbe_login_password",
             "status",
             "created_at",
             "updated_at",
@@ -423,17 +414,16 @@ def get_chat_rooms_df_cached():
         ])
     else:
         for col in [
-            "company_id",
-            "company_name",
-            "company_code",
-            "company_login_id",
-            "company_login_password",
-            "knowbe_login_username",
-            "knowbe_login_password",
+            "room_id",
+            "room_name",
+            "room_type",
+            "room_password",
+            "created_by_user_id",
+            "created_by_company_id",
+            "description",
             "status",
             "created_at",
             "updated_at",
-            "memo",
         ]:
             if col not in df.columns:
                 df[col] = ""
@@ -7623,6 +7613,8 @@ def send_to_knowbe_from_bee(
     work_memo="",
     login_username="",
     login_password="",
+    send_user_status=True,
+    send_staff_comment=True,
 ):
     import traceback
 
@@ -7653,6 +7645,8 @@ def send_to_knowbe_from_bee(
             work_end_time=str(work_end_time).strip(),
             work_break_time=str(work_break_time).strip(),
             work_memo=str(work_memo).strip(),
+            send_user_status=bool(send_user_status),
+            send_staff_comment=bool(send_staff_comment),
         )
 
     except Exception:
@@ -7939,6 +7933,20 @@ def render_bee_journal_page():
             height=140
         )
 
+        start_btn_cols = st.columns(2)
+        with start_btn_cols[0]:
+            start_send_raw = st.button(
+                "編集無しで送信",
+                key="bee_send_start_raw",
+                use_container_width=True
+            )
+        with start_btn_cols[1]:
+            start_send_gemini = st.button(
+                "Geminiで編集送信",
+                key="bee_send_start_gemini",
+                use_container_width=True
+            )
+
     with memo_cols[1]:
         end_memo = st.text_area(
             "終了メモ",
@@ -7946,6 +7954,20 @@ def render_bee_journal_page():
             key="bee_end_memo",
             height=140
         )
+
+        end_btn_cols = st.columns(2)
+        with end_btn_cols[0]:
+            end_send_raw = st.button(
+                "編集無しで送信",
+                key="bee_send_end_raw",
+                use_container_width=True
+            )
+        with end_btn_cols[1]:
+            end_send_gemini = st.button(
+                "Geminiで編集送信",
+                key="bee_send_end_gemini",
+                use_container_width=True
+            )
 
     st.divider()
     st.markdown("## 補助設定")
@@ -8168,6 +8190,149 @@ def render_bee_journal_page():
 
     record_mode = "gemini"
 
+    def _validate_partial_send():
+        errs = validate_bee_times(
+            resident_id=resident_id,
+            target_date=target_date,
+            start_time=start_time,
+            end_time=end_time,
+            work_start_time=work_start_time,
+            work_end_time=work_end_time,
+        )
+        if errs:
+            for err in errs:
+                st.error(err)
+            return False
+
+        if not start_time.strip():
+            st.warning("開始時間を入れてほしいある。")
+            return False
+        if not end_time.strip():
+            st.warning("終了時間を入れてほしいある。")
+            return False
+        if not staff_name.strip():
+            st.warning("日誌入力者を入れてほしいある。")
+            return False
+        if not resolved_knowbe_user or not resolved_knowbe_pw:
+            st.warning("Knowbe情報が未設定ある。")
+            return False
+        return True
+
+    def _send_partial(send_user_status: bool, send_staff_comment: bool, use_gemini: bool):
+        if not _validate_partial_send():
+            return
+
+        preview_note_local = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
+
+        if use_gemini:
+            generated_status_local, generated_support_local = generate_bee_texts(
+                resident_name=resident_name,
+                service_type=service_type,
+                start_time=start_time,
+                end_time=end_time,
+                meal_flag=meal_flag,
+                note_text=preview_note_local,
+                start_memo=start_memo,
+                end_memo=end_memo,
+                staff_name=staff_name,
+                plan_text=plan_text,
+                examples_text=examples_text,
+                rule_text=loaded_rule_text,
+            )
+            st.session_state["bee_generated_status"] = generated_status_local
+            st.session_state["bee_generated_support"] = generated_support_local
+        else:
+            generated_status_local = start_memo
+            generated_support_local = end_memo
+
+        send_status_text = generated_status_local if send_user_status else ""
+        send_support_text = generated_support_local if send_staff_comment else ""
+
+        record_id = save_diary_input_rule_record_for_office(
+            office_key=target_office_key,
+            date=str(target_date),
+            resident_id=resident_id,
+            resident_name=resident_name,
+            start_time=start_time,
+            end_time=end_time,
+            work_start_time=work_start_time,
+            work_end_time=work_end_time,
+            work_break_time=work_break_time,
+            meal_flag=meal_flag,
+            note=preview_note_local,
+            start_memo=start_memo,
+            end_memo=end_memo,
+            staff_name=staff_name,
+            generated_status=send_status_text,
+            generated_support=send_support_text,
+            service_type=service_type,
+            knowbe_target="",
+            send_status="sending",
+            sent_at="",
+            send_error="",
+            record_mode="gemini" if use_gemini else "raw_partial",
+            company_id=target_company_id,
+        )
+
+        try:
+            ok = send_to_knowbe_from_bee(
+                record_id=record_id,
+                company_id=target_company_id,
+                target_date=str(target_date),
+                resident_name=resident_name,
+                service_type=service_type,
+                start_time=start_time,
+                end_time=end_time,
+                meal_flag=meal_flag,
+                note_text=preview_note_local,
+                generated_status=send_status_text,
+                generated_support=send_support_text,
+                staff_name=staff_name,
+                knowbe_target="",
+                work_start_time=work_start_time,
+                work_end_time=work_end_time,
+                work_break_time=work_break_time,
+                work_memo="",
+                login_username=resolved_knowbe_user,
+                login_password=resolved_knowbe_pw,
+                send_user_status=send_user_status,
+                send_staff_comment=send_staff_comment,
+            )
+
+            if ok:
+                update_diary_input_record_status_for_office(
+                    target_office_key,
+                    record_id=record_id,
+                    send_status="sent",
+                    sent_at=now_jst().strftime("%Y-%m-%d %H:%M:%S"),
+                    send_error=""
+                )
+                if send_user_status and not send_staff_comment:
+                    st.success(f"開始メモ側だけ送信完了ある！ record_id = {record_id}")
+                elif send_staff_comment and not send_user_status:
+                    st.success(f"終了メモ側だけ送信完了ある！ record_id = {record_id}")
+                else:
+                    st.success(f"送信完了ある！ record_id = {record_id}")
+            else:
+                update_diary_input_record_status_for_office(
+                    target_office_key,
+                    record_id=record_id,
+                    send_status="error",
+                    sent_at="",
+                    send_error="run_assistance.send_one_record_from_app returned False"
+                )
+                st.error(f"Knowbe送信失敗ある。 record_id = {record_id}")
+
+        except Exception as e:
+            update_diary_input_record_status_for_office(
+                target_office_key,
+                record_id=record_id,
+                send_status="error",
+                sent_at="",
+                send_error=str(e)
+            )
+            st.error(f"Knowbe送信失敗ある: {e}")
+
     send_cols = st.columns([1, 1, 1, 4])
 
     with send_cols[0]:
@@ -8243,87 +8408,35 @@ def render_bee_journal_page():
             st.success(f"保存できたある！ record_id = {record_id}")
 
     with send_cols[2]:
-        can_send = bool(resolved_knowbe_user and resolved_knowbe_pw)
-        if st.button("Knowbe送信", key="bee_send_button", use_container_width=True, disabled=not can_send):
-            try:
-                preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
+        st.write("開始/終了メモの下のボタンから送信するある")
 
-                generated_status = st.session_state.get("bee_generated_status", "")
-                generated_support = st.session_state.get("bee_generated_support", "")
+    if start_send_raw:
+        _send_partial(
+            send_user_status=True,
+            send_staff_comment=False,
+            use_gemini=False,
+        )
 
-                if not generated_status or not generated_support:
-                    generated_status = start_memo
-                    generated_support = end_memo
+    if start_send_gemini:
+        _send_partial(
+            send_user_status=True,
+            send_staff_comment=False,
+            use_gemini=True,
+        )
 
-                record_id = save_diary_input_rule_record_for_office(
-                    office_key=target_office_key,
-                    date=str(target_date),
-                    resident_id=resident_id,
-                    resident_name=resident_name,
-                    start_time=start_time,
-                    end_time=end_time,
-                    work_start_time=work_start_time,
-                    work_end_time=work_end_time,
-                    work_break_time=work_break_time,
-                    meal_flag=meal_flag,
-                    note=preview_note,
-                    start_memo=start_memo,
-                    end_memo=end_memo,
-                    staff_name=staff_name,
-                    generated_status=generated_status,
-                    generated_support=generated_support,
-                    service_type=service_type,
-                    knowbe_target="",
-                    send_status="sending",
-                    sent_at="",
-                    send_error="",
-                    record_mode=record_mode,
-                    company_id=target_company_id,
-                )
+    if end_send_raw:
+        _send_partial(
+            send_user_status=False,
+            send_staff_comment=True,
+            use_gemini=False,
+        )
 
-                ok = send_to_knowbe_from_bee(
-                    record_id=record_id,
-                    company_id=target_company_id,
-                    target_date=str(target_date),
-                    resident_name=resident_name,
-                    service_type=service_type,
-                    start_time=start_time,
-                    end_time=end_time,
-                    meal_flag=meal_flag,
-                    note_text=preview_note,
-                    generated_status=generated_status,
-                    generated_support=generated_support,
-                    staff_name=staff_name,
-                    knowbe_target="",
-                    work_start_time=work_start_time,
-                    work_end_time=work_end_time,
-                    work_break_time=work_break_time,
-                    work_memo="",
-                    login_username=resolved_knowbe_user,
-                    login_password=resolved_knowbe_pw,
-                )
-
-                if ok:
-                    update_diary_input_record_status_for_office(
-                        target_office_key,
-                        record_id=record_id,
-                        send_status="sent",
-                        sent_at=now_jst().strftime("%Y-%m-%d %H:%M:%S"),
-                        send_error=""
-                    )
-                    st.success(f"Knowbeへ送信完了ある！ record_id = {record_id}")
-                else:
-                    update_diary_input_record_status_for_office(
-                        target_office_key,
-                        record_id=record_id,
-                        send_status="error",
-                        sent_at="",
-                        send_error="run_assistance.send_one_record_from_app returned False"
-                    )
-                    st.error(f"Knowbe送信失敗ある。 record_id = {record_id}")
-
-            except Exception as e:
-                st.error(f"Knowbe送信失敗ある: {e}")
+    if end_send_gemini:
+        _send_partial(
+            send_user_status=False,
+            send_staff_comment=True,
+            use_gemini=True,
+        )
 
     if not resolved_knowbe_user or not resolved_knowbe_pw:
         st.warning("Knowbe送信を使うには、画面上でKnowbe情報を入力するか、管理者メニューの『Knowbe情報登録』で保存してほしいある。")
