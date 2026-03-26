@@ -7588,28 +7588,42 @@ def save_staff_examples_record(
     return True
 
 
-def save_personal_rules_record(staff_name, rule_text):
-    df = load_db("resident_schedule")
+def save_personal_rules_record(company_id, staff_name, rule_text):
+    df = load_db("personal_rules")
 
     if df is None or df.empty:
-        return pd.DataFrame()
+        df = pd.DataFrame(columns=[
+            "company_id",
+            "staff_name",
+            "rule_text",
+            "updated_at",
+        ])
+    else:
+        df = df.fillna("").copy()
+        for col in [
+            "company_id",
+            "staff_name",
+            "rule_text",
+            "updated_at",
+        ]:
+            if col not in df.columns:
+                df[col] = ""
 
-    df = df.fillna("").copy()
-
-    if "company_id" not in df.columns:
-        df["company_id"] = ""
-
-    company_id = str(st.session_state.get("company_id", "")).strip()
-
-    df["company_id"] = df["company_id"].astype(str).str.strip()
-    return df[df["company_id"] == company_id]
-
+    company_id = str(company_id).strip()
+    staff_name = str(staff_name).strip()
     updated_at = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
-    hit_idx = df.index[df["staff_name"].astype(str) == str(staff_name)].tolist()
+    df["company_id"] = df["company_id"].astype(str).str.strip()
+    df["staff_name"] = df["staff_name"].astype(str).str.strip()
+
+    hit_idx = df.index[
+        (df["company_id"] == company_id) &
+        (df["staff_name"] == staff_name)
+    ].tolist()
 
     row_data = {
-        "staff_name": str(staff_name),
+        "company_id": company_id,
+        "staff_name": staff_name,
         "rule_text": str(rule_text),
         "updated_at": updated_at,
     }
