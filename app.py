@@ -8266,25 +8266,24 @@ def render_bee_journal_page():
             height=80
         )
 
-# ←ここにそのまま貼る（インデントなし）
-st.markdown("""
-<style>
-div.stButton > button {
-    white-space: normal !important;
-    height: auto !important;
-    min-height: 3.8rem !important;
-    line-height: 1.4 !important;
-    padding-top: 0.6rem !important;
-    padding-bottom: 0.6rem !important;
-}
-div.stButton > button p {
-    white-space: pre-line !important;
-    line-height: 1.4 !important;
-    margin: 0 !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
+    # ←ここにそのまま貼る（インデントなし）
+    st.markdown("""
+    <style>
+    div.stButton > button {
+        white-space: normal !important;
+        height: auto !important;
+        min-height: 3.8rem !important;
+        line-height: 1.4 !important;
+        padding-top: 0.6rem !important;
+        padding-bottom: 0.6rem !important;
+    }
+    div.stButton > button p {
+        white-space: pre-line !important;
+        line-height: 1.4 !important;
+        margin: 0 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
     memo_cols = st.columns(2)
 
