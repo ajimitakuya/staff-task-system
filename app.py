@@ -8266,6 +8266,26 @@ def render_bee_journal_page():
             height=80
         )
 
+# ←ここにそのまま貼る（インデントなし）
+st.markdown("""
+<style>
+div.stButton > button {
+    white-space: normal !important;
+    height: auto !important;
+    min-height: 3.8rem !important;
+    line-height: 1.4 !important;
+    padding-top: 0.6rem !important;
+    padding-bottom: 0.6rem !important;
+}
+div.stButton > button p {
+    white-space: pre-line !important;
+    line-height: 1.4 !important;
+    margin: 0 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
     memo_cols = st.columns(2)
 
     with memo_cols[0]:
@@ -8279,13 +8299,13 @@ def render_bee_journal_page():
         start_btn_cols = st.columns(2)
         with start_btn_cols[0]:
             start_send_raw = st.button(
-                "編集無しで送信",
+                "編集無しで\nknowbeへ送信",
                 key="bee_send_start_raw",
                 use_container_width=True
             )
         with start_btn_cols[1]:
             start_send_gemini = st.button(
-                "Geminiで編集送信",
+                "Geminiで編集して\nknowbeへ送信",
                 key="bee_send_start_gemini",
                 use_container_width=True
             )
@@ -8301,13 +8321,13 @@ def render_bee_journal_page():
         end_btn_cols = st.columns(2)
         with end_btn_cols[0]:
             end_send_raw = st.button(
-                "編集無しで送信",
+                "編集無しで\nknowbeへ送信",
                 key="bee_send_end_raw",
                 use_container_width=True
             )
         with end_btn_cols[1]:
             end_send_gemini = st.button(
-                "Geminiで編集送信",
+                "Geminiで編集して\nknowbeへ送信",
                 key="bee_send_end_gemini",
                 use_container_width=True
             )
