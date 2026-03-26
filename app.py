@@ -8348,7 +8348,7 @@ def render_bee_journal_page():
         "start_memo": start_memo,
         "end_memo": end_memo,
         "staff_name": staff_name,
-        "use_plan": use_plan,
+        "use_plan": st.session_state.get("bee_use_plan", True),
         "service_type": service_type,
         "knowbe_user": mask_secret_text(resolved_knowbe_user),
     })
@@ -8506,7 +8506,7 @@ def render_bee_journal_page():
         "staff_name": staff_name,
         "service_type": service_type,
         "knowbe_user": st.session_state.get("bee_knownbe_user_name", "未登録"),
-        "use_plan": use_plan,
+        "use_plan": st.session_state.get("bee_use_plan", True),
     }
 
     st.json(save_payload)
@@ -8574,11 +8574,7 @@ def render_bee_journal_page():
 
     with send_cols[1]:
         if st.button("保存", key="bee_save_button", use_container_width=True):
-            try:
-                save_bee_diary_record(save_payload)
-                st.success("保存できたある！")
-            except Exception as e:
-                st.error(f"保存失敗ある: {e}")
+            st.info("保存処理はあとで接続するある。まず画面復旧を優先中ある。")
 
     with send_cols[2]:
         st.write("開始/終了メモの下のボタンから送信するある")
