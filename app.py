@@ -8408,8 +8408,8 @@ def render_bee_journal_page():
     with rule_show_cols[1]:
         st.write("")
         st.write("")
-        if st.button("編集・登録", key="bee_rule_edit_toggle", use_container_width=True):
-            st.session_state["bee_rule_edit_open"] = not st.session_state.get("bee_rule_edit_open", False)
+        if st.button("編集", key="bee_rule_edit_open_btn", use_container_width=True):
+            st.session_state["bee_rule_edit_open"] = True
             st.rerun()
 
     if st.session_state.get("bee_rule_edit_open", False):
@@ -8472,7 +8472,7 @@ def render_bee_journal_page():
 
         edit_btn_cols = st.columns([1, 1, 4])
         with edit_btn_cols[0]:
-            if st.button("保存", key="bee_save_examples_rules", use_container_width=True):
+            if st.button("登録", key="bee_save_examples_rules", use_container_width=True):
                 save_staff_examples_record(
                     company_id=target_company_id,
                     staff_name=staff_name,
@@ -8488,8 +8488,10 @@ def render_bee_journal_page():
                     staff_name=staff_name,
                     rule_text=edit_rule_text,
                 )
-                st.success("スタッフ例文・個人ルールを保存したある！")
+                st.success("スタッフ例文・個人ルールを登録したある！")
+                st.session_state["bee_rule_edit_open"] = False
                 st.rerun()
+
         with edit_btn_cols[1]:
             if st.button("閉じる", key="bee_close_examples_rules", use_container_width=True):
                 st.session_state["bee_rule_edit_open"] = False
