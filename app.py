@@ -2266,36 +2266,64 @@ def update_diary_input_record_status_company_scoped(
 
 def get_staff_example_row(company_id: str, staff_name: str):
     df = load_db("staff_examples")
-    required_cols = [
+
+    if df is None or df.empty:
+        return None
+
+    df = df.fillna("").copy()
+
+    for col in [
         "company_id",
         "staff_name",
         "home_start_example", "home_end_example",
         "day_start_example", "day_end_example",
         "outside_start_example", "outside_end_example",
-        "updated_at"
-    ]
-    df = normalize_company_scoped_df(df, required_cols)
+        "updated_at",
+    ]:
+        if col not in df.columns:
+            df[col] = ""
+
+    df["company_id"] = df["company_id"].astype(str).str.strip()
+    df["staff_name"] = df["staff_name"].astype(str).str.strip()
+
     hit = df[
         (df["company_id"] == str(company_id).strip()) &
-        (df["staff_name"].astype(str).str.strip() == str(staff_name).strip())
-    ]
+        (df["staff_name"] == str(staff_name).strip())
+    ].copy()
+
     if hit.empty:
         return None
+
     return hit.iloc[0].to_dict()
 
 def get_personal_rule_row(company_id: str, staff_name: str):
     df = load_db("personal_rules")
-    required_cols = [
+
+    if df is None or df.empty:
+        return None
+
+    df = df.fillna("").copy()
+
+    for col in [
         "company_id",
-        "staff_name", "rule_text", "updated_at"
-    ]
-    df = normalize_company_scoped_df(df, required_cols)
+        "staff_name",
+        "rule_text",
+        "updated_at",
+    ]:
+        if col not in df.columns:
+            df[col] = ""
+
+    df["company_id"] = df["company_id"].astype(str).str.strip()
+    df["staff_name"] = df["staff_name"].astype(str).str.strip()
+
     hit = df[
         (df["company_id"] == str(company_id).strip()) &
-        (df["staff_name"].astype(str).str.strip() == str(staff_name).strip())
-    ]
+        (df["staff_name"] == str(staff_name).strip())
+    ].copy()
+
     if hit.empty:
         return None
+
     return hit.iloc[0].to_dict()
 
 def save_staff_examples_record(
@@ -3273,7 +3301,20 @@ def render_ic_card_manage_page():
         st.dataframe(view_df, use_container_width=True)
 
 def get_resident_master_df():
-    return get_resident_master_df_cached().copy()
+    df = load_db("resident_master")
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.fillna("").copy()
+
+    if "company_id" not in df.columns:
+        df["company_id"] = ""
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+
+    df["company_id"] = df["company_id"].astype(str).str.strip()
+    return df[df["company_id"] == company_id]
 
 def get_document_master_df():
     return get_document_master_df_cached().copy()
@@ -3416,8 +3457,17 @@ def update_diary_input_record_status(record_id, send_status, sent_at="", send_er
     save_db(df, "diary_input_rules")
     return True
 
-def get_diary_input_rules_df():
-    return get_diary_input_rules_df_cached().copy()
+def get_diary_input_rules_df(company_id=None):
+    df = get_diary_input_rules_df_cached().copy()
+
+    if company_id is None:
+        company_id = str(st.session_state.get("company_id", "")).strip()
+
+    if "company_id" not in df.columns:
+        df["company_id"] = ""
+
+    df["company_id"] = df["company_id"].fillna("").astype(str).str.strip()
+    return df[df["company_id"] == str(company_id).strip()].copy()
 
 def _to_minutes(hhmm: str):
     s = str(hhmm).strip()
@@ -7473,7 +7523,20 @@ def get_assistant_plans_df_cached():
 
 
 def get_assistant_plans_df():
-    return get_assistant_plans_df_cached().copy()
+    df = load_db("resident_schedule")
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.fillna("").copy()
+
+    if "company_id" not in df.columns:
+        df["company_id"] = ""
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+
+    df["company_id"] = df["company_id"].astype(str).str.strip()
+    return df[df["company_id"] == company_id]
 
 
 def save_staff_examples_record(
@@ -7485,8 +7548,20 @@ def save_staff_examples_record(
     outside_start_example,
     outside_end_example,
 ):
-    df = get_staff_examples_df()
+    df = load_db("resident_schedule")
 
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.fillna("").copy()
+
+    if "company_id" not in df.columns:
+        df["company_id"] = ""
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+
+    df["company_id"] = df["company_id"].astype(str).str.strip()
+    return df[df["company_id"] == company_id]
     updated_at = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
     hit_idx = df.index[df["staff_name"].astype(str) == str(staff_name)].tolist()
@@ -7514,7 +7589,20 @@ def save_staff_examples_record(
 
 
 def save_personal_rules_record(staff_name, rule_text):
-    df = get_personal_rules_df()
+    df = load_db("resident_schedule")
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.fillna("").copy()
+
+    if "company_id" not in df.columns:
+        df["company_id"] = ""
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+
+    df["company_id"] = df["company_id"].astype(str).str.strip()
+    return df[df["company_id"] == company_id]
 
     updated_at = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -8692,11 +8780,37 @@ def render_bee_journal_page():
             )
 
 def get_resident_schedule_df():
-    return get_resident_schedule_df_cached().copy()
+    df = load_db("resident_schedule")
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.fillna("").copy()
+
+    if "company_id" not in df.columns:
+        df["company_id"] = ""
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+
+    df["company_id"] = df["company_id"].astype(str).str.strip()
+    return df[df["company_id"] == company_id]
 
 
 def get_resident_notes_df():
-    return get_resident_notes_df_cached().copy()
+    df = load_db("resident_schedule")
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.fillna("").copy()
+
+    if "company_id" not in df.columns:
+        df["company_id"] = ""
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+
+    df["company_id"] = df["company_id"].astype(str).str.strip()
+    return df[df["company_id"] == company_id]
 
 
 def get_external_contacts_df():
