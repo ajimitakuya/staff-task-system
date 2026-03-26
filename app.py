@@ -8341,67 +8341,12 @@ def render_bee_journal_page():
     else:
         st.warning("この入力者の個人ルールは未登録ある。")
 
-    ex_cols1 = st.columns(2)
-    with ex_cols1[0]:
-        st.text_area(
-            "在宅作業開始例文",
-            value=default_home_start,
-            key="bee_home_start_example_view",
-            height=100,
-            disabled=True
-        )
-    with ex_cols1[1]:
-        st.text_area(
-            "在宅作業終了例文",
-            value=default_home_end,
-            key="bee_home_end_example_view",
-            height=100,
-            disabled=True
-        )
-
-    ex_cols2 = st.columns(2)
-    with ex_cols2[0]:
-        st.text_area(
-            "通所作業開始例文",
-            value=default_day_start,
-            key="bee_day_start_example_view",
-            height=100,
-            disabled=True
-        )
-    with ex_cols2[1]:
-        st.text_area(
-            "通所作業終了例文",
-            value=default_day_end,
-            key="bee_day_end_example_view",
-            height=100,
-            disabled=True
-        )
-
-    ex_cols3 = st.columns(2)
-    with ex_cols3[0]:
-        st.text_area(
-            "施設外作業開始例文",
-            value=default_outside_start,
-            key="bee_outside_start_example_view",
-            height=100,
-            disabled=True
-        )
-    with ex_cols3[1]:
-        st.text_area(
-            "施設外作業終了例文",
-            value=default_outside_end,
-            key="bee_outside_end_example_view",
-            height=100,
-            disabled=True
-        )
-
-    # 編集状態
+    # 例文・個人ルール 編集状態
     if "bee_rule_edit_open" not in st.session_state:
         st.session_state["bee_rule_edit_open"] = False
 
     is_editing = st.session_state["bee_rule_edit_open"]
 
-    # 表示・編集 共通欄
     ex_cols1 = st.columns(2)
     with ex_cols1[0]:
         home_start_value = st.text_area(
@@ -8456,9 +8401,9 @@ def render_bee_journal_page():
             disabled=not is_editing
         )
 
-    btn_cols = st.columns([5, 1])
+    bottom_cols = st.columns([5, 1])
 
-    with btn_cols[0]:
+    with bottom_cols[0]:
         rule_text_value = st.text_area(
             "個人ルール",
             value=default_rule_text,
@@ -8468,7 +8413,7 @@ def render_bee_journal_page():
             placeholder="未登録ある"
         )
 
-    with btn_cols[1]:
+    with bottom_cols[1]:
         st.write("")
         st.write("")
 
@@ -8494,10 +8439,6 @@ def render_bee_journal_page():
                     rule_text=rule_text_value,
                 )
                 st.success("スタッフ例文・個人ルールを登録したある！")
-                st.session_state["bee_rule_edit_open"] = False
-                st.rerun()
-
-            if st.button("閉じる", key="bee_close_examples_rules", use_container_width=True):
                 st.session_state["bee_rule_edit_open"] = False
                 st.rerun()
 
