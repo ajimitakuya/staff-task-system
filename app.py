@@ -8332,6 +8332,72 @@ def render_bee_journal_page():
             )
 
     st.divider()
+    st.markdown("## 入力内容確認")
+
+    preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
+
+    st.write({
+        "target_company_name": target_company_name,
+        "date": str(target_date),
+        "resident_id": resident_id,
+        "resident_name": resident_name,
+        "start_time": start_time,
+        "end_time": end_time,
+        "meal_flag": meal_flag,
+        "note": preview_note,
+        "start_memo": start_memo,
+        "end_memo": end_memo,
+        "staff_name": staff_name,
+        "use_plan": use_plan,
+        "service_type": service_type,
+        "knowbe_user": mask_secret_text(resolved_knowbe_user),
+    })
+
+    st.divider()
+    st.markdown("## 保存・送信")
+
+    plan_row = get_plan_row(target_company_id, resident_id)
+    plan_text = ""
+    if use_plan and plan_row:
+        plan_text = (
+            f"長期目標: {plan_row.get('long_term_goal', '')}\n"
+            f"短期目標: {plan_row.get('short_term_goal', '')}"
+        )
+
+    examples_text = build_examples_text(service_type, example_row)
+    loaded_rule_text = rule_row.get("rule_text", "") if rule_row else ""
+
+    record_mode = "gemini"
+
+    def _validate_partial_send():
+        errs = validate_bee_times(
+            resident_id=resident_id,
+            target_date=target_date,
+            start_time=start_time,
+            end_time=end_time,
+            work_start_time=work_start_time,
+            work_end_time=work_end_time,
+        )
+        if errs:
+            for err in errs:
+                st.error(err)
+            return False
+
+        if not start_time.strip():
+            st.warning("開始時間を入れてほしいある。")
+            return False
+        if not end_time.strip():
+            st.warning("終了時間を入れてほしいある。")
+            return False
+        if not staff_name.strip():
+            st.warning("日誌入力者を入れてほしいある。")
+            return False
+        if not resolved_knowbe_user or not resolved_knowbe_pw:
+            st.warning("Knowbe情報が未設定ある。")
+            return False
+        return True
+
+    st.divider()
     st.markdown("## 補助設定")
 
     use_plan = st.checkbox("個別支援計画を参照する", value=True, key="bee_use_plan")
@@ -8460,72 +8526,6 @@ def render_bee_journal_page():
                 st.success("スタッフ例文・個人ルールを登録したある！")
                 st.session_state["bee_rule_edit_open"] = False
                 st.rerun()
-
-    st.divider()
-    st.markdown("## 入力内容確認")
-
-    preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
-
-    st.write({
-        "target_company_name": target_company_name,
-        "date": str(target_date),
-        "resident_id": resident_id,
-        "resident_name": resident_name,
-        "start_time": start_time,
-        "end_time": end_time,
-        "meal_flag": meal_flag,
-        "note": preview_note,
-        "start_memo": start_memo,
-        "end_memo": end_memo,
-        "staff_name": staff_name,
-        "use_plan": use_plan,
-        "service_type": service_type,
-        "knowbe_user": mask_secret_text(resolved_knowbe_user),
-    })
-
-    st.divider()
-    st.markdown("## 保存・送信")
-
-    plan_row = get_plan_row(target_company_id, resident_id)
-    plan_text = ""
-    if use_plan and plan_row:
-        plan_text = (
-            f"長期目標: {plan_row.get('long_term_goal', '')}\n"
-            f"短期目標: {plan_row.get('short_term_goal', '')}"
-        )
-
-    examples_text = build_examples_text(service_type, example_row)
-    loaded_rule_text = rule_row.get("rule_text", "") if rule_row else ""
-
-    record_mode = "gemini"
-
-    def _validate_partial_send():
-        errs = validate_bee_times(
-            resident_id=resident_id,
-            target_date=target_date,
-            start_time=start_time,
-            end_time=end_time,
-            work_start_time=work_start_time,
-            work_end_time=work_end_time,
-        )
-        if errs:
-            for err in errs:
-                st.error(err)
-            return False
-
-        if not start_time.strip():
-            st.warning("開始時間を入れてほしいある。")
-            return False
-        if not end_time.strip():
-            st.warning("終了時間を入れてほしいある。")
-            return False
-        if not staff_name.strip():
-            st.warning("日誌入力者を入れてほしいある。")
-            return False
-        if not resolved_knowbe_user or not resolved_knowbe_pw:
-            st.warning("Knowbe情報が未設定ある。")
-            return False
-        return True
 
     def _send_partial(send_user_status: bool, send_staff_comment: bool, use_gemini: bool):
         if not _validate_partial_send():
