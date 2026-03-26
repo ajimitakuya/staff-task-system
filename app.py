@@ -3523,17 +3523,39 @@ def validate_bee_times(
 ):
     errors = []
 
+    start_time = str(start_time).strip()
+    end_time = str(end_time).strip()
+    work_start_time = str(work_start_time).strip()
+    work_end_time = str(work_end_time).strip()
+
+    # 通所時間は必須
     s = _to_minutes(start_time)
     e = _to_minutes(end_time)
-    ws = _to_minutes(work_start_time)
-    we = _to_minutes(work_end_time)
 
-    if None in (s, e, ws, we):
+    if s is None or e is None:
         errors.append("時間の形式が正しくないある。HH:MM で入れてほしいある。")
         return errors
 
     if s >= e:
         errors.append("開始時間と終了時間の大小が正しくないある。")
+
+    # 作業時間が両方空なら、通所時間と同じ扱いにする
+    if work_start_time == "" and work_end_time == "":
+        ws = s
+        we = e
+        work_start_time = start_time
+        work_end_time = end_time
+    # 片方だけ空はエラー
+    elif work_start_time == "" or work_end_time == "":
+        errors.append("作業開始時間と作業終了時間は、入れるなら両方入れてほしいある。")
+        return errors
+    else:
+        ws = _to_minutes(work_start_time)
+        we = _to_minutes(work_end_time)
+
+        if ws is None or we is None:
+            errors.append("時間の形式が正しくないある。HH:MM で入れてほしいある。")
+            return errors
 
     if ws >= we:
         errors.append("作業開始時間と作業終了時間の大小が正しくないある。")
