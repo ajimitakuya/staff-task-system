@@ -65,9 +65,7 @@ COMMON_SHEETS = {
     "admin_logs",
 }
 
-# st.write("DEBUG_COMMON_SHEETS", COMMON_SHEETS)
-
-OFFICE_SHEETS = {
+COMPANY_SCOPED_SHEETS = {
     "resident_master",
     "resident_schedule",
     "resident_notes",
@@ -81,22 +79,13 @@ OFFICE_SHEETS = {
     "assistant_plans",
 }
 
-def get_current_office_key():
-    office_key = str(st.session_state.get("office_key", "support")).strip().lower()
-    if office_key not in ("support", "home"):
-        office_key = "support"
-    return office_key
-
 def get_sheet_name_candidates(file):
     if file in COMMON_SHEETS:
         return [file]
 
-    if file in OFFICE_SHEETS:
-        office_key = get_current_office_key()
-        return [
-            f"{office_key}_{file}",
-            file,
-        ]
+    if file in COMPANY_SCOPED_SHEETS:
+        # 新方式：統合シート1枚だけ
+        return [file]
 
     raise ValueError(f"未対応のシート名ある: {file}")
 
@@ -158,6 +147,7 @@ def load_db(file, retries=3, delay=0.8):
                     "calendar": calendar_cols,
                     "active_users": ["user", "login_at", "last_seen"],
                     "resident_master": [
+                        "company_id",
                         "resident_id", "resident_name", "status",
                         "consultant", "consultant_phone",
                         "caseworker", "caseworker_phone",
@@ -167,10 +157,12 @@ def load_db(file, retries=3, delay=0.8):
                         "created_at", "updated_at"
                     ],
                     "resident_schedule": [
+                        "company_id",
                         "id", "resident_id", "weekday", "service_type",
                         "start_time", "end_time", "place", "phone", "person_in_charge", "memo"
                     ],
                     "resident_notes": [
+                        "company_id",
                         "id", "resident_id", "date", "user", "note"
                     ],
                     "document_master": [
@@ -205,6 +197,7 @@ def load_db(file, retries=3, delay=0.8):
                         "record_mode"
                     ],
                     "staff_examples": [
+                        "company_id",
                         "staff_name",
                         "home_start_example", "home_end_example",
                         "day_start_example", "day_end_example",
@@ -212,9 +205,11 @@ def load_db(file, retries=3, delay=0.8):
                         "updated_at"
                     ],
                     "personal_rules": [
+                        "company_id",
                         "staff_name", "rule_text", "updated_at"
                     ],
                     "assistant_plans": [
+                        "company_id",
                         "resident_id", "long_term_goal", "short_term_goal", "updated_at"
                     ],
                     "users": [
@@ -2140,31 +2135,272 @@ def authenticate_company_login(login_id: str, login_password: str):
 
     return target.iloc[0].to_dict()
 
+def get_current_company_id():
+    return str(st.session_state.get("company_id", "")).strip()
+
+def normalize_company_scoped_df(df, required_cols):
+    if df is None or df.empty:
+        return pd.DataFrame(columns=required_cols)
+
+    work = df.copy()
+    for col in required_cols:
+        if col not in work.columns:
+            work[col] = ""
+
+    work["company_id"] = work["company_id"].fillna("").astype(str).str.strip()
+    return work.fillna("")
+
+def filter_by_company_id(df, company_id: str):
+    work = df.copy()
+    work["company_id"] = work["company_id"].fillna("").astype(str).str.strip()
+    return work[work["company_id"] == str(company_id).strip()].copy()
+
 @contextmanager
-def temporary_office_key(office_key: str):
-    old_exists = "office_key" in st.session_state
-    old_value = st.session_state.get("office_key", "support")
+def get_resident_master_df(company_id=None):
+    if company_id is None:
+        company_id = get_current_company_id()
 
-    st.session_state["office_key"] = str(office_key).strip().lower() or "support"
-    try:
-        yield
-    finally:
-        if old_exists:
-            st.session_state["office_key"] = old_value
-        else:
-            try:
-                del st.session_state["office_key"]
-            except Exception:
-                pass
+    required_cols = [
+        "company_id",
+        "resident_id", "resident_name", "status",
+        "consultant", "consultant_phone",
+        "caseworker", "caseworker_phone",
+        "hospital", "hospital_phone",
+        "nurse", "nurse_phone",
+        "care", "care_phone",
+        "created_at", "updated_at"
+    ]
 
+    df = load_db("resident_master")
+    df = normalize_company_scoped_df(df, required_cols)
+    return filter_by_company_id(df, company_id)
 
-def company_row_to_office_key(row: dict) -> str:
-    company_code = str(row.get("company_code", "")).strip()
-    return "home" if company_code == "relife_home" else "support"
+def get_diary_input_rules_df(company_id=None):
+    if company_id is None:
+        company_id = get_current_company_id()
 
+    required_cols = [
+        "record_id", "company_id", "date", "resident_id", "resident_name",
+        "start_time", "end_time", "work_start_time", "work_end_time", "work_break_time",
+        "meal_flag", "note",
+        "start_memo", "end_memo", "staff_name",
+        "generated_status", "generated_support", "created_at",
+        "service_type", "knowbe_target", "send_status", "sent_at", "send_error",
+        "record_mode"
+    ]
+
+    df = load_db("diary_input_rules")
+    df = normalize_company_scoped_df(df, required_cols)
+    return filter_by_company_id(df, company_id)
+
+def save_diary_input_record_company_scoped(company_id, **kwargs):
+    df = load_db("diary_input_rules")
+
+    required_cols = [
+        "record_id", "company_id", "date", "resident_id", "resident_name",
+        "start_time", "end_time", "work_start_time", "work_end_time", "work_break_time",
+        "meal_flag", "note",
+        "start_memo", "end_memo", "staff_name",
+        "generated_status", "generated_support", "created_at",
+        "service_type", "knowbe_target", "send_status", "sent_at", "send_error",
+        "record_mode"
+    ]
+    df = normalize_company_scoped_df(df, required_cols)
+
+    if df.empty:
+        next_id = 1
+    else:
+        ids = pd.to_numeric(df["record_id"], errors="coerce").dropna()
+        next_id = int(ids.max()) + 1 if not ids.empty else 1
+
+    new_row = pd.DataFrame([{
+        "record_id": next_id,
+        "company_id": str(company_id).strip(),
+        "date": kwargs.get("date", ""),
+        "resident_id": kwargs.get("resident_id", ""),
+        "resident_name": kwargs.get("resident_name", ""),
+        "start_time": kwargs.get("start_time", ""),
+        "end_time": kwargs.get("end_time", ""),
+        "work_start_time": kwargs.get("work_start_time", ""),
+        "work_end_time": kwargs.get("work_end_time", ""),
+        "work_break_time": kwargs.get("work_break_time", ""),
+        "meal_flag": kwargs.get("meal_flag", ""),
+        "note": kwargs.get("note", ""),
+        "start_memo": kwargs.get("start_memo", ""),
+        "end_memo": kwargs.get("end_memo", ""),
+        "staff_name": kwargs.get("staff_name", ""),
+        "generated_status": kwargs.get("generated_status", ""),
+        "generated_support": kwargs.get("generated_support", ""),
+        "created_at": now_jst().strftime("%Y-%m-%d %H:%M:%S"),
+        "service_type": kwargs.get("service_type", ""),
+        "knowbe_target": kwargs.get("knowbe_target", ""),
+        "send_status": kwargs.get("send_status", ""),
+        "sent_at": kwargs.get("sent_at", ""),
+        "send_error": kwargs.get("send_error", ""),
+        "record_mode": kwargs.get("record_mode", ""),
+    }])
+
+    df = pd.concat([df, new_row], ignore_index=True)
+    save_db(df, "diary_input_rules")
+    return next_id
+
+def update_diary_input_record_status_company_scoped(
+    record_id,
+    send_status,
+    sent_at="",
+    send_error=""
+):
+    df = load_db("diary_input_rules")
+    if df is None or df.empty:
+        return False
+
+    mask = df["record_id"].astype(str) == str(record_id)
+    if not mask.any():
+        return False
+
+    df.loc[mask, "send_status"] = str(send_status)
+    df.loc[mask, "sent_at"] = str(sent_at)
+    df.loc[mask, "send_error"] = str(send_error)
+    save_db(df, "diary_input_rules")
+    return True
+
+def get_staff_example_row(company_id: str, staff_name: str):
+    df = load_db("staff_examples")
+    required_cols = [
+        "company_id",
+        "staff_name",
+        "home_start_example", "home_end_example",
+        "day_start_example", "day_end_example",
+        "outside_start_example", "outside_end_example",
+        "updated_at"
+    ]
+    df = normalize_company_scoped_df(df, required_cols)
+    hit = df[
+        (df["company_id"] == str(company_id).strip()) &
+        (df["staff_name"].astype(str).str.strip() == str(staff_name).strip())
+    ]
+    if hit.empty:
+        return None
+    return hit.iloc[0].to_dict()
+
+def get_personal_rule_row(company_id: str, staff_name: str):
+    df = load_db("personal_rules")
+    required_cols = [
+        "company_id",
+        "staff_name", "rule_text", "updated_at"
+    ]
+    df = normalize_company_scoped_df(df, required_cols)
+    hit = df[
+        (df["company_id"] == str(company_id).strip()) &
+        (df["staff_name"].astype(str).str.strip() == str(staff_name).strip())
+    ]
+    if hit.empty:
+        return None
+    return hit.iloc[0].to_dict()
+
+def save_staff_examples_record(
+    company_id,
+    staff_name,
+    home_start_example,
+    home_end_example,
+    day_start_example,
+    day_end_example,
+    outside_start_example,
+    outside_end_example,
+):
+    df = load_db("staff_examples")
+    required_cols = [
+        "company_id",
+        "staff_name",
+        "home_start_example", "home_end_example",
+        "day_start_example", "day_end_example",
+        "outside_start_example", "outside_end_example",
+        "updated_at"
+    ]
+    df = normalize_company_scoped_df(df, required_cols)
+
+    company_id = str(company_id).strip()
+    staff_name = str(staff_name).strip()
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    mask = (
+        (df["company_id"] == company_id) &
+        (df["staff_name"].astype(str).str.strip() == staff_name)
+    )
+
+    new_data = {
+        "company_id": company_id,
+        "staff_name": staff_name,
+        "home_start_example": str(home_start_example),
+        "home_end_example": str(home_end_example),
+        "day_start_example": str(day_start_example),
+        "day_end_example": str(day_end_example),
+        "outside_start_example": str(outside_start_example),
+        "outside_end_example": str(outside_end_example),
+        "updated_at": now_str,
+    }
+
+    if mask.any():
+        for k, v in new_data.items():
+            df.loc[mask, k] = v
+    else:
+        df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
+
+    save_db(df, "staff_examples")
+
+def save_personal_rules_record(company_id, staff_name, rule_text):
+    df = load_db("personal_rules")
+    required_cols = [
+        "company_id",
+        "staff_name", "rule_text", "updated_at"
+    ]
+    df = normalize_company_scoped_df(df, required_cols)
+
+    company_id = str(company_id).strip()
+    staff_name = str(staff_name).strip()
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    mask = (
+        (df["company_id"] == company_id) &
+        (df["staff_name"].astype(str).str.strip() == staff_name)
+    )
+
+    new_data = {
+        "company_id": company_id,
+        "staff_name": staff_name,
+        "rule_text": str(rule_text),
+        "updated_at": now_str,
+    }
+
+    if mask.any():
+        for k, v in new_data.items():
+            df.loc[mask, k] = v
+    else:
+        df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
+
+    save_db(df, "personal_rules")
+
+def get_plan_row(company_id, resident_id):
+    df = load_db("assistant_plans")
+    required_cols = [
+        "company_id",
+        "resident_id", "long_term_goal", "short_term_goal", "updated_at"
+    ]
+    df = normalize_company_scoped_df(df, required_cols)
+
+    hit = df[
+        (df["company_id"] == str(company_id).strip()) &
+        (df["resident_id"].astype(str).str.strip() == str(resident_id).strip())
+    ]
+    if hit.empty:
+        return None
+    return hit.iloc[0].to_dict()
 
 def get_company_row_by_id(company_id: str):
     df = get_companies_df()
+    if df is None or df.empty:
+        return None
+
     hit = df[df["company_id"].astype(str).str.strip() == str(company_id).strip()]
     if hit.empty:
         return None
@@ -2172,16 +2408,22 @@ def get_company_row_by_id(company_id: str):
 
 
 def get_current_company_row():
-    company_id = str(st.session_state.get("company_id", "")).strip()
-    if not company_id:
+    current_company_id = get_current_company_id()
+    if not current_company_id:
         return None
-    return get_company_row_by_id(company_id)
+    return get_company_row_by_id(current_company_id)
 
 
 def get_company_saved_knowbe_info(company_id: str):
-    row = get_company_row_by_id(company_id)
-    if not row:
+    df = get_companies_df()
+    if df is None or df.empty:
         return "", ""
+
+    hit = df[df["company_id"].astype(str).str.strip() == str(company_id).strip()]
+    if hit.empty:
+        return "", ""
+
+    row = hit.iloc[0]
     return (
         str(row.get("knowbe_login_username", "")).strip(),
         str(row.get("knowbe_login_password", "")).strip(),
@@ -2190,6 +2432,8 @@ def get_company_saved_knowbe_info(company_id: str):
 
 def save_company_saved_knowbe_info(company_id: str, knowbe_login_username: str, knowbe_login_password: str):
     df = get_companies_df()
+    if df is None or df.empty:
+        return False
 
     mask = df["company_id"].astype(str).str.strip() == str(company_id).strip()
     if not mask.any():
@@ -2203,85 +2447,58 @@ def save_company_saved_knowbe_info(company_id: str, knowbe_login_username: str, 
     return True
 
 
-def get_resident_master_df_for_office(office_key: str):
-    with temporary_office_key(office_key):
-        df = load_db("resident_master")
-
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "resident_id", "resident_name", "status",
-            "consultant", "consultant_phone",
-            "caseworker", "caseworker_phone",
-            "hospital", "hospital_phone",
-            "nurse", "nurse_phone",
-            "care", "care_phone",
-            "created_at", "updated_at"
-        ])
-    else:
-        for col in [
-            "resident_id", "resident_name", "status",
-            "consultant", "consultant_phone",
-            "caseworker", "caseworker_phone",
-            "hospital", "hospital_phone",
-            "nurse", "nurse_phone",
-            "care", "care_phone",
-            "created_at", "updated_at"
-        ]:
-            if col not in df.columns:
-                df[col] = ""
-
-    return df.fillna("").copy()
+def company_row_to_office_key(row: dict) -> str:
+    company_code = str(row.get("company_code", "")).strip().lower()
+    if company_code == "relife_home":
+        return "home"
+    return "support"
 
 
-def get_diary_input_rules_df_for_office(office_key: str):
-    with temporary_office_key(office_key):
-        df = load_db("diary_input_rules")
+@contextmanager
+def temporary_office_key(office_key: str):
+    old_value = st.session_state.get("office_key", "")
+    had_old = "office_key" in st.session_state
 
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "record_id", "company_id", "date", "resident_id", "resident_name",
-            "start_time", "end_time", "work_start_time", "work_end_time", "work_break_time",
-            "meal_flag", "note",
-            "start_memo", "end_memo", "staff_name",
-            "generated_status", "generated_support", "created_at",
-            "service_type", "knowbe_target", "send_status", "sent_at", "send_error",
-            "record_mode"
-        ])
-    else:
-        for col in [
-            "record_id", "company_id", "date", "resident_id", "resident_name",
-            "start_time", "end_time", "work_start_time", "work_end_time", "work_break_time",
-            "meal_flag", "note",
-            "start_memo", "end_memo", "staff_name",
-            "generated_status", "generated_support", "created_at",
-            "service_type", "knowbe_target", "send_status", "sent_at", "send_error",
-            "record_mode"
-        ]:
-            if col not in df.columns:
-                df[col] = ""
-
-    return df.fillna("").copy()
+    st.session_state["office_key"] = str(office_key).strip()
+    try:
+        yield
+    finally:
+        if had_old:
+            st.session_state["office_key"] = old_value
+        else:
+            st.session_state.pop("office_key", None)
 
 
-def save_diary_input_rule_record_for_office(office_key: str, **kwargs):
-    with temporary_office_key(office_key):
-        return save_diary_input_record(**kwargs)
+def update_diary_input_record_status_for_office(office_key, record_id, send_status, sent_at="", send_error=""):
+    return update_diary_input_record_status_company_scoped(
+        record_id=record_id,
+        send_status=send_status,
+        sent_at=sent_at,
+        send_error=send_error,
+    )
 
 
-def update_diary_input_record_status_for_office(office_key: str, record_id, send_status, sent_at="", send_error=""):
-    with temporary_office_key(office_key):
-        return update_diary_input_record_status(record_id, send_status, sent_at, send_error)
+def reset_resident_edit_flags():
+    for k in [
+        "edit_basic_mode",
+        "edit_schedule_mode",
+        "edit_notes_mode",
+        "edit_links_mode",
+    ]:
+        st.session_state[k] = False
 
 
-def get_staff_example_row_for_office(office_key: str, staff_name: str):
-    with temporary_office_key(office_key):
-        df = get_staff_examples_df()
+def parse_time_range(raw_text: str):
+    raw = str(raw_text).strip()
+    if not raw:
+        return "", ""
 
-    hit = df[df["staff_name"].astype(str) == str(staff_name)]
-    if hit.empty:
-        return None
-    return hit.iloc[0].to_dict()
+    raw = raw.replace("～", "〜").replace("~", "〜").replace("-", "〜")
+    if "〜" in raw:
+        start_time, end_time = [x.strip() for x in raw.split("〜", 1)]
+        return start_time, end_time
 
+    return raw, ""
 
 def get_personal_rule_row_for_office(office_key: str, staff_name: str):
     with temporary_office_key(office_key):
@@ -3149,8 +3366,7 @@ def save_diary_input_record(
     created_at = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
     if not company_id:
-        company_id = get_current_office_key()
-
+        company_id = get_current_company_id()
     new_row = pd.DataFrame([{
         "record_id": next_id,
         "company_id": str(company_id),
@@ -7725,14 +7941,27 @@ def render_bee_journal_page():
         else:
             st.warning("Knowbe情報が未設定ある。管理者メニューの『Knowbe情報登録』で保存するか、この画面で入力してほしいある。")
 
+    target_company_id = str(st.session_state.get("company_id", "")).strip()
+
     st.markdown("## 利用者選択")
 
-    master_df = get_resident_master_df_for_office(target_office_key)
+    master_df = load_db("resident_master")
     if master_df is None or master_df.empty:
-        st.warning("対象事業所の利用者情報がまだ登録されてないある。")
+        st.warning("利用者情報がまだ登録されてないある。")
         return
 
     master_df = master_df.fillna("").copy()
+
+    if "company_id" not in master_df.columns:
+        st.error("resident_master に company_id 列がないある。")
+        return
+
+    master_df["company_id"] = master_df["company_id"].astype(str).str.strip()
+    master_df = master_df[master_df["company_id"] == target_company_id].copy()
+
+    if master_df.empty:
+        st.warning("この事業所に所属する利用者がまだ登録されてないある。")
+        return
 
     resident_options = []
     resident_map = {}
@@ -7752,7 +7981,7 @@ def render_bee_journal_page():
         resident_map[label] = row.to_dict()
 
     if not resident_options:
-        st.warning("対象事業所の利用者情報がまだ登録されてないある。")
+        st.warning("この事業所に所属する利用者がまだ登録されてないある。")
         return
 
     selected_label = st.selectbox(
@@ -7767,7 +7996,7 @@ def render_bee_journal_page():
 
     st.markdown("### 保存データ呼び出し")
 
-    diary_df = get_diary_input_rules_df_for_office(target_office_key)
+    diary_df = get_diary_input_rules_df(target_company_id)
 
     if diary_df is not None and not diary_df.empty:
         df_user = diary_df[
@@ -7974,8 +8203,8 @@ def render_bee_journal_page():
 
     use_plan = st.checkbox("個別支援計画を参照する", value=True, key="bee_use_plan")
 
-    example_row = get_staff_example_row_for_office(target_office_key, staff_name)
-    rule_row = get_personal_rule_row_for_office(target_office_key, staff_name)
+    example_row = get_staff_example_row(target_company_id, staff_name)
+    rule_row = get_personal_rule_row(target_company_id, staff_name)
 
     default_home_start = example_row.get("home_start_example", "") if example_row else ""
     default_home_end = example_row.get("home_end_example", "") if example_row else ""
@@ -8130,8 +8359,8 @@ def render_bee_journal_page():
         edit_btn_cols = st.columns([1, 1, 4])
         with edit_btn_cols[0]:
             if st.button("保存", key="bee_save_examples_rules", use_container_width=True):
-                save_staff_examples_record_for_office(
-                    office_key=target_office_key,
+                save_staff_examples_record(
+                    company_id=target_company_id,
                     staff_name=staff_name,
                     home_start_example=edit_home_start,
                     home_end_example=edit_home_end,
@@ -8140,8 +8369,8 @@ def render_bee_journal_page():
                     outside_start_example=edit_outside_start,
                     outside_end_example=edit_outside_end,
                 )
-                save_personal_rules_record_for_office(
-                    office_key=target_office_key,
+                save_personal_rules_record(
+                    company_id=target_company_id,
                     staff_name=staff_name,
                     rule_text=edit_rule_text,
                 )
@@ -8177,7 +8406,7 @@ def render_bee_journal_page():
     st.divider()
     st.markdown("## 保存・送信")
 
-    plan_row = get_plan_row(resident_id)
+    plan_row = get_plan_row(target_company_id, resident_id)
     plan_text = ""
     if use_plan and plan_row:
         plan_text = (
@@ -8248,8 +8477,8 @@ def render_bee_journal_page():
         send_status_text = generated_status_local if send_user_status else ""
         send_support_text = generated_support_local if send_staff_comment else ""
 
-        record_id = save_diary_input_rule_record_for_office(
-            office_key=target_office_key,
+        record_id = save_diary_input_record_company_scoped(
+            company_id=target_company_id,
             date=str(target_date),
             resident_id=resident_id,
             resident_name=resident_name,
@@ -8380,8 +8609,8 @@ def render_bee_journal_page():
         if st.button("保存", key="bee_save_button", use_container_width=True):
             preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
 
-            record_id = save_diary_input_rule_record_for_office(
-                office_key=target_office_key,
+            record_id = save_diary_input_record_company_scoped(
+                company_id=target_company_id,
                 date=str(target_date),
                 resident_id=resident_id,
                 resident_name=resident_name,
@@ -9821,39 +10050,37 @@ elif page == "⑨ 利用者情報":
     def show_resident_page():
         st.title("👤 利用者情報")
 
-        master_df = get_resident_master_df()
+        current_company_id = str(st.session_state.get("company_id", "")).strip()
 
-        if "resident_mode" not in st.session_state:
-            st.session_state.resident_mode = "利用中"
+        master_df = load_db("resident_master")
+        if master_df is None or master_df.empty:
+            master_df = pd.DataFrame(columns=[
+                "company_id",
+                "resident_id", "resident_name", "status",
+                "consultant", "consultant_phone",
+                "caseworker", "caseworker_phone",
+                "hospital", "hospital_phone",
+                "nurse", "nurse_phone",
+                "care", "care_phone",
+                "created_at", "updated_at"
+            ])
+        else:
+            master_df = master_df.fillna("").copy()
+            for col in [
+                "company_id",
+                "resident_id", "resident_name", "status",
+                "consultant", "consultant_phone",
+                "caseworker", "caseworker_phone",
+                "hospital", "hospital_phone",
+                "nurse", "nurse_phone",
+                "care", "care_phone",
+                "created_at", "updated_at"
+            ]:
+                if col not in master_df.columns:
+                    master_df[col] = ""
 
-        if "selected_resident_id" not in st.session_state:
-            st.session_state.selected_resident_id = ""
-
-        if "edit_resident_basic" not in st.session_state:
-            st.session_state.edit_resident_basic = False
-
-        if "edit_resident_schedule" not in st.session_state:
-            st.session_state.edit_resident_schedule = False
-
-        if "edit_resident_note" not in st.session_state:
-            st.session_state.edit_resident_note = False
-
-        def reset_resident_edit_flags():
-            st.session_state.edit_resident_basic = False
-            st.session_state.edit_resident_schedule = False
-            st.session_state.edit_resident_note = False
-
-        def parse_time_range(raw_text: str):
-            raw = str(raw_text).strip()
-            if not raw:
-                return "", ""
-
-            raw = raw.replace("～", "〜").replace("~", "〜").replace("-", "〜")
-            if "〜" in raw:
-                start_time, end_time = [x.strip() for x in raw.split("〜", 1)]
-                return start_time, end_time
-
-            return raw, ""
+        master_df["company_id"] = master_df["company_id"].astype(str).str.strip()
+        master_df = master_df[master_df["company_id"] == current_company_id].copy()
 
         # ------------------------------------------
         # 一覧モード
@@ -10023,6 +10250,7 @@ elif page == "⑨ 利用者情報":
                             now_str = now_jst().strftime("%Y-%m-%d %H:%M")
 
                             new_master_row = pd.DataFrame([{
+                                "company_id": current_company_id,
                                 "resident_id": next_resident_id,
                                 "resident_name": resident_name.strip(),
                                 "status": status,
@@ -10040,10 +10268,53 @@ elif page == "⑨ 利用者情報":
                                 "updated_at": now_str
                             }])
 
-                            new_master_df = pd.concat([master_df, new_master_row], ignore_index=True)
+                            all_master_df = load_db("resident_master")
+                            if all_master_df is None or all_master_df.empty:
+                                all_master_df = pd.DataFrame(columns=[
+                                    "company_id",
+                                    "resident_id", "resident_name", "status",
+                                    "consultant", "consultant_phone",
+                                    "caseworker", "caseworker_phone",
+                                    "hospital", "hospital_phone",
+                                    "nurse", "nurse_phone",
+                                    "care", "care_phone",
+                                    "created_at", "updated_at"
+                                ])
+                            else:
+                                all_master_df = all_master_df.fillna("").copy()
+                                for col in [
+                                    "company_id",
+                                    "resident_id", "resident_name", "status",
+                                    "consultant", "consultant_phone",
+                                    "caseworker", "caseworker_phone",
+                                    "hospital", "hospital_phone",
+                                    "nurse", "nurse_phone",
+                                    "care", "care_phone",
+                                    "created_at", "updated_at"
+                                ]:
+                                    if col not in all_master_df.columns:
+                                        all_master_df[col] = ""
+
+                            new_master_df = pd.concat([all_master_df, new_master_row], ignore_index=True)
                             save_db(new_master_df, "resident_master")
 
-                            schedule_df_add = get_resident_schedule_df()
+                            schedule_df_add = load_db("resident_schedule")
+                            if schedule_df_add is None or schedule_df_add.empty:
+                                schedule_df_add = pd.DataFrame(columns=[
+                                    "company_id",
+                                    "id", "resident_id", "weekday", "service_type",
+                                    "start_time", "end_time", "place", "phone", "person_in_charge", "memo"
+                                ])
+                            else:
+                                schedule_df_add = schedule_df_add.fillna("").copy()
+                                for col in [
+                                    "company_id",
+                                    "id", "resident_id", "weekday", "service_type",
+                                    "start_time", "end_time", "place", "phone", "person_in_charge", "memo"
+                                ]:
+                                    if col not in schedule_df_add.columns:
+                                        schedule_df_add[col] = ""
+
                             next_schedule_id = get_next_numeric_id(schedule_df_add, "id", 1)
                             new_schedule_rows = []
 
@@ -10059,6 +10330,7 @@ elif page == "⑨ 利用者情報":
                                             continue
 
                                         new_schedule_rows.append({
+                                            "company_id": current_company_id,
                                             "id": next_schedule_id,
                                             "resident_id": next_resident_id,
                                             "weekday": wd,
@@ -10110,6 +10382,7 @@ elif page == "⑨ 利用者情報":
 
             for i, (_, row) in enumerate(list_df.iterrows()):
                 with cols[i % 2]:
+                    company_id = str(row.get("company_id", "")).strip()
                     resident_id = str(row.get("resident_id", "")).strip()
                     resident_name = str(row.get("resident_name", "")).strip()
                     status = str(row.get("status", "")).strip()
@@ -10146,11 +10419,14 @@ elif page == "⑨ 利用者情報":
                             unsafe_allow_html=True
                         )
 
-                        if st.button("詳細を見る", key=f"open_resident_{resident_id}", use_container_width=True):
+                        if st.button(
+                            "詳細を見る",
+                            key=f"open_resident_{company_id}_{resident_id}_{i}",
+                            use_container_width=True
+                        ):
                             st.session_state.selected_resident_id = resident_id
                             reset_resident_edit_flags()
                             st.rerun()
-
             return
 
         # ------------------------------------------
