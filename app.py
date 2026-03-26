@@ -7996,7 +7996,7 @@ def render_bee_journal_page():
 
     st.markdown("### 保存データ呼び出し")
 
-    diary_df = get_diary_input_rules_df(target_company_id)
+    diary_df = get_diary_input_rules_df()
 
     if diary_df is not None and not diary_df.empty:
         df_user = diary_df[
