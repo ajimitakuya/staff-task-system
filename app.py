@@ -8677,20 +8677,64 @@ def render_bee_journal_page():
     send_cols = st.columns([1, 1, 1, 4])
 
     with send_cols[0]:
-        time_errors = validate_bee_times(
-            resident_id=resident_id,
-            target_date=target_date,
-            start_time=start_time,
-            end_time=end_time,
-            work_start_time=work_start_time,
-            work_end_time=work_end_time,
-        )
+        show_time_errors = False
 
-        if time_errors:
+        # 何か入力されている時だけ、その場で時間チェックを見せる
+        if (
+            str(start_time).strip()
+            or str(end_time).strip()
+            or str(work_start_time).strip()
+            or str(work_end_time).strip()
+        ):
+            show_time_errors = True
+
+        if show_time_errors:
+            time_errors = validate_bee_times(
+                resident_id=resident_id,
+                target_date=target_date,
+                start_time=start_time,
+                end_time=end_time,
+                work_start_time=work_start_time,
+                work_end_time=work_end_time,
+            )
+        else:
+            time_errors = []
+
+        if show_time_errors and time_errors:
             for err in time_errors:
                 st.error(err)
 
-        if st.button("Gemini生成", key="bee_generate_button", use_container_width=True, disabled=bool(time_errors)):
+        if st.button(
+            "Gemini生成",
+            key="bee_generate_button",
+            use_container_width=True,
+            disabled=bool(time_errors)
+        ):
+            try:
+                preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
+
+                generated_status, generated_support = generate_bee_texts(
+                    resident_name=resident_name,
+                    service_type=service_type,
+                    start_time=start_time,
+                    end_time=end_time,
+                    meal_flag=meal_flag,
+                    note_text=preview_note,
+                    start_memo=start_memo,
+                    end_memo=end_memo,
+                    staff_name=staff_name,
+                    plan_text=plan_text,
+                    examples_text=examples_text,
+                    rule_text=loaded_rule_text,
+                )
+
+                st.session_state["bee_generated_status"] = generated_status
+                st.session_state["bee_generated_support"] = generated_support
+                st.success("Gemini生成できたある！")
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Gemini生成失敗ある: {e}")
             try:
                 preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
 
