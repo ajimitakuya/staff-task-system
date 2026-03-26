@@ -8395,6 +8395,10 @@ def render_bee_journal_page():
             disabled=True
         )
 
+    # 編集エリアの開閉状態を初期化
+    if "bee_rule_edit_open" not in st.session_state:
+        st.session_state["bee_rule_edit_open"] = False
+
     rule_show_cols = st.columns([5, 1])
     with rule_show_cols[0]:
         st.text_area(
@@ -8412,7 +8416,7 @@ def render_bee_journal_page():
             st.session_state["bee_rule_edit_open"] = True
             st.rerun()
 
-    if st.session_state.get("bee_rule_edit_open", False):
+    if st.session_state["bee_rule_edit_open"]:
         st.markdown("### スタッフ例文・個人ルール 編集")
 
         edit_ex_cols1 = st.columns(2)
@@ -8471,6 +8475,7 @@ def render_bee_journal_page():
         )
 
         edit_btn_cols = st.columns([1, 1, 4])
+
         with edit_btn_cols[0]:
             if st.button("登録", key="bee_save_examples_rules", use_container_width=True):
                 save_staff_examples_record(
