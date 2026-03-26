@@ -8500,7 +8500,6 @@ def render_bee_journal_page():
             sent_at="",
             send_error="",
             record_mode="gemini" if use_gemini else "raw_partial",
-            company_id=target_company_id,
         )
 
         try:
@@ -8632,7 +8631,6 @@ def render_bee_journal_page():
                 sent_at="",
                 send_error="",
                 record_mode=record_mode,
-                company_id=target_company_id,
             )
             st.success(f"保存できたある！ record_id = {record_id}")
 
