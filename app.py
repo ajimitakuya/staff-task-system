@@ -8183,6 +8183,7 @@ def render_bee_journal_page():
             placeholder="10:00"
         )
 
+    with input_cols[1]:
         end_time = st.text_input(
             "終了時間",
             value=st.session_state.get("end_time", ""),
