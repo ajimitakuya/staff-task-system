@@ -7625,22 +7625,6 @@ def save_personal_rules_record(staff_name, rule_text):
     return True
 
 
-def get_staff_example_row(staff_name):
-    df = get_staff_examples_df()
-    hit = df[df["staff_name"].astype(str) == str(staff_name)]
-    if hit.empty:
-        return None
-    return hit.iloc[0].to_dict()
-
-
-def get_personal_rule_row(staff_name):
-    df = get_personal_rules_df()
-    hit = df[df["staff_name"].astype(str) == str(staff_name)]
-    if hit.empty:
-        return None
-    return hit.iloc[0].to_dict()
-
-
 def get_plan_row(resident_id):
     df = get_assistant_plans_df()
     hit = df[df["resident_id"].astype(str) == str(resident_id)]
