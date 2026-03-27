@@ -11310,6 +11310,17 @@ elif page == "⓪ 検索":
             resident_df["company_id"].astype(str).str.strip() == current_company_id
         ].copy()
 
+    RESIDENT_CATEGORY_OPTIONS = [
+        "全部",
+        "個別支援計画案",
+        "サービス担当者会議",
+        "個別支援計画",
+        "モニタリング",
+        "在宅評価シート",
+        "アセスメント",
+        "生活保護",
+    ]
+
     resident_search_cols = st.columns([2, 2, 3])
 
     with resident_search_cols[0]:
@@ -11320,17 +11331,17 @@ elif page == "⓪ 検索":
         )
 
     with resident_search_cols[1]:
-        public_assistance_filter = st.selectbox(
-            "生活保護区分",
-            ["全部", "生活保護", "生活保護以外"],
-            key="resident_search_public_assistance"
+        resident_category = st.selectbox(
+            "カテゴリ",
+            RESIDENT_CATEGORY_OPTIONS,
+            key="resident_search_category"
         )
 
     with resident_search_cols[2]:
         resident_kw = st.text_input(
             "キーワード",
             key="resident_search_kw",
-            placeholder="利用者名・利用者IDで検索"
+            placeholder="利用者名・利用者ID・相談員・病院名などで検索"
         )
 
     resident_view_df = resident_df.copy()
@@ -11340,9 +11351,9 @@ elif page == "⓪ 検索":
             resident_view_df["status"].astype(str).str.strip() == resident_status
         ].copy()
 
-    if public_assistance_filter != "全部":
+    if resident_category == "生活保護":
         resident_view_df = resident_view_df[
-            resident_view_df["public_assistance"].astype(str).str.strip() == public_assistance_filter
+            resident_view_df["public_assistance"].astype(str).str.strip() == "生活保護"
         ].copy()
 
     if resident_kw.strip():
@@ -11351,7 +11362,12 @@ elif page == "⓪ 検索":
             resident_view_df.apply(
                 lambda row:
                     kw in str(row.get("resident_id", "")).lower()
-                    or kw in str(row.get("resident_name", "")).lower(),
+                    or kw in str(row.get("resident_name", "")).lower()
+                    or kw in str(row.get("consultant", "")).lower()
+                    or kw in str(row.get("caseworker", "")).lower()
+                    or kw in str(row.get("hospital", "")).lower()
+                    or kw in str(row.get("nurse", "")).lower()
+                    or kw in str(row.get("care", "")).lower(),
                 axis=1
             )
         ]
