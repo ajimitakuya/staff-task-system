@@ -352,6 +352,25 @@ def load_db(file, retries=3, delay=0.8):
 
     return pd.DataFrame()
 
+def sync_resident_master_from_assessment(resident_id: str, welfare_status: str):
+    master_df = load_db("resident_master")
+    if master_df is None or master_df.empty:
+        return
+
+    master_df = master_df.fillna("").copy()
+
+    if "public_assistance" not in master_df.columns:
+        master_df["public_assistance"] = ""
+
+    mask = master_df["resident_id"].astype(str).str.strip() == str(resident_id).strip()
+    if not mask.any():
+        return
+
+    master_df.loc[mask, "public_assistance"] = str(welfare_status).strip()
+    master_df.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    save_db(master_df, "resident_master")
+
 @st.cache_data(ttl=60)
 def get_companies_df_cached():
     df = load_db("companies")
@@ -6643,6 +6662,10 @@ def render_assessment_form_page(doc_title: str):
                 doc_type="アセスメント",
                 form_data=form_data
             )
+            sync_resident_master_from_assessment(
+                resident_id=selected_row.get("resident_id", ""),
+                welfare_status=welfare_status
+            )            
             st.session_state[f"{doc_title}_loaded_record_id"] = new_id
             st.success(f"新規保存したある！ record_id = {new_id}")
 
@@ -10014,12 +10037,28 @@ elif page == "⑨ 利用者情報":
                     with basic2[0]:
                         consultant = st.text_input("相談員")
 
-                    basic2 = st.columns(3)
+                    basic2 = st.columns(2)
                     with basic2[0]:
-                        consultant_phone = st.text_input("相談員電話")
+                        disability_type = st.selectbox(
+                            "障害区分",
+                            ["精神", "身体"]
+                        )
                     with basic2[1]:
+                        public_assistance = st.selectbox(
+                            "生活保護受給",
+                            ["あり", "なし"]
+                        )
+
+                    basic3 = st.columns(2)
+                    with basic3[0]:
+                        consultant = st.text_input("相談員")
+                    with basic3[1]:
+                        consultant_phone = st.text_input("相談員電話")
+
+                    basic4 = st.columns(2)
+                    with basic4[0]:
                         caseworker = st.text_input("ケースワーカー")
-                    with basic2[2]:
+                    with basic4[1]:
                         caseworker_phone = st.text_input("ケースワーカー電話")
 
                     st.markdown("### 病院・看護・介護の週間予定")
@@ -10096,7 +10135,8 @@ elif page == "⑨ 利用者情報":
                                 "resident_id": next_resident_id,
                                 "resident_name": resident_name.strip(),
                                 "status": status,
-                                "resident_category": resident_category,
+                                "disability_type": disability_type,
+                                "public_assistance": public_assistance,
                                 "consultant": consultant.strip(),
                                 "consultant_phone": consultant_phone.strip(),
                                 "caseworker": caseworker.strip(),
@@ -10110,13 +10150,14 @@ elif page == "⑨ 利用者情報":
                                 "created_at": now_str,
                                 "updated_at": now_str
                             }])
-
+                        
                             all_master_df = load_db("resident_master")
                             if all_master_df is None or all_master_df.empty:
                                 all_master_df = pd.DataFrame(columns=[
                                     "company_id",
                                     "resident_id", "resident_name", "status",
-                                    "resident_category",
+                                    "disability_type",
+                                    "public_assistance",
                                     "consultant", "consultant_phone",
                                     "caseworker", "caseworker_phone",
                                     "hospital", "hospital_phone",
@@ -10129,7 +10170,8 @@ elif page == "⑨ 利用者情報":
                                 for col in [
                                     "company_id",
                                     "resident_id", "resident_name", "status",
-                                    "resident_category",
+                                    "disability_type",
+                                    "public_assistance",
                                     "consultant", "consultant_phone",
                                     "caseworker", "caseworker_phone",
                                     "hospital", "hospital_phone",
@@ -11330,7 +11372,7 @@ elif page == "⓪ 検索":
         "その他",
     ]
 
-    resident_search_cols = st.columns([2, 2, 3])
+    resident_search_cols = st.columns([2, 2, 2, 3])
 
     with resident_search_cols[0]:
         resident_status = st.selectbox(
@@ -11340,13 +11382,20 @@ elif page == "⓪ 検索":
         )
 
     with resident_search_cols[1]:
-        resident_category = st.selectbox(
-            "カテゴリ",
-            RESIDENT_CATEGORY_OPTIONS,
-            key="resident_search_category"
+        disability_type_filter = st.selectbox(
+            "障害区分",
+            ["全部", "精神", "身体"],
+            key="resident_search_disability_type"
         )
 
     with resident_search_cols[2]:
+        public_assistance_filter = st.selectbox(
+            "生活保護受給",
+            ["全部", "あり", "なし"],
+            key="resident_search_public_assistance"
+        )
+
+    with resident_search_cols[3]:
         resident_kw = st.text_input(
             "キーワード",
             key="resident_search_kw",
@@ -11355,14 +11404,14 @@ elif page == "⓪ 検索":
 
     resident_view_df = resident_df.copy()
 
-    if resident_status != "全部":
+    if disability_type_filter != "全部":
         resident_view_df = resident_view_df[
-            resident_view_df["status"].astype(str).str.strip() == resident_status
+            resident_view_df["disability_type"].astype(str).str.strip() == disability_type_filter
         ].copy()
 
-    if resident_category != "全部":
+    if public_assistance_filter != "全部":
         resident_view_df = resident_view_df[
-            resident_view_df["resident_category"].astype(str).str.strip() == resident_category
+            resident_view_df["public_assistance"].astype(str).str.strip() == public_assistance_filter
         ].copy()
 
     if resident_kw.strip():
