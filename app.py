@@ -9849,6 +9849,9 @@ elif page == "⑧ 緊急一覧":
 # ==========================================
 elif page == "⑨ 利用者情報":
     def show_resident_page():
+        if "resident_mode" not in st.session_state:
+            st.session_state["resident_mode"] = "利用者一覧"
+
         st.title("👤 利用者情報")
 
         current_company_id = str(st.session_state.get("company_id", "")).strip()
@@ -9898,16 +9901,16 @@ elif page == "⑨ 利用者情報":
 
             with top_cols[0]:
                 if st.button("利用者一覧", use_container_width=True):
-                    st.session_state.resident_mode = "利用中"
+                    st.session_state.get("resident_mode", "利用者一覧") = "利用中"
                     st.rerun()
 
             with top_cols[1]:
                 if st.button("退所者一覧", use_container_width=True):
-                    st.session_state.resident_mode = "退所"
+                    st.session_state.get("resident_mode", "利用者一覧") = "退所"
                     st.rerun()
 
             with top_cols[2]:
-                st.caption(f"現在表示: {st.session_state.resident_mode}")
+                st.caption(f"現在表示: {st.session_state.get('resident_mode', '利用者一覧')}")
 
             st.divider()
 
@@ -10205,7 +10208,7 @@ elif page == "⑨ 利用者情報":
 
             list_df = master_df.copy()
             list_df = list_df[
-                list_df["status"].astype(str).str.strip() == st.session_state.resident_mode
+                list_df["status"].astype(str).str.strip() == st.session_state.get("resident_mode", "利用者一覧")
             ].copy()
 
             if search_word.strip():
