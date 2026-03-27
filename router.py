@@ -49,15 +49,12 @@ def heart_label(text: str) -> str:
         return str(text)
 
     s = str(text)
-
     if len(s) >= 2 and s[1] == " ":
         return f"💕 {s[2:]}"
     if len(s) >= 3 and s[2] == " ":
         return f"💕 {s[3:]}"
-
     if "knowbe" in s.lower():
         return "💕knowbe日誌入力💕"
-
     return f"💕 {s}"
 
 
@@ -84,6 +81,7 @@ def render_selected_menu(label: str):
 
 
 def render_sidebar_navigation():
+    # ex-app の並びそのまま
     main_page_options = [
         ("⓪ 検索", "⑩ 検索"),
         ("① 未着手の任務（掲示板）", "① 未着手の任務（掲示板）"),
@@ -168,16 +166,23 @@ def render_sidebar_navigation():
     st.sidebar.text_input(
         "secret command",
         key="secret_bee_cmd",
-        on_change=process_secret_command
+        label_visibility="collapsed",
+        on_change=process_secret_command,
     )
 
     if st.session_state.get("is_admin", False):
+        st.sidebar.markdown("### 管理者メニュー")
+
         if st.sidebar.button("スタッフ登録・削除", key="menu_staff_manage", use_container_width=True):
             set_page("⑨ 管理者")
+
+        if st.sidebar.button("非接触ICカード登録", key="menu_ic_card_manage", use_container_width=True):
+            set_page("ICカード管理")
 
         if st.sidebar.button("Knowbe情報登録", key="menu_knowbe_settings", use_container_width=True):
             set_page("Knowbe情報登録")
 
+    st.sidebar.divider()
     st.sidebar.caption("System Version 2.0")
 
 
@@ -262,6 +267,7 @@ def route_page(
         "書類_基本シート",
         "書類_就労分野シート",
         "💻他事業所へ登録💻",
+        "ICカード管理",
     ]:
         render_placeholder_page(page)
         return
