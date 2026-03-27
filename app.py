@@ -87,7 +87,7 @@ def get_sheet_name_candidates(file):
         # 今は統合、将来分割可能にする
         return [file]
 
-    raise ValueError(f"未対応のシート名ある: {file}")
+    raise ValueError(f"未対応のシート名です: {file}")
 
 def get_sheet_name(file):
     candidates = get_sheet_name_candidates(file)
@@ -648,7 +648,7 @@ def get_warehouse_download_data(row):
 
 def render_warehouse_page():
     st.title("🏭 倉庫")
-    st.caption("全事業所共通の資料置き場ある。検索して、共有して、必要なら限定公開もできるある。")
+    st.caption("全事業所共通の資料置き場です。検索して、共有して、必要なら限定公開もできます。")
 
     current_company_id = str(st.session_state.get("company_id", "")).strip()
     current_user_id = str(st.session_state.get("user_id", "")).strip()
@@ -694,11 +694,11 @@ def render_warehouse_page():
 
         if st.button("倉庫へ保存", key="save_warehouse_button", use_container_width=True):
             if not title.strip():
-                st.error("タイトルを入れてほしいある。")
+                st.error("タイトルを入れてください。")
             elif uploaded_file is None:
-                st.error("ファイルを選んでほしいある。")
+                st.error("ファイルを選んでください。")
             elif visibility_type in ["limited", "private"] and not download_password.strip():
-                st.error("その公開設定ならダウンロードパスワードが必要ある。")
+                st.error("その公開設定ならダウンロードパスワードが必要です。")
             else:
                 file_id = save_warehouse_file(
                     title=title,
@@ -712,14 +712,14 @@ def render_warehouse_page():
                     is_searchable=is_searchable,
                     source_room_id="",
                 )
-                st.success(f"保存したある！ {file_id}")
+                st.success(f"保存しました！ {file_id}")
                 st.rerun()
 
     st.divider()
 
     df = get_warehouse_files_df()
     if df is None or df.empty:
-        st.info("まだ倉庫に資料がないある。")
+        st.info("まだ倉庫に資料がありません。")
         return
 
     work = df.copy()
@@ -766,7 +766,7 @@ def render_warehouse_page():
     st.markdown(f"### 一覧（{len(work)}件）")
 
     if work.empty:
-        st.info("条件に合う資料がないある。")
+        st.info("条件に合う資料がありません。")
         return
 
     users_df = get_users_df()
@@ -839,10 +839,10 @@ def render_warehouse_page():
                     real_pw = str(row.get("download_password", "")).strip()
                     if str(input_pw).strip() == real_pw:
                         st.session_state.warehouse_unlocked_files.append(file_id)
-                        st.success("ダウンロード可能になったある。")
+                        st.success("ダウンロード可能になりました。")
                         st.rerun()
                     else:
-                        st.error("パスワードが違うある。")
+                        st.error("パスワードが違います。")
 
         action_cols = st.columns([1, 1, 1])
 
@@ -868,10 +868,10 @@ def render_warehouse_page():
                             target_id=file_id,
                             action_detail=f"title={title}"
                         )
-                        st.success("削除したある。")
+                        st.success("削除しました。")
                         st.rerun()
                     else:
-                        st.error("削除に失敗したある。")
+                        st.error("削除に失敗しました。")
 
         with action_cols[2]:
             st.write("")
@@ -1208,7 +1208,7 @@ def get_archive_download_data(row):
 
 def render_archive_page():
     st.title("📤 書類アップロード")
-    st.caption("この事業所だけで共有する資料置き場ある。")
+    st.caption("この事業所だけで共有する資料置き場です。")
 
     current_company_id = str(st.session_state.get("company_id", "")).strip()
     current_user_id = str(st.session_state.get("user_id", "")).strip()
@@ -1239,9 +1239,9 @@ def render_archive_page():
 
         if st.button("書庫へ保存", key="save_archive_button", use_container_width=True):
             if not title.strip():
-                st.error("タイトルを入れてほしいある。")
+                st.error("タイトルを入れてください。")
             elif uploaded_file is None:
-                st.error("ファイルを選んでほしいある。")
+                st.error("ファイルを選んでください。")
             else:
                 archive_file_id = save_archive_file(
                     title=title,
@@ -1253,7 +1253,7 @@ def render_archive_page():
                     visibility_type="normal",
                     download_password="",
                 )
-                st.success(f"保存したある！ {archive_file_id}")
+                st.success(f"保存しました！ {archive_file_id}")
                 st.rerun()
 
     st.divider()
@@ -1261,7 +1261,7 @@ def render_archive_page():
     df = get_archive_files_df()
 
     if df is None or df.empty:
-        st.info("まだ書庫に資料がないある。")
+        st.info("まだ書庫に資料がありません。")
         return
 
     work = df.copy()
@@ -1271,7 +1271,7 @@ def render_archive_page():
     ].copy()
 
     if work.empty:
-        st.info("この事業所の書庫にはまだ資料がないある。")
+        st.info("この事業所の書庫にはまだ資料がありません。")
         return
 
     search_cols = st.columns([2, 1, 1])
@@ -1312,7 +1312,7 @@ def render_archive_page():
     st.markdown(f"### 一覧（{len(work)}件）")
 
     if work.empty:
-        st.info("条件に合う資料がないある。")
+        st.info("条件に合う資料がありません。")
         return
 
     users_df = get_users_df()
@@ -1386,10 +1386,10 @@ def render_archive_page():
                             target_id=archive_file_id,
                             action_detail=f"title={title}"
                         )
-                        st.success("削除したある。")
+                        st.success("削除しました。")
                         st.rerun()
                     else:
-                        st.error("削除に失敗したある。")
+                        st.error("削除に失敗しました。")
 
         with action_cols[2]:
             st.write("")
@@ -1570,7 +1570,7 @@ def create_chat_message(room_id, message_text, attached_file=None):
 
 def render_break_room_page():
     st.title("☕ 休憩室")
-    st.caption("ここから チャットルーム・書類アップロード・倉庫 に入るある。")
+    st.caption("ここから チャットルーム・書類アップロード・倉庫 に入る。")
 
     st.markdown(
         f"""
@@ -1585,28 +1585,28 @@ def render_break_room_page():
 
     with cols[0]:
         st.markdown("## 🚪 チャットルーム")
-        st.caption("全事業所共通の交流・共有スペースある。")
+        st.caption("全事業所共通の交流・共有スペースです。")
         if st.button("チャットルームへ", key="go_chat_rooms", use_container_width=True):
             st.session_state.current_page = "休憩室_チャットルーム"
             st.rerun()
 
     with cols[1]:
         st.markdown("## 🚪 書類アップロード")
-        st.caption("この事業所だけで共有する資料を登録・閲覧するある。")
+        st.caption("この事業所だけで共有する資料を登録・閲覧できます。")
         if st.button("書類アップロードへ", key="go_archive_page", use_container_width=True):
             st.session_state.current_page = "休憩室_書類アップロード"
             st.rerun()
 
     with cols[2]:
         st.markdown("## 🚪 倉庫")
-        st.caption("全事業所共通の資料置き場ある。")
+        st.caption("全事業所共通の資料置き場です。")
         if st.button("倉庫へ", key="go_warehouse_page", use_container_width=True):
             st.session_state.current_page = "休憩室_倉庫"
             st.rerun()
 
 def render_contact_page():
     st.title("📩 お問い合わせ")
-    st.caption("不具合報告・ご要望・導入相談などを送れるある。")
+    st.caption("不具合報告・ご要望・導入相談などを送れます。")
 
     company_id = str(st.session_state.get("company_id", "")).strip()
     company_name = str(st.session_state.get("company_name", "")).strip()
@@ -1635,12 +1635,12 @@ def render_contact_page():
         "内容",
         height=220,
         key="contact_message",
-        placeholder="ここに要望や不具合内容を書くある"
+        placeholder="ここに要望や不具合内容を書いてください"
     )
 
     if st.button("送信する", key="send_contact_message", use_container_width=True):
         if not str(message).strip():
-            st.error("内容を入力してほしいある。")
+            st.error("内容を入力してください。")
         else:
             df = load_db("contact_messages")
             if df is None or df.empty:
@@ -1673,13 +1673,13 @@ def render_contact_page():
             df = pd.concat([df, new_row], ignore_index=True)
             save_db(df, "contact_messages")
 
-            st.success("お問い合わせを送信したある！")
+            st.success("お問い合わせを送信しました！")
             st.session_state.contact_message = ""
             st.rerun()
 
 def render_chat_room_page():
     st.title("💬 チャットルーム")
-    st.caption("ルーム一覧・新規作成・投稿ができるある。")
+    st.caption("ルーム一覧・新規作成・投稿ができます。")
 
     rooms_df = get_chat_rooms_df()
     msgs_df = get_chat_messages_df()
@@ -1725,9 +1725,9 @@ def render_chat_room_page():
 
         if st.button("ルームを作成", key="create_new_room_button", use_container_width=True):
             if not room_name.strip():
-                st.error("ルーム名を入れてほしいある。")
+                st.error("ルーム名を入れてください。")
             elif room_type == "limited" and not room_password.strip():
-                st.error("制限ルームにはパスワードが必要ある。")
+                st.error("制限ルームにはパスワードが必要です。")
             else:
                 new_room_id = create_chat_room(
                     room_name=room_name,
@@ -1735,7 +1735,7 @@ def render_chat_room_page():
                     room_password=room_password,
                     description=room_description,
                 )
-                st.success(f"ルーム作成完了ある！ {new_room_id}")
+                st.success(f"ルーム作成完了！ {new_room_id}")
                 st.session_state.selected_room_id = new_room_id
                 st.session_state.pending_room_id = ""
                 st.session_state.pending_room_type = ""
@@ -1749,7 +1749,7 @@ def render_chat_room_page():
         st.markdown("### ルーム一覧")
 
         if rooms_df is None or rooms_df.empty:
-            st.info("まだルームがないある。")
+            st.info("まだルームがありません。")
         else:
             work = rooms_df.copy()
             work = work[work["status"].astype(str).str.strip().str.lower() == "active"].copy()
@@ -1844,28 +1844,28 @@ def render_chat_room_page():
                 target = rooms_df[rooms_df["room_id"].astype(str) == str(room_id)].copy()
 
                 if target.empty:
-                    st.error("ルームが見つからないある。")
+                    st.error("ルームが見つからありません。")
                 else:
                     real_pw = str(target.iloc[0].get("room_password", "")).strip()
                     if str(pw).strip() == real_pw:
                         st.session_state.selected_room_id = room_id
                         st.session_state.pending_room_id = ""
                         st.session_state.pending_room_type = ""
-                        st.success("入室できたある。")
+                        st.success("入室できました。")
                         st.rerun()
                     else:
-                        st.error("パスワードが違うある。")
+                        st.error("パスワードが違います。")
 
     with right_col:
         selected_room_id = str(st.session_state.get("selected_room_id", "")).strip()
 
         if not selected_room_id:
-            st.info("左からルームを選ぶある。")
+            st.info("左からルームを選んでください。")
         else:
             room_row = rooms_df[rooms_df["room_id"].astype(str) == selected_room_id].copy()
 
             if room_row.empty:
-                st.warning("選択中ルームが見つからないある。")
+                st.warning("選択中ルームが見つからありません。")
             else:
                 room_name = str(room_row.iloc[0].get("room_name", "")).strip()
                 room_type = str(room_row.iloc[0].get("room_type", "")).strip()
@@ -1886,10 +1886,10 @@ def render_chat_room_page():
 
                 if st.button("投稿する", key="chat_post_button", use_container_width=True):
                     if not post_text.strip() and attached_file is None:
-                        st.error("メッセージか添付のどちらかを入れてほしいある。")
+                        st.error("メッセージか添付のどちらかを入れてください。")
                     else:
                         create_chat_message(selected_room_id, post_text, attached_file=attached_file)
-                        st.success("投稿したある！")
+                        st.success("投稿しました！")
                         st.rerun()
 
                 st.divider()
@@ -1907,7 +1907,7 @@ def render_chat_room_page():
                     pass
 
                 if room_msgs.empty:
-                    st.info("まだ投稿がないある。")
+                    st.info("まだ投稿がありません。")
                 else:
                     for _, msg in room_msgs.iterrows():
                         display_name = str(msg.get("display_name", "")).strip()
@@ -1934,7 +1934,7 @@ def render_chat_room_page():
 
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
-    st.caption("現在ログインしている自分を、別の事業所にも登録するページある。")
+    st.caption("現在ログインしている自分を、別の事業所にも登録するページです。")
 
     top_cols = st.columns([1, 1])
 
@@ -1969,7 +1969,7 @@ def render_other_office_register_page():
 
 def render_company_knowbe_settings_page():
     st.title("🔐 Knowbe情報登録")
-    st.caption("現在ログイン中の事業所に、Knowbeログイン情報を保存するページある。")
+    st.caption("現在ログイン中の事業所に、Knowbeログイン情報を保存するページです。")
 
     current_company_id = str(st.session_state.get("company_id", "")).strip()
     current_company_name = str(st.session_state.get("company_name", "")).strip()
@@ -2006,13 +2006,13 @@ def render_company_knowbe_settings_page():
         if st.button("登録・更新", key="save_company_knowbe_settings", use_container_width=True):
             row = authenticate_company_login(verify_company_login_id, verify_company_login_password)
             if row is None:
-                st.error("事業所IDまたは事業所パスワードが違うある。")
+                st.error("事業所IDまたは事業所パスワードが違います。")
             else:
                 auth_company_id = str(row.get("company_id", "")).strip()
                 if auth_company_id != current_company_id:
-                    st.error("現在ログイン中の事業所と一致しないある。")
+                    st.error("現在ログイン中の事業所と一致しません。")
                 elif not str(knowbe_login_username).strip() or not str(knowbe_login_password).strip():
-                    st.error("knowbeアカウント名とknowbeパスワードを両方入れてほしいある。")
+                    st.error("knowbeアカウント名とknowbeパスワードを両方入れてください。")
                 else:
                     ok = save_company_saved_knowbe_info(
                         company_id=current_company_id,
@@ -2026,10 +2026,10 @@ def render_company_knowbe_settings_page():
                             target_id=current_company_id,
                             action_detail=f"company_name={current_company_name}"
                         )
-                        st.success("Knowbe情報を保存したある！")
+                        st.success("Knowbe情報を保存しました！")
                         st.rerun()
                     else:
-                        st.error("保存に失敗したある。")
+                        st.error("保存に失敗しました。")
 
 @st.cache_data(ttl=60)
 def get_user_company_permissions_df_cached():
@@ -2096,7 +2096,7 @@ def get_company_permissions_df(company_id: str):
     work["company_id"] = work["company_id"].fillna("").astype(str).str.strip()
     work["user_id"] = work["user_id"].fillna("").astype(str).str.strip()
 
-    # 1 / 1.0 / "1" 問題を全部吸収するある
+    # 1 / 1.0 / "1" 問題を全部吸収するです
     work["can_use"] = (
         pd.to_numeric(work["can_use"], errors="coerce")
         .fillna(0)
@@ -2598,21 +2598,21 @@ def resolve_bee_company_context(
         if not company_login_id or not company_login_password:
             return {
                 "ok": False,
-                "error": "事業所IDと事業所パスワードは両方入れてほしいある。",
+                "error": "事業所IDと事業所パスワードは両方入れてください。",
             }
 
         row = authenticate_company_login(company_login_id, company_login_password)
         if row is None:
             return {
                 "ok": False,
-                "error": "事業所IDまたは事業所パスワードが違うある。",
+                "error": "事業所IDまたは事業所パスワードが違います。",
             }
     else:
         row = get_current_company_row()
         if row is None:
             return {
                 "ok": False,
-                "error": "現在の事業所情報が見つからないある。",
+                "error": "現在の事業所情報が見つからありません。",
             }
 
     target_company_id = str(row.get("company_id", "")).strip()
@@ -2715,17 +2715,17 @@ def create_user_with_permission(
     is_admin = "1" if str(is_admin).strip() == "1" else "0"
 
     if not login_id:
-        return False, "IDを入れてほしいある。"
+        return False, "IDを入れてください。"
     if not display_name:
-        return False, "表示名を入れてほしいある。"
+        return False, "表示名を入れてください。"
     if not is_valid_user_password(login_pw):
-        return False, "パスワードは8文字以上・英数混合・大文字必須ある。"
+        return False, "パスワードは8文字以上・英数混合・大文字必須です。"
 
     dup_user = users_df[
         users_df["user_login_id"].astype(str).str.strip() == login_id
     ]
     if not dup_user.empty:
-        return False, "そのIDはすでに使われてるある。"
+        return False, "そのIDはすでに使われています。"
 
     user_id = get_next_user_id()
 
@@ -2775,7 +2775,7 @@ def register_current_user_to_other_company(
     current_user_id = str(st.session_state.get("user_id", "")).strip()
 
     if not current_user_id:
-        return False, "個人ログイン情報が見つからないある。"
+        return False, "個人ログイン情報が見つからありません。"
 
     target_company_login_id = str(target_company_login_id).strip()
     target_company_login_password = str(target_company_login_password).strip()
@@ -2783,13 +2783,13 @@ def register_current_user_to_other_company(
     entered_display_name = str(entered_display_name).strip()
 
     if not target_company_login_id:
-        return False, "事業所IDを入れてほしいある。"
+        return False, "事業所IDを入れてください。"
     if not target_company_login_password:
-        return False, "事業所パスワードを入れてほしいある。"
+        return False, "事業所パスワードを入れてください。"
     if not entered_user_login_id:
-        return False, "職員IDを入れてほしいある。"
+        return False, "職員IDを入れてください。"
     if not entered_display_name:
-        return False, "名前（ハンドルネーム）を入れてほしいある。"
+        return False, "名前（ハンドルネーム）を入れてください。"
 
     # 入力された事業所ID/パスワードで対象事業所を認証
     company_row = authenticate_company_login(
@@ -2797,16 +2797,16 @@ def register_current_user_to_other_company(
         target_company_login_password
     )
     if company_row is None:
-        return False, "事業所IDまたは事業所パスワードが違うある。"
+        return False, "事業所IDまたは事業所パスワードが違います。"
 
     target_company_id = str(company_row.get("company_id", "")).strip()
     target_company_name = str(company_row.get("company_name", "")).strip()
 
     if not target_company_id:
-        return False, "対象事業所が見つからないある。"
+        return False, "対象事業所が見つからありません。"
 
     if target_company_id == current_company_id:
-        return False, "現在ログインしている事業所と同じある。別事業所を入れてほしいある。"
+        return False, "現在ログインしている事業所と同じです。別事業所を入れてください。"
 
     users_df = get_users_df()
     my_row_df = users_df[
@@ -2814,7 +2814,7 @@ def register_current_user_to_other_company(
     ].copy()
 
     if my_row_df.empty:
-        return False, "現在の職員情報が見つからないある。"
+        return False, "現在の職員情報が見つからありません。"
 
     my_row = my_row_df.iloc[0]
     real_user_login_id = str(my_row.get("user_login_id", "")).strip()
@@ -2822,10 +2822,10 @@ def register_current_user_to_other_company(
     user_status = str(my_row.get("status", "")).strip().lower()
 
     if user_status != "active":
-        return False, "この職員は現在有効ではないある。"
+        return False, "この職員は現在有効ではありません。"
 
     if entered_user_login_id != real_user_login_id or entered_display_name != real_display_name:
-        return False, "職員IDまたは名前（ハンドルネーム）が現在ログイン中の情報と一致しないある。"
+        return False, "職員IDまたは名前（ハンドルネーム）が現在ログイン中の情報と一致しません。"
 
     perm_df = get_user_company_permissions_df()
 
@@ -2866,7 +2866,7 @@ def register_current_user_to_other_company(
         action_detail=f"user_id={current_user_id}, company_name={target_company_name}"
     )
 
-    return True, f"{target_company_name} に登録できたある。"
+    return True, f"{target_company_name} に登録できました。"
 
 def set_company_user_status(user_id: str, company_id: str, new_status: str = "inactive"):
     users_df = get_users_df()
@@ -2880,7 +2880,7 @@ def set_company_user_status(user_id: str, company_id: str, new_status: str = "in
     )
 
     if not user_mask.any() or not perm_mask.any():
-        return False, "対象スタッフが見つからないある。"
+        return False, "対象スタッフが見つからありません。"
 
     users_df.loc[user_mask, "status"] = str(new_status).strip()
     users_df.loc[user_mask, "updated_at"] = now_str
@@ -2890,12 +2890,12 @@ def set_company_user_status(user_id: str, company_id: str, new_status: str = "in
 
     save_db(users_df, "users")
     save_db(perm_df, "user_company_permissions")
-    return True, "更新したある。"
+    return True, "更新しました。"
 
 def render_first_staff_register_block(key_prefix="first_staff"):
     company_id = str(st.session_state.get("company_id", "")).strip()
 
-    st.info("この事業所にはまだ管理者がいないある。管理者が1人もいない間だけ、ここからスタッフ登録できるある。")
+    st.info("この事業所にはまだ管理者がいありません。管理者が1人もいない間だけ、ここからスタッフ登録できます。")
 
     with st.expander("＋ スタッフ登録", expanded=False):
         display_name = st.text_input("表示名", key=f"{key_prefix}_display_name")
@@ -2921,7 +2921,7 @@ def render_first_staff_register_block(key_prefix="first_staff"):
                     target_id=msg,
                     action_detail=f"display_name={display_name}, role_type={role_type}"
                 )
-                st.success(f"登録できたある！ user_id={msg}")
+                st.success(f"登録できました！ user_id={msg}")
                 st.rerun()
             else:
                 st.error(msg)
@@ -2959,7 +2959,7 @@ def render_admin_staff_manage_block():
                     target_id=msg,
                     action_detail=f"display_name={display_name}, role_type={role_type}"
                 )
-                st.success(f"登録できたある！ user_id={msg}")
+                st.success(f"登録できました！ user_id={msg}")
                 st.rerun()
             else:
                 st.error(msg)
@@ -2969,7 +2969,7 @@ def render_admin_staff_manage_block():
         perm_df = get_company_permissions_df(company_id)
 
         if perm_df.empty:
-            st.info("この事業所のスタッフはまだいないある。")
+            st.info("この事業所のスタッフはまだいありません。")
             return
 
         merged = perm_df.merge(
@@ -3018,7 +3018,7 @@ def render_admin_staff_manage_block():
                                     target_id=user_id,
                                     action_detail=f"display_name={display_name}"
                                 )
-                                st.success("無効化したある。")
+                                st.success("無効化しました。")
                                 st.rerun()
                             else:
                                 st.error(msg)
@@ -3039,7 +3039,7 @@ def is_valid_user_password(pw: str) -> bool:
 def update_user_login_credentials(company_id: str, current_id: str, current_pw: str, new_id: str, new_pw: str):
     df = get_users_df()
     if df is None or df.empty:
-        return False, "usersシートが空ある"
+        return False, "usersシートが空です"
 
     work = df.copy()
     work["user_login_id"] = work["user_login_id"].astype(str).str.strip()
@@ -3055,21 +3055,21 @@ def update_user_login_credentials(company_id: str, current_id: str, current_pw: 
     )
 
     if not mask.any():
-        return False, "現在のIDまたはパスワードが違うある"
+        return False, "現在のIDまたはパスワードが違います"
 
     dup_mask = (
         (work["user_login_id"] == str(new_id).strip()) &
         (work["user_id"] != current_user_id)
     )
     if dup_mask.any():
-        return False, "その新しいIDはすでに使われてるある"
+        return False, "その新しいIDはすでに使われています"
 
     work.loc[mask, "user_login_id"] = str(new_id).strip()
     work.loc[mask, "user_login_password"] = str(new_pw).strip()
     work.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
     save_db(work, "users")
-    return True, "IDとパスワードを変更したある"
+    return True, "IDとパスワードを変更しました"
 
 def get_company_users_for_admin(company_id: str):
     users_df = get_users_df()
@@ -3102,18 +3102,18 @@ def get_company_users_for_admin(company_id: str):
 def set_user_login_card_id(user_id: str, card_id: str):
     df = get_users_df()
     if df is None or df.empty:
-        return False, "usersシートが空ある"
+        return False, "usersシートが空です"
 
     work = df.copy()
     work["user_id"] = work["user_id"].fillna("").astype(str).str.strip()
 
     mask = work["user_id"] == str(user_id).strip()
     if not mask.any():
-        return False, "対象ユーザーが見つからないある"
+        return False, "対象ユーザーが見つからありません"
 
     new_card_id = str(card_id).strip()
     if not new_card_id:
-        return False, "カードIDが空ある"
+        return False, "カードIDが空です"
 
     dup_mask = (
         work["login_card_id"].fillna("").astype(str).str.strip() == new_card_id
@@ -3121,47 +3121,47 @@ def set_user_login_card_id(user_id: str, card_id: str):
 
     if dup_mask.any():
         dup_name = str(work.loc[dup_mask, "display_name"].iloc[0]).strip()
-        return False, f"そのカードIDはすでに別ユーザーに登録済みある（{dup_name}）"
+        return False, f"そのカードIDはすでに別ユーザーに登録済みです（{dup_name}）"
 
     work.loc[mask, "login_card_id"] = new_card_id
     work.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
     save_db(work, "users")
-    return True, "カードIDを登録したある"
+    return True, "カードIDを登録しました"
 
 
 def clear_user_login_card_id(user_id: str):
     df = get_users_df()
     if df is None or df.empty:
-        return False, "usersシートが空ある"
+        return False, "usersシートが空です"
 
     work = df.copy()
     work["user_id"] = work["user_id"].fillna("").astype(str).str.strip()
 
     mask = work["user_id"] == str(user_id).strip()
     if not mask.any():
-        return False, "対象ユーザーが見つからないある"
+        return False, "対象ユーザーが見つからありません"
 
     work.loc[mask, "login_card_id"] = ""
     work.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
     save_db(work, "users")
-    return True, "カードIDを削除したある"
+    return True, "カードIDを削除しました"
 
 
 def render_ic_card_manage_page():
     if not bool(st.session_state.get("is_admin", False)):
-        st.error("このページは管理者専用ある。")
+        st.error("このページは管理者専用です。")
         return
 
     st.title("💳 非接触ICカード登録")
-    st.caption("usersシートの login_card_id を管理するページある。")
+    st.caption("usersシートの login_card_id を管理するページです。")
 
     company_id = str(st.session_state.get("company_id", "")).strip()
     staff_df = get_company_users_for_admin(company_id)
 
     if staff_df is None or staff_df.empty:
-        st.info("登録対象のスタッフがまだいないある。")
+        st.info("登録対象のスタッフがまだいありません。")
         return
 
     tab1, tab2, tab3 = st.tabs(["新規登録", "登録変更", "登録削除"])
@@ -3185,7 +3185,7 @@ def render_ic_card_manage_page():
         ].copy()
 
         if unregistered.empty:
-            st.info("未登録スタッフはいないある。")
+            st.info("未登録スタッフはいありません。")
         else:
             new_labels = [
                 f"{str(row.get('display_name', '')).strip()} ({str(row.get('user_login_id', '')).strip()})"
@@ -3201,7 +3201,7 @@ def render_ic_card_manage_page():
             card_id_input = st.text_input(
                 "カードID",
                 key="ic_new_card_id",
-                help="当面は手入力でもOK。あとでタッチ読取につなぐある。"
+                help="当面は手入力でもOK。あとでタッチ読取につなぎます。"
             )
 
             if st.button("新規登録する", key="ic_register_button", use_container_width=True):
@@ -3225,7 +3225,7 @@ def render_ic_card_manage_page():
         ].copy()
 
         if registered.empty:
-            st.info("登録済みスタッフがいないある。")
+            st.info("登録済みスタッフがいありません。")
         else:
             change_labels = [
                 f"{str(row.get('display_name', '')).strip()} "
@@ -3265,7 +3265,7 @@ def render_ic_card_manage_page():
         ].copy()
 
         if registered.empty:
-            st.info("削除対象の登録はないある。")
+            st.info("削除対象の登録はありません。")
         else:
             delete_labels = [
                 f"{str(row.get('display_name', '')).strip()} "
@@ -3544,11 +3544,11 @@ def validate_bee_times(
     e = _to_minutes(end_time)
 
     if s is None or e is None:
-        errors.append("時間の形式が正しくないある。HH:MM で入れてほしいある。")
+        errors.append("時間の形式が正しくありません。HH:MM で入れてください。")
         return errors
 
     if s >= e:
-        errors.append("開始時間と終了時間の大小が正しくないある。")
+        errors.append("開始時間と終了時間の大小が正しくありません。")
 
     # 作業時間が両方空なら、通所時間と同じ扱いにする
     if work_start_time == "" and work_end_time == "":
@@ -3558,21 +3558,21 @@ def validate_bee_times(
         work_end_time = end_time
     # 片方だけ空はエラー
     elif work_start_time == "" or work_end_time == "":
-        errors.append("作業開始時間と作業終了時間は、入れるなら両方入れてほしいある。")
+        errors.append("作業開始時間と作業終了時間は、入れるなら両方入れてください。")
         return errors
     else:
         ws = _to_minutes(work_start_time)
         we = _to_minutes(work_end_time)
 
         if ws is None or we is None:
-            errors.append("時間の形式が正しくないある。HH:MM で入れてほしいある。")
+            errors.append("時間の形式が正しくありません。HH:MM で入れてください。")
             return errors
 
     if ws >= we:
-        errors.append("作業開始時間と作業終了時間の大小が正しくないある。")
+        errors.append("作業開始時間と作業終了時間の大小が正しくありません。")
 
     if ws < s or we > e:
-        errors.append("作業時間が通所時間の範囲をはみ出してるある。")
+        errors.append("作業時間が通所時間の範囲をはみ出しています。")
 
     weekday_label = _normalize_weekday_label(target_date)
     schedule_df = get_resident_schedule_df()
@@ -3594,7 +3594,7 @@ def validate_bee_times(
             re = str(row.get("end_time", "")).strip()
 
             if sv in ["看護", "介護"] and is_time_overlap(work_start_time, work_end_time, rs, re):
-                errors.append(f"{sv}の予定（{rs}〜{re}）と作業時間が重なってるある。")
+                errors.append(f"{sv}の予定（{rs}〜{re}）と作業時間が重なっています。")
 
     return errors
 
@@ -3700,7 +3700,7 @@ def get_gemini_api_key_from_app():
 def call_gemini_json(prompt: str):
     api_key = get_gemini_api_key_from_app()
     if not api_key:
-        raise RuntimeError("APIキーないある")
+        raise RuntimeError("APIキーありません")
 
     genai.configure(api_key=api_key)
 
@@ -3727,7 +3727,7 @@ def call_gemini_json(prompt: str):
             last_error = e
             continue
 
-    raise RuntimeError(f"Gemini全部失敗ある: {last_error}")
+    raise RuntimeError(f"Gemini全部失敗です: {last_error}")
 
 
 def get_latest_saved_document(resident_id, doc_type):
@@ -3789,7 +3789,7 @@ def build_plan_draft_generation_prompt(
     source_data = source_data or {}
 
     prompt = f'''
-就労継続支援B型の個別支援計画案を作成するある。
+就労継続支援B型の個別支援計画案を作成する。
 
 【利用者名】
 {safe_text(resident_name)}
@@ -4408,7 +4408,7 @@ def render_urgent_banner():
         if st.button("緊急一覧を開く", key="open_urgent_page_button", use_container_width=True):
             go_to_page("⑧ 緊急一覧")
     with col_b:
-        st.caption("クリックして、至急・重要タスクの一覧を確認できるある。")
+        st.caption("クリックして、至急・重要タスクの一覧を確認できます。")
 
 # ==========================================
 # 🔑 2段階ログイン
@@ -4423,7 +4423,7 @@ if "auth_mode" not in st.session_state:
 # ---------- 事業所ログイン前 ----------
 if not st.session_state.get("company_authenticated", False):
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
-    st.warning("### 事業所ログインある💻")
+    st.warning("### 事業所ログイン💻")
 
     company_login_id = st.text_input("事業所ID", key="company_login_id_input")
     company_login_password = st.text_input("事業所パスワード", type="password", key="company_login_password_input")
@@ -4432,7 +4432,7 @@ if not st.session_state.get("company_authenticated", False):
         row = authenticate_company_login(company_login_id, company_login_password)
 
         if row is None:
-            st.error("事業所IDまたはパスワードが違うある。")
+            st.error("事業所IDまたはパスワードが違います。")
         else:
             st.session_state.company_id = str(row.get("company_id", "")).strip()
             st.session_state.company_name = str(row.get("company_name", "")).strip()
@@ -4447,7 +4447,7 @@ if not st.session_state.get("company_authenticated", False):
 if "user" not in st.session_state:
     st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
     st.success(f"事業所: {st.session_state.get('company_name', '')}")
-    st.warning("### 個人ログインある💻")
+    st.warning("### 個人ログイン💻")
 
     company_id = str(st.session_state.get("company_id", "")).strip()
     admin_exists = company_has_any_admin(company_id)
@@ -4489,7 +4489,7 @@ if "user" not in st.session_state:
             )
 
             if row is None:
-                st.error("ID・パスワード、または事業所権限を確認してほしいある。")
+                st.error("ID・パスワード、または事業所権限を確認してください。")
             else:
                 st.session_state.user = str(row.get("display_name", "")).strip()
                 st.session_state.user_id = str(row.get("user_id", "")).strip()
@@ -4856,12 +4856,12 @@ def create_excel_file(template_name, cell_data):
 
 def render_plan_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
-    st.caption("まずは入力しやすい形の試作ページある。まだ保存はしないある。")
+    st.caption("まずは入力しやすい形の試作ページです。まだ保存はしません。")
 
     master_df = get_resident_master_df()
 
     if master_df is None or master_df.empty:
-        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
         return
 
     master_df = master_df.fillna("").copy()
@@ -4887,7 +4887,7 @@ def render_plan_form_page(doc_title: str):
         resident_map[label] = row.to_dict()
 
     if not resident_options:
-        st.warning("利用者情報がまだ登録されてないある。")
+        st.warning("利用者情報がまだ登録されていません。")
         return
 
     st.markdown("## 基本情報")
@@ -4926,26 +4926,26 @@ def render_plan_form_page(doc_title: str):
         "サービス等利用計画の総合的な方針",
         key=f"{doc_title}_policy",
         height=120,
-        placeholder="B8 に入る内容ある"
+        placeholder="B8 に入る内容です"
     )
 
     long_goal_val = st.text_area(
         "長期目標（内容・期間等）",
         key=f"{doc_title}_long_goal",
         height=100,
-        placeholder="B10 に入る内容ある"
+        placeholder="B10 に入る内容です"
     )
 
     short_goal_val = st.text_area(
         "短期目標（内容・期間等）",
         key=f"{doc_title}_short_goal",
         height=100,
-        placeholder="B12 に入る内容ある"
+        placeholder="B12 に入る内容です"
     )
 
     st.divider()
     st.markdown("## 具体的達成目標（3行）")
-    st.caption("帳票の 17〜19 行に入る部分ある。")
+    st.caption("帳票の 17〜19 行に入る部分です。")
 
     header_cols = st.columns([5, 3, 4, 2, 2, 2])
     with header_cols[0]:
@@ -5082,12 +5082,12 @@ def render_plan_form_page(doc_title: str):
 
 def render_meeting_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
-    st.caption("サービス担当者会議の入力UIある。まだ保存はしないある。")
+    st.caption("サービス担当者会議の入力UIです。まだ保存はしません。")
 
     master_df = get_resident_master_df()
 
     if master_df is None or master_df.empty:
-        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
         return
 
     master_df = master_df.fillna("").copy()
@@ -5113,7 +5113,7 @@ def render_meeting_form_page(doc_title: str):
         resident_map[label] = row.to_dict()
 
     if not resident_options:
-        st.warning("利用者情報がまだ登録されてないある。")
+        st.warning("利用者情報がまだ登録されていません。")
         return
 
     st.markdown("## 基本情報")
@@ -5330,12 +5330,12 @@ def render_meeting_form_page(doc_title: str):
 
 def render_monitoring_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
-    st.caption("モニタリングの入力UIある。まだ保存はしないある。")
+    st.caption("モニタリングの入力UIです。まだ保存はしません。")
 
     master_df = get_resident_master_df()
 
     if master_df is None or master_df.empty:
-        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
         return
 
     master_df = master_df.fillna("").copy()
@@ -5361,7 +5361,7 @@ def render_monitoring_form_page(doc_title: str):
         resident_map[label] = row.to_dict()
 
     if not resident_options:
-        st.warning("利用者情報がまだ登録されてないある。")
+        st.warning("利用者情報がまだ登録されていません。")
         return
 
     st.markdown("## 基本情報")
@@ -5395,7 +5395,7 @@ def render_monitoring_form_page(doc_title: str):
     st.divider()
 
     st.markdown("## モニタリング内容")
-    st.caption("具体的達成目標番号ごとに入力するある。")
+    st.caption("具体的達成目標番号ごとに入力してください。")
 
     row_data = []
 
@@ -5491,12 +5491,12 @@ def get_saturday_dates_for_month(year: int, month: int):
 
 def render_home_evaluation_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
-    st.caption("在宅評価シートの入力UIある。まだ保存はしないある。")
+    st.caption("在宅評価シートの入力UIです。まだ保存はしません。")
 
     master_df = get_resident_master_df()
 
     if master_df is None or master_df.empty:
-        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
         return
 
     master_df = master_df.fillna("").copy()
@@ -5522,7 +5522,7 @@ def render_home_evaluation_form_page(doc_title: str):
         resident_map[label] = row.to_dict()
 
     if not resident_options:
-        st.warning("利用者情報がまだ登録されてないある。")
+        st.warning("利用者情報がまだ登録されていません。")
         return
 
     st.markdown("## 基本情報")
@@ -5577,7 +5577,7 @@ def render_home_evaluation_form_page(doc_title: str):
     st.divider()
 
     st.markdown("## 週ごとの評価（週報）")
-    st.caption("土曜日の日付は、入力した年・月から自動表示するある。")
+    st.caption("土曜日の日付は、入力した年・月から自動表示します。")
 
     ym_key = f"{doc_title}_auto_year_month"
     current_ym = f"{year_val}-{month_val}"
@@ -5727,14 +5727,14 @@ def render_home_evaluation_form_page(doc_title: str):
 # ==========================================
 def render_assessment_form_page(doc_title: str):
     st.title("📋 アセスメントシート")
-    st.caption("フェイスシート入力ページある。入力とExcel出力までつなぐある。")
+    st.caption("フェイスシート入力ページです。入力とExcel出力までつなぐです。")
 
     st.markdown("## 基本情報")
 
     master_df = get_resident_master_df()
 
     if master_df is None or master_df.empty:
-        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
         return
 
     master_df = master_df.fillna("").copy()
@@ -5760,7 +5760,7 @@ def render_assessment_form_page(doc_title: str):
         resident_map[label] = row.to_dict()
 
     if not resident_options:
-        st.warning("利用者情報がまだ登録されてないある。")
+        st.warning("利用者情報がまだ登録されていません。")
         return
 
     selected_label = st.selectbox(
@@ -6512,26 +6512,26 @@ def render_assessment_form_page(doc_title: str):
         "サービス等利用計画の総合的な方針",
         key=f"{doc_title}_policy",
         height=120,
-        placeholder="B8 に入る内容ある"
+        placeholder="B8 に入る内容です"
     )
 
     long_goal_val = st.text_area(
         "長期目標（内容・期間等）",
         key=f"{doc_title}_long_goal",
         height=100,
-        placeholder="B10 に入る内容ある"
+        placeholder="B10 に入る内容です"
     )
 
     short_goal_val = st.text_area(
         "短期目標（内容・期間等）",
         key=f"{doc_title}_short_goal",
         height=100,
-        placeholder="B12 に入る内容ある"
+        placeholder="B12 に入る内容です"
     )
 
     st.divider()
     st.markdown("## 具体的達成目標（3行）")
-    st.caption("帳票の 17〜19 行に入る部分ある。")
+    st.caption("帳票の 17〜19 行に入る部分です。")
 
     header_cols = st.columns([5, 3, 4, 2, 2, 2])
     with header_cols[0]:
@@ -6727,12 +6727,12 @@ def render_assessment_form_page(doc_title: str):
                     st.session_state[f"{doc_title}_{k}"] = v
 
                 st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
-                st.success("保存済みデータを読み込んだある！")
+                st.success("保存済みデータを読み込んだです！")
                 st.rerun()
             else:
-                st.warning("保存データが見つからないある。")
+                st.warning("保存データが見つからありません。")
         else:
-            st.info("まだ保存済みデータがないので、新規保存してほしいある。")
+            st.info("まだ保存済みデータがないので、新規保存してください。")
 
     st.markdown("### 保存")
 
@@ -6753,29 +6753,29 @@ def render_assessment_form_page(doc_title: str):
                 welfare_status=welfare_status
             )            
             st.session_state[f"{doc_title}_loaded_record_id"] = new_id
-            st.success(f"新規保存したある！ record_id = {new_id}")
+            st.success(f"新規保存しました！ record_id = {new_id}")
 
     with save_cols[1]:
         if st.button("上書き保存", key=f"{doc_title}_save_update"):
             if loaded_record_id:
                 ok = update_document_record(loaded_record_id, form_data)
                 if ok:
-                    st.success(f"上書き保存したある！ record_id = {loaded_record_id}")
+                    st.success(f"上書き保存しました！ record_id = {loaded_record_id}")
                 else:
-                    st.warning("上書き対象が見つからないある。")
+                    st.warning("上書き対象が見つからありません。")
             else:
-                st.warning("先に保存済みデータを読み込むか、新規保存してほしいある。")
+                st.warning("先に保存済みデータを読み込むか、新規保存してください。")
 
 def render_basic_sheet_form_page(doc_title: str):
     st.title("📋 基本シート")
-    st.caption("基本シート入力ページある。入力と保存とExcel出力までつなぐある。")
+    st.caption("基本シート入力ページです。入力と保存とExcel出力までつなぐです。")
 
     st.markdown("## 基本情報")
 
     master_df = get_resident_master_df()
 
     if master_df is None or master_df.empty:
-        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
         return
 
     master_df = master_df.fillna("").copy()
@@ -6801,7 +6801,7 @@ def render_basic_sheet_form_page(doc_title: str):
         resident_map[label] = row.to_dict()
 
     if not resident_options:
-        st.warning("利用者情報がまだ登録されてないある。")
+        st.warning("利用者情報がまだ登録されていません。")
         return
 
     selected_label = st.selectbox(
@@ -6968,12 +6968,12 @@ def render_basic_sheet_form_page(doc_title: str):
                     st.session_state[f"{doc_title}_{k}"] = v
 
                 st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
-                st.success("保存済みデータを読み込んだある！")
+                st.success("保存済みデータを読み込んだです！")
                 st.rerun()
             else:
-                st.warning("保存データが見つからないある。")
+                st.warning("保存データが見つからありません。")
         else:
-            st.info("まだ保存済みデータがないので、新規保存してほしいある。")
+            st.info("まだ保存済みデータがないので、新規保存してください。")
 
     st.markdown("### 保存")
 
@@ -6990,18 +6990,18 @@ def render_basic_sheet_form_page(doc_title: str):
                 form_data=form_data
             )
             st.session_state[f"{doc_title}_loaded_record_id"] = new_id
-            st.success(f"新規保存したある！ record_id = {new_id}")
+            st.success(f"新規保存しました！ record_id = {new_id}")
 
     with save_cols[1]:
         if st.button("上書き保存", key=f"{doc_title}_save_update"):
             if loaded_record_id:
                 ok = update_document_record(loaded_record_id, form_data)
                 if ok:
-                    st.success(f"上書き保存したある！ record_id = {loaded_record_id}")
+                    st.success(f"上書き保存しました！ record_id = {loaded_record_id}")
                 else:
-                    st.warning("上書き対象が見つからないある。")
+                    st.warning("上書き対象が見つからありません。")
             else:
-                st.warning("先に保存済みデータを読み込むか、新規保存してほしいある。")
+                st.warning("先に保存済みデータを読み込むか、新規保存してください。")
 
     st.divider()
     st.markdown("### Excel出力")
@@ -7032,18 +7032,18 @@ def render_basic_sheet_form_page(doc_title: str):
 
 def render_work_field_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
-    st.info("就労分野シートはまだ作成中ある。")
+    st.info("就労分野シートはまだ作成中です。")
 
 def render_work_sheet_form_page(doc_title: str):
     st.title("📋 就労分野シート")
-    st.caption("就労分野シート入力ページある。入力・保存・呼び出し・Excel出力まで対応版ある。")
+    st.caption("就労分野シート入力ページです。入力・保存・呼び出し・Excel出力まで対応版です。")
 
     st.markdown("## 基本情報")
 
     master_df = get_resident_master_df()
 
     if master_df is None or master_df.empty:
-        st.warning("利用者情報がまだ登録されてないある。先に⑨ 利用者情報から利用者を登録してほしいある。")
+        st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
         return
 
     master_df = master_df.fillna("").copy()
@@ -7069,7 +7069,7 @@ def render_work_sheet_form_page(doc_title: str):
         resident_map[label] = row.to_dict()
 
     if not resident_options:
-        st.warning("利用者情報がまだ登録されてないある。")
+        st.warning("利用者情報がまだ登録されていません。")
         return
 
     selected_label = st.selectbox(
@@ -7402,12 +7402,12 @@ def render_work_sheet_form_page(doc_title: str):
                     st.session_state[f"{doc_title}_{k}"] = v
 
                 st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
-                st.success("保存済みデータを読み込んだある！")
+                st.success("保存済みデータを読み込みました！")
                 st.rerun()
             else:
-                st.warning("保存データが見つからないある。")
+                st.warning("保存データが見つからありません。")
         else:
-            st.info("まだ保存済みデータがないので、新規保存してほしいある。")
+            st.info("まだ保存済みデータがないので、新規保存してください。")
 
     st.markdown("### 保存")
 
@@ -7424,18 +7424,18 @@ def render_work_sheet_form_page(doc_title: str):
                 form_data=form_data
             )
             st.session_state[f"{doc_title}_loaded_record_id"] = new_id
-            st.success(f"新規保存したある！ record_id = {new_id}")
+            st.success(f"新規保存しました！ record_id = {new_id}")
 
     with save_cols[1]:
         if st.button("上書き保存", key=f"{doc_title}_save_update"):
             if loaded_record_id:
                 ok = update_document_record(loaded_record_id, form_data)
                 if ok:
-                    st.success(f"上書き保存したある！ record_id = {loaded_record_id}")
+                    st.success(f"上書き保存しました！ record_id = {loaded_record_id}")
                 else:
-                    st.warning("上書き対象が見つからないある。")
+                    st.warning("上書き対象が見つからありません。")
             else:
-                st.warning("先に保存済みデータを読み込むか、新規保存してほしいある。")
+                st.warning("先に保存済みデータを読み込むか、新規保存してください。")
 
     st.divider()
     st.markdown("### Excel出力")
@@ -7729,7 +7729,7 @@ def generate_status_support_with_gemini(
 ):
     api_key = get_gemini_api_key_from_app()
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
+        raise RuntimeError("GEMINI_API_KEY が取得できませんでした。")
 
     prompt = f"""
 あなたは障害福祉サービスのKnowbe日誌入力を補助するアシスタントです。
@@ -7775,7 +7775,7 @@ def generate_status_support_with_gemini(
     text = (response.text or "").strip()
 
     if not text:
-        raise RuntimeError("Geminiの応答が空ある")
+        raise RuntimeError("Geminiの応答が空です")
 
     text = text.replace("```json", "").replace("```", "").strip()
     data = json.loads(text)
@@ -7833,14 +7833,14 @@ def generate_bee_texts(
 
     api_key = get_gemini_api_key_from_app()
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY が取得できなかったある")
+        raise RuntimeError("GEMINI_API_KEY が取得できなかったです")
 
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-2.5-flash")
     prompt = f"""
-あなたは就労継続支援B型の支援記録作成アシスタントある。
+あなたは就労継続支援B型の支援記録作成アシスタントです。
 以下の情報をもとに、Knowbeへそのまま貼り付けられる
-「利用者状態」と「職員考察」を作るある。
+「利用者状態」と「職員考察」を作ってください。
 
 【利用者名】
 {resident_name}
@@ -7893,7 +7893,7 @@ def generate_bee_texts(
     result_text = (response.text or "").strip()
 
     if not result_text:
-        raise RuntimeError("Geminiの応答が空ある")
+        raise RuntimeError("Geminiの応答が空です")
 
     cleaned = result_text.replace("```json", "").replace("```", "").strip()
 
@@ -7902,10 +7902,10 @@ def generate_bee_texts(
         generated_status = str(data.get("generated_status", "")).strip()
         generated_support = str(data.get("generated_support", "")).strip()
     except Exception:
-        raise RuntimeError(f"Gemini出力の解析に失敗ある: {cleaned}")
+        raise RuntimeError(f"Gemini出力の解析に失敗です: {cleaned}")
 
     if not generated_status or not generated_support:
-        raise RuntimeError(f"Gemini出力の解析に失敗ある: {cleaned}")
+        raise RuntimeError(f"Gemini出力の解析に失敗です: {cleaned}")
 
     return generated_status, generated_support
 
@@ -7956,7 +7956,7 @@ def send_to_knowbe_from_bee(
     login_password = str(login_password).strip()
 
     if not login_username or not login_password:
-        raise RuntimeError("Knowbeアカウント名またはKnowbeパスワードが未設定ある。")
+        raise RuntimeError("Knowbeアカウント名またはKnowbeパスワードが未設定です。")
 
     try:
         from run_assistance import send_one_record_from_app  # type: ignore
@@ -7988,13 +7988,13 @@ def send_to_knowbe_from_bee(
         raise
 
     if not ok:
-        raise RuntimeError("run_assistance.send_one_record_from_app が False を返したある")
+        raise RuntimeError("run_assistance.send_one_record_from_app が False を返しました")
 
     return True
 
 def render_bee_journal_page():
     st.title("🐝knowbe日誌入力🐝")
-    st.caption("Sue for Bee Assistance 専用の裏メニューある。")
+    st.caption("Sue for Bee Assistance 専用の裏メニューです。")
 
     current_company_name = str(st.session_state.get("company_name", "")).strip()
     current_staff_name = str(st.session_state.get("user", "")).strip()
@@ -8006,14 +8006,14 @@ def render_bee_journal_page():
         bee_company_login_id = st.text_input(
             "事業所ID",
             key="bee_company_login_id",
-            placeholder="空欄なら現在ログイン中の事業所を使うある"
+            placeholder="空欄なら現在ログイン中の事業所を使います"
         )
     with company_cols[1]:
         bee_company_login_password = st.text_input(
             "事業所パスワード",
             type="password",
             key="bee_company_login_password",
-            placeholder="空欄なら現在ログイン中の事業所を使うある"
+            placeholder="空欄なら現在ログイン中の事業所を使います"
         )
 
     st.markdown("## knowbeアカウント情報入力")
@@ -8039,7 +8039,7 @@ def render_bee_journal_page():
     )
 
     if not ctx.get("ok", False):
-        st.error(ctx.get("error", "事業所情報の確認に失敗したある。"))
+        st.error(ctx.get("error", "事業所情報の確認に失敗しました。"))
         return
 
     target_company_id = ctx["target_company_id"]
@@ -8052,11 +8052,11 @@ def render_bee_journal_page():
         st.info(f"対象事業所: {target_company_name or current_company_name}")
     with info_cols[1]:
         if ctx.get("using_saved_knowbe", False):
-            st.success(f"保存済みKnowbe情報を使用するある：{mask_secret_text(resolved_knowbe_user)}")
+            st.success(f"保存済みKnowbe情報を使用する：{mask_secret_text(resolved_knowbe_user)}")
         elif ctx.get("has_knowbe_credentials", False):
-            st.success(f"入力されたKnowbe情報を使用するある：{mask_secret_text(resolved_knowbe_user)}")
+            st.success(f"入力されたKnowbe情報を使用する：{mask_secret_text(resolved_knowbe_user)}")
         else:
-            st.warning("Knowbe情報が未設定ある。管理者メニューの『Knowbe情報登録』で保存するか、この画面で入力してほしいある。")
+            st.warning("Knowbe情報が未設定です。管理者メニューの『Knowbe情報登録』で保存するか、この画面で入力してください。")
 
     target_company_id = str(st.session_state.get("company_id", "")).strip()
 
@@ -8064,20 +8064,20 @@ def render_bee_journal_page():
 
     master_df = load_db("resident_master")
     if master_df is None or master_df.empty:
-        st.warning("利用者情報がまだ登録されてないある。")
+        st.warning("利用者情報がまだ登録されていません。")
         return
 
     master_df = master_df.fillna("").copy()
 
     if "company_id" not in master_df.columns:
-        st.error("resident_master に company_id 列がないある。")
+        st.error("resident_master に company_id 列がありません。")
         return
 
     master_df["company_id"] = master_df["company_id"].astype(str).str.strip()
     master_df = master_df[master_df["company_id"] == target_company_id].copy()
 
     if master_df.empty:
-        st.warning("この事業所に所属する利用者がまだ登録されてないある。")
+        st.warning("この事業所に所属する利用者がまだ登録されていません。")
         return
 
     resident_options = []
@@ -8098,7 +8098,7 @@ def render_bee_journal_page():
         resident_map[label] = row.to_dict()
 
     if not resident_options:
-        st.warning("この事業所に所属する利用者がまだ登録されてないある。")
+        st.warning("この事業所に所属する利用者がまだ登録されていません。")
         return
 
     selected_label = st.selectbox(
@@ -8164,7 +8164,7 @@ def render_bee_journal_page():
                         st.session_state["bee_end_memo"] = str(rec.get("end_memo", ""))
                         st.session_state["bee_staff_name"] = str(rec.get("staff_name", current_staff_name))
                         st.session_state["bee_service_type"] = str(rec.get("service_type", "在宅"))
-                        st.success("保存データを呼び出したある！")
+                        st.success("保存データを呼び出しました！")
                         st.rerun()
 
     st.divider()
@@ -8431,25 +8431,25 @@ def render_bee_journal_page():
 
                 st.session_state["bee_generated_status"] = generated_status
                 st.session_state["bee_generated_support"] = generated_support
-                st.success("Gemini生成できたある！")
+                st.success("Gemini生成できました！")
                 st.rerun()
 
             except Exception as e:
-                st.error(f"Gemini生成失敗ある: {e}")
+                st.error(f"Gemini生成失敗です: {e}")
 
     with send_top_cols[1]:
         if st.button("保存", key="bee_save_button", use_container_width=True):
             try:
                 save_db("diary_input_rules", save_payload)
-                st.success("保存できたある！")
+                st.success("保存できました！")
             except Exception as e:
-                st.error(f"保存失敗ある: {e}")
+                st.error(f"保存失敗です: {e}")
 
     with send_top_cols[2]:
-        st.write("開始/終了メモ入力後、下のボタンから送信するある")
+        st.write("開始/終了メモ入力後、下のボタンから送信する")
 
     st.warning(
-        "Knowbe送信を使うには、画面上でKnowbe情報を入力するか、管理者メニューの『Knowbe情報登録』で保存してほしいある。"
+        "Knowbe送信を使うには、画面上でKnowbe情報を入力するか、管理者メニューの『Knowbe情報登録』で保存してください。"
     )
 
     st.divider()
@@ -8465,9 +8465,9 @@ def render_bee_journal_page():
     st.markdown("## スタッフ例文・個人ルール")
 
     if not example_row:
-        st.warning("この入力者のスタッフ例文は未登録ある。")
+        st.warning("この入力者のスタッフ例文は未登録です。")
     if not rule_row:
-        st.warning("この入力者の個人ルールは未登録ある。")
+        st.warning("この入力者の個人ルールは未登録です。")
 
     if "bee_rule_edit_open" not in st.session_state:
         st.session_state["bee_rule_edit_open"] = False
@@ -8532,11 +8532,11 @@ def render_bee_journal_page():
     with bottom_cols[0]:
         rule_text_value = st.text_area(
             "個人ルール",
-            value=rule_row.get("rule_text", "") if rule_row else "未登録ある",
+            value=rule_row.get("rule_text", "") if rule_row else "未登録です",
             key="bee_rule_text_unified",
             height=160,
             disabled=not is_editing,
-            placeholder="未登録ある"
+            placeholder="未登録です"
         )
 
     with bottom_cols[1]:
@@ -8561,9 +8561,9 @@ def render_bee_journal_page():
                 save_personal_rules_record(
                     company_id=target_company_id,
                     staff_name=staff_name,
-                    rule_text="" if rule_text_value == "未登録ある" else rule_text_value,
+                    rule_text="" if rule_text_value == "未登録です" else rule_text_value,
                 )
-                st.success("スタッフ例文・個人ルールを登録したある！")
+                st.success("スタッフ例文・個人ルールを登録しました！")
                 st.session_state["bee_rule_edit_open"] = False
                 st.rerun()
 
@@ -8867,7 +8867,7 @@ except Exception:
 st.sidebar.markdown(f"### 👤 ログイン中")
 
 if active_df is None or active_df.empty:
-    st.sidebar.write("現在ログイン中の人はいないある。")
+    st.sidebar.write("現在ログイン中の人はいありません。")
 else:
     active_df = active_df.fillna("")
     now_dt = now_jst().replace(tzinfo=None)
@@ -8891,7 +8891,7 @@ else:
             st.sidebar.write(f"**{user_name}**")
             st.sidebar.caption(f"ログイン: {login_at}")
     else:
-        st.sidebar.write("現在ログイン中の人はいないある。")
+        st.sidebar.write("現在ログイン中の人はいありません。")
 
 # マイ状況
 try:
@@ -8922,7 +8922,7 @@ if st.sidebar.button(f"未着手全体: {todo_count}件", key="go_todo_board", u
     st.session_state.current_page = "① 未着手の任務（掲示板）"
     st.rerun()
 
-# ここを追加するある
+# ここを追加するです
 page = st.session_state.get("current_page", "① 未着手の任務（掲示板）")
 
 st.sidebar.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
@@ -9001,7 +9001,7 @@ if page == "① 未着手の任務（掲示板）":
                         save_db(merged_df, "task")
                         sync_task_events_to_calendar(current_company_id)
 
-                        st.success(f"{len(new_rows)}件のタスクを登録したある！")
+                        st.success(f"{len(new_rows)}件のタスクを登録しました！")
                         st.rerun()
                     else:
                         st.error("タスクを1件以上入力してください。")
@@ -9120,7 +9120,7 @@ elif page == "③ 稼働状況・完了履歴":
                 else:
                     st.info(f"🟡 {kind}: {task_name}（{d}）")
         else:
-            st.write("期限アラートはないある。")
+            st.write("期限アラートはありません。")
 
         st.divider()
 
@@ -9172,7 +9172,7 @@ elif page == "③ 稼働状況・完了履歴":
     show_status_page()
 
 # ==========================================
-# ④ チームチャット（画像添付対応ある！）
+# ④ チームチャット（画像添付対応です！）
 # ==========================================
 elif page == "④ チームチャット":
     @st.fragment(run_every=15)
@@ -9220,10 +9220,10 @@ elif page == "④ チームチャット":
                         }])
 
                         save_db(pd.concat([chat_df, new_msg], ignore_index=True), "chat")
-                        st.success("送信したある！")
+                        st.success("送信しました！")
                         st.rerun()
                     else:
-                        st.error("メッセージか画像のどちらかを入れてほしいある。")
+                        st.error("メッセージか画像のどちらかを入れてください。")
 
             st.divider()
 
@@ -9250,7 +9250,7 @@ elif page == "④ チームチャット":
                         image_bytes = base64.b64decode(image_data)
                         st.image(image_bytes, caption="添付画像", use_container_width=True)
                     except Exception:
-                        st.warning("画像の読み込みに失敗したある。")
+                        st.warning("画像の読み込みに失敗しました。")
 
                 st.divider()
 
@@ -9291,7 +9291,7 @@ elif page == "④ チームチャット":
                             image_bytes = base64.b64decode(image_data)
                             st.image(image_bytes, caption="添付画像", use_container_width=True)
                         except Exception:
-                            st.warning("画像の読み込みに失敗したある。")
+                            st.warning("画像の読み込みに失敗しました。")
 
                     st.divider()
 
@@ -9353,17 +9353,17 @@ elif page == "⑤ 業務マニュアル":
                         }])
 
                         save_db(pd.concat([m_df, new_m], ignore_index=True), "manual")
-                        st.success("マニュアルを保存したある！")
+                        st.success("マニュアルを保存しました！")
                         st.rerun()
                     else:
-                        st.error("タイトルと説明は必須ある。")
+                        st.error("タイトルと説明は必須です。")
 
         st.divider()
 
         m_df = load_db("manual")
 
         if m_df is None or m_df.empty:
-            st.info("マニュアルはまだ登録されてないある。")
+            st.info("マニュアルはまだ登録されていません。")
             return
 
         for col in ["id", "title", "content", "image_data", "created_at"]:
@@ -9397,18 +9397,18 @@ elif page == "⑤ 業務マニュアル":
                             use_container_width=True
                         )
                     except Exception:
-                        st.warning("画像データの読み込みに失敗したある。")
+                        st.warning("画像データの読み込みに失敗しました。")
 
                 if st.button("🗑️ このマニュアルを削除する", key=f"delete_manual_{manual_id}"):
                     new_df = m_df[m_df["id"].astype(str) != str(manual_id)].copy()
                     save_db(new_df, "manual")
-                    st.success("削除したある。")
+                    st.success("削除しました。")
                     st.rerun()
 
     show_manual_page()
 
 # ==========================================
-# ⑥ 日誌入力状況（年つき横表・Excel風ある！）
+# ⑥ 日誌入力状況（年つき横表・Excel風です！）
 # ==========================================
 elif page == "⑥ 日誌入力状況":
     @st.fragment(run_every=180)
@@ -9419,7 +9419,7 @@ elif page == "⑥ 日誌入力状況":
         start_year = 2025
         end_year = 2026
 
-        # 年月列を作るある
+        # 年月列を作るです
         month_cols = []
         for year in range(start_year, end_year + 1):
             for month in range(1, 13):
@@ -9429,7 +9429,7 @@ elif page == "⑥ 日誌入力状況":
 
         r_df = load_db("record_status")
 
-        # 空でも最低限の形に整えるある
+        # 空でも最低限の形に整えるです
         if r_df is None or r_df.empty:
             r_df = pd.DataFrame(columns=required_cols)
         else:
@@ -9455,7 +9455,7 @@ elif page == "⑥ 日誌入力状況":
                 ]
 
                 if not names:
-                    st.error("名前を1人以上入力してほしいある。")
+                    st.error("名前を1人以上入力してください。")
                 else:
                     existing_names = set(
                         str(x).strip()
@@ -9482,18 +9482,18 @@ elif page == "⑥ 日誌入力状況":
 
                         if skipped:
                             st.success(
-                                f"{len(new_rows)}人追加したある。重複スキップ: {', '.join(skipped)}"
+                                f"{len(new_rows)}人追加しました。重複スキップ: {', '.join(skipped)}"
                             )
                         else:
-                            st.success(f"{len(new_rows)}人追加したある。")
+                            st.success(f"{len(new_rows)}人追加しました。")
                         st.rerun()
                     else:
-                        st.warning("全員すでに登録済みある。")
+                        st.warning("全員すでに登録済みです。")
 
         st.divider()
-        st.caption("各セルに「未入力」「15日まで」「完了」など自由に入力できるある。")
+        st.caption("各セルに「未入力」「15日まで」「完了」など自由に入力できます。")
 
-        # data_editorで落ちないように、全部文字列にそろえるある
+        # data_editorで落ちないように、全部文字列にそろえるです
         r_df = r_df.fillna("")
 
         for col in required_cols:
@@ -9538,7 +9538,7 @@ elif page == "⑥ 日誌入力状況":
                 edited_df = edited_df[required_cols]
 
                 save_db(edited_df, "record_status")
-                st.success("保存したある！")
+                st.success("保存しました！")
                 st.rerun()
 
     show_record_status_page()
@@ -9557,7 +9557,7 @@ elif page == "⑦ タスクカレンダー":
             cal_df = load_db("calendar")
             task_df = load_db("task")
         except Exception:
-            st.warning("Googleスプレッドシートとの通信が一時的に不安定ある。少し待って再読み込みしてほしいある。")
+            st.warning("Googleスプレッドシートとの通信が一時的に不安定です。少し待って再読み込みしてください。")
             return
 
         # calendarシートの最低列を保証
@@ -9607,10 +9607,10 @@ elif page == "⑦ タスクカレンダー":
                         }])
 
                         save_db(pd.concat([cal_df, new_row], ignore_index=True), "calendar")
-                        st.success("予定を保存したある！")
+                        st.success("予定を保存しました！")
                         st.rerun()
                     else:
-                        st.error("予定名を入れてほしいある。")
+                        st.error("予定名を入れてください。")
 
         st.divider()
 
@@ -9630,7 +9630,7 @@ elif page == "⑦ タスクカレンダー":
             memo = str(row.get("memo", "")).strip()
             source_type = str(row.get("source_type", "")).strip()
 
-            # task由来イベントは下で task_df から作るので、ここでは表示しないある
+            # task由来イベントは下で task_df から作るので、ここでは表示しません
             if source_type in ["task_deadline", "task_active"]:
                 continue
 
@@ -9754,7 +9754,7 @@ elif page == "⑦ タスクカレンダー":
                 hide_index=True
             )
         else:
-            st.info("手入力の予定はまだないある。")
+            st.info("手入力の予定はまだありません。")
 
         # ------------------------------------------
         # 選択日の予定一覧
@@ -9798,9 +9798,9 @@ elif page == "⑦ タスクカレンダー":
                     hide_index=True
                 )
             else:
-                st.info(f"{selected_date} の予定はないある。")
+                st.info(f"{selected_date} の予定はありません。")
         else:
-            st.caption("日付か予定をクリックすると、その日の一覧を下に表示するある。")
+            st.caption("日付か予定をクリックすると、その日の一覧を下に表示します。")
 
         # ------------------------------------------
         # クリックした予定の詳細
@@ -9844,7 +9844,7 @@ elif page == "⑧ 緊急一覧":
         urgent_df = get_urgent_tasks_df()
 
         if urgent_df.empty:
-            st.success("現在、至急・重要タスクはないある。")
+            st.success("現在、至急・重要タスクはありません。")
             return
 
         col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 3])
@@ -9874,7 +9874,7 @@ elif page == "⑧ 緊急一覧":
         st.caption(f"現在の表示: {current_filter}")
 
         if urgent_df.empty:
-            st.info("条件に合う緊急タスクはないある。")
+            st.info("条件に合う緊急タスクはありません。")
             return
 
         # ===============================
@@ -9949,7 +9949,7 @@ elif page == "⑧ 緊急一覧":
                         with action_cols[0]:
                             if st.button("開始する", key=f"urgent_start_{task_id}", use_container_width=True):
                                 start_task(task_id)
-                                st.success("タスクを開始したある！")
+                                st.success("タスクを開始しました！")
                                 st.rerun()
 
                     elif status == "作業中":
@@ -9957,11 +9957,11 @@ elif page == "⑧ 緊急一覧":
                             with action_cols[1]:
                                 if st.button("完了する", key=f"urgent_done_{task_id}", use_container_width=True):
                                     complete_task(task_id)
-                                    st.success("タスクを完了したある！")
+                                    st.success("タスクを完了しました！")
                                     st.rerun()
                         else:
                             with action_cols[2]:
-                                st.caption(f"現在 {user_name} さんが対応中ある。")
+                                st.caption(f"現在 {user_name} さんが対応中です。")
 
     show_urgent_page()
 
@@ -10121,7 +10121,7 @@ elif page == "⑨ 利用者情報":
                         caseworker_phone = st.text_input("ケースワーカー電話", key="add_caseworker_phone")
 
                     st.markdown("### 病院・看護・介護の週間予定")
-                    st.caption("同じ曜日に2回以上ある場合は、同じ曜日の下の2つ目・3つ目・4つ目にもそのまま入力してほしいある。Enterは不要ある。")
+                    st.caption("同じ曜日に2回以上ある場合は、同じ曜日の下の2つ目・3つ目・4つ目にもそのまま入力してください。Enterは不要です。")
 
                     weekly_inputs = {}
 
@@ -10295,10 +10295,10 @@ elif page == "⑨ 利用者情報":
                                 merged_schedule_df = pd.concat([schedule_df_add, add_schedule_df], ignore_index=True)
                                 save_db(merged_schedule_df.fillna(""), "resident_schedule")
 
-                            st.success("利用者を登録したある！")
+                            st.success("利用者を登録しました！")
                             st.rerun()
                         else:
-                            st.error("利用者名を入力してほしいある。")
+                            st.error("利用者名を入力してください。")
 
                     if cancel_add:
                         st.rerun()
@@ -10321,7 +10321,7 @@ elif page == "⑨ 利用者情報":
                 list_df = list_df.sort_values("resident_name")
 
             if list_df.empty:
-                st.info("該当する利用者はいないある。")
+                st.info("該当する利用者はいありません。")
                 return
 
             cols = st.columns(2)
@@ -10382,7 +10382,7 @@ elif page == "⑨ 利用者情報":
 
         detail_df = master_df[master_df["resident_id"].astype(str) == selected_id].copy()
         if detail_df.empty:
-            st.warning("利用者情報が見つからないある。")
+            st.warning("利用者情報が見つからありません。")
             if st.button("一覧に戻る", use_container_width=True):
                 st.session_state.selected_resident_id = ""
                 reset_resident_edit_flags()
@@ -10426,7 +10426,7 @@ elif page == "⑨ 利用者情報":
         contact_cards_df = get_resident_contact_cards(selected_id)
 
         if contact_cards_df.empty:
-            st.info("この利用者に紐づく関係者はまだ登録されてないある。")
+            st.info("この利用者に紐づく関係者はまだ登録されていません。")
         else:
             category_icon_map = {
                 "医療": "🏥",
@@ -10564,7 +10564,7 @@ elif page == "⑨ 利用者情報":
                         with btn_cols[0]:
                             if st.button("開始する", key=f"resident_urgent_start_{t_id}", use_container_width=True):
                                 start_task(t_id)
-                                st.success("タスクを開始したある！")
+                                st.success("タスクを開始しました！")
                                 st.rerun()
 
                     elif t_status == "作業中":
@@ -10572,13 +10572,13 @@ elif page == "⑨ 利用者情報":
                             with btn_cols[1]:
                                 if st.button("完了する", key=f"resident_urgent_done_{t_id}", use_container_width=True):
                                     complete_task(t_id)
-                                    st.success("タスクを完了したある！")
+                                    st.success("タスクを完了しました！")
                                     st.rerun()
                         else:
                             with btn_cols[2]:
-                                st.caption(f"現在 {t_user} さんが対応中ある。")
+                                st.caption(f"現在 {t_user} さんが対応中です。")
         else:
-            st.info("この利用者に連動した至急・重要タスクは今のところないある。")
+            st.info("この利用者に連動した至急・重要タスクは今のところありません。")
 
         st.divider()
         st.markdown("### 基本情報")
@@ -10609,7 +10609,7 @@ elif page == "⑨ 利用者情報":
         ].copy()
 
         if schedule_view.empty:
-            st.info("週間予定はまだ登録されてないある。")
+            st.info("週間予定はまだ登録されていません。")
         else:
             render_resident_schedule_html(schedule_view)
 
@@ -10628,7 +10628,7 @@ elif page == "⑨ 利用者情報":
                     st.write(f"**{note_row.get('date', '')}**  {note_row.get('user', '')}")
                     st.write(note_row.get("note", ""))
         else:
-            st.info("共有メモはまだないある。")
+            st.info("共有メモはまだありません。")
 
 
         st.divider()
@@ -10704,10 +10704,10 @@ elif page == "⑨ 利用者情報":
                         new_links_df = pd.concat([links_df, new_link_row], ignore_index=True)
                         save_db(new_links_df, "resident_links")
 
-                        st.success("関係者を登録したある！")
+                        st.success("関係者を登録しました！")
                         st.rerun()
                     else:
-                        st.error("氏名か事業所名のどちらかは入れてほしいある。")
+                        st.error("氏名か事業所名のどちらかは入れてください。")
 
 
         st.divider()
@@ -10787,7 +10787,7 @@ elif page == "⑨ 利用者情報":
 
                     save_db(update_df, "resident_master")
                     st.session_state.edit_resident_basic = False
-                    st.success("基本情報を保存したある！")
+                    st.success("基本情報を保存しました！")
                     st.rerun()
 
                 if cancel_basic:
@@ -10800,7 +10800,7 @@ elif page == "⑨ 利用者情報":
         if st.session_state.get("edit_resident_schedule", False):
             st.divider()
             st.markdown("#### 病院・看護・介護の週間予定を編集")
-            st.caption("同じ曜日に2回以上ある場合は、同じ曜日の下の2つ目・3つ目・4つ目にもそのまま入力してほしいある。Enterは不要ある。")
+            st.caption("同じ曜日に2回以上ある場合は、同じ曜日の下の2つ目・3つ目・4つ目にもそのまま入力してください。Enterは不要です。")
 
             schedule_base = build_schedule_form_base(schedule_df, selected_id)
             weekdays = ["月", "火", "水", "木", "金", "土", "日"]
@@ -10957,7 +10957,7 @@ elif page == "⑨ 利用者情報":
                     save_df = save_df.fillna("")
                     save_db(save_df, "resident_schedule")
                     st.session_state.edit_resident_schedule = False
-                    st.success("週間予定を保存したある！")
+                    st.success("週間予定を保存しました！")
                     st.rerun()
 
                 if cancel_weekly:
@@ -10972,7 +10972,7 @@ elif page == "⑨ 利用者情報":
             ].copy()
 
             if current_view.empty:
-                st.info("週間予定はまだ登録されてないある。")
+                st.info("週間予定はまだ登録されていません。")
             else:
                 render_resident_schedule_html(current_view)
 
@@ -10990,7 +10990,7 @@ elif page == "⑨ 利用者情報":
                         )
                     ].copy()
                     save_db(new_schedule_df, "resident_schedule")
-                    st.success("週間予定を削除したある。")
+                    st.success("週間予定を削除しました。")
                     st.rerun()
 
         # ------------------------------------------
@@ -11024,10 +11024,10 @@ elif page == "⑨ 利用者情報":
                         new_notes_df = pd.concat([notes_df, new_row], ignore_index=True)
                         save_db(new_notes_df, "resident_notes")
                         st.session_state.edit_resident_note = False
-                        st.success("共有メモを追加したある！")
+                        st.success("共有メモを追加しました！")
                         st.rerun()
                     else:
-                        st.error("メモ内容を入力してほしいある。")
+                        st.error("メモ内容を入力してください。")
 
                 if cancel_note:
                     st.session_state.edit_resident_note = False
@@ -11043,7 +11043,7 @@ elif page == "⑨ 利用者情報":
                 except Exception:
                     pass
 
-                st.caption("登録済みメモを削除する場合は下から選ぶある。")
+                st.caption("登録済みメモを削除する場合は下から選んでください。")
 
                 for _, nrow in notes_delete_df.iterrows():
                     nid = str(nrow.get("id", "")).strip()
@@ -11063,7 +11063,7 @@ elif page == "⑨ 利用者情報":
                             ].copy()
 
                             save_db(new_notes_df, "resident_notes")
-                            st.success("メモを削除したある。")
+                            st.success("メモを削除しました。")
                             st.rerun()
 
                             links_df = get_resident_links_df()
@@ -11074,7 +11074,7 @@ elif page == "⑨ 利用者情報":
                                 )
                             ].copy()
                             save_db(new_links_df, "resident_links")
-                            st.success("この利用者との紐づきを削除したある。")
+                            st.success("この利用者との紐づきを削除しました。")
                             st.rerun()
 
     show_resident_page()
@@ -11083,7 +11083,7 @@ elif page == "⑨ 利用者情報":
 elif page == "⓪ 検索":
 
     st.title("🔍 検索")
-    st.write("利用者・関係者・資料をまとめて探せるページある。")
+    st.write("利用者・関係者・資料をまとめて探せるページです。")
 
     # ------------------------------------------
     # 書類検索
@@ -11151,7 +11151,7 @@ elif page == "⓪ 検索":
         result_df = search_shared_documents(shared_keyword)
 
         if result_df.empty:
-            st.info("該当する資料がないある。")
+            st.info("該当する資料がありません。")
         else:
             st.markdown(f"### 倉庫・アップロード検索結果（{len(result_df)}件）")
             for _, row in result_df.iterrows():
@@ -11216,7 +11216,7 @@ elif page == "⓪ 検索":
         ]
 
     if view_df.empty:
-        st.info("条件に合う資料はないある。")
+        st.info("条件に合う資料はありません。")
     else:
         try:
             view_df = view_df.sort_values("updated_at", ascending=False)
@@ -11266,7 +11266,7 @@ elif page == "⓪ 検索":
     master_df = get_resident_master_df()
 
     if contacts_df.empty:
-        st.info("関係者データはまだ登録されてないある。")
+        st.info("関係者データはまだ登録されていません。")
     else:
         for col in ["contact_id", "category1", "category2", "name", "organization", "phone", "memo"]:
             if col not in contacts_df.columns:
@@ -11476,7 +11476,7 @@ elif page == "⓪ 検索":
         ]
 
     if resident_view_df.empty:
-        st.info("条件に合う利用者はいないある。")
+        st.info("条件に合う利用者はいありません。")
     else:
         try:
             resident_view_df = resident_view_df.sort_values(
@@ -11508,7 +11508,7 @@ elif page == "⓪ 検索":
 # 利用者書類
 # ==========================================
 def render_secret_generation_panel(doc_title: str):
-    st.info("🤫 秘密モードある。ここに後で『新しい方針欄』『過去のデータから作成』『Gemini自動入力』を追加していくある。")
+    st.info("🤫 秘密モード。ここに後で『新しい方針欄』『過去のデータから作成』『Gemini自動入力』を追加していってください。")
 
 
 def render_secret_page(doc_title: str):
@@ -11575,7 +11575,7 @@ elif page == "休憩室_倉庫":
     render_warehouse_page()
 elif page == "スタッフ管理":
     if not st.session_state.get("is_admin", False):
-        st.error("このページは管理者専用ある。")
+        st.error("このページは管理者専用です。")
     else:
         render_admin_staff_manage_block()
 elif page == "ICカード管理":
