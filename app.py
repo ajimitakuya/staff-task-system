@@ -8939,7 +8939,15 @@ else:
         st.session_state.current_page = "休憩室"
         st.rerun()
 
-    if st.sidebar.button("📩 お問い合わせ", use_container_width=True):
+is_contact_selected = (st.session_state.current_page == "お問い合わせ")
+
+if is_contact_selected:
+    st.sidebar.markdown(
+        '<div class="menu-selected-wrap"><div class="menu-selected-box">● 📩 お問い合わせ</div></div>',
+        unsafe_allow_html=True
+    )
+else:
+    if st.sidebar.button("📩 お問い合わせ", key="menu_contact_fixed", use_container_width=True):
         st.session_state.current_page = "お問い合わせ"
         st.rerun()
 
