@@ -9,17 +9,14 @@ def render_app_header():
     st.markdown(
         f"""
         <div style="
-            padding:16px 20px;
+            padding:14px 18px;
             border:1px solid #E5E7EB;
             border-radius:16px;
             background:#FFFFFF;
             box-shadow:0 1px 3px rgba(0,0,0,0.05);
             margin-bottom:14px;
         ">
-            <div style="font-size:15px;font-weight:700;color:#EC4899; margin-bottom:4px;">
-                🐝 Sue for Bee Assistance system
-            </div>
-            <div style="font-size:24px;font-weight:800;color:#111827;">
+            <div style="font-size:24px;font-weight:700;color:#111827;">
                 作業管理システム
             </div>
             <div style="margin-top:8px;font-size:14px;color:#4B5563;">
@@ -37,19 +34,115 @@ def render_app_header():
 def render_sidebar_common():
     st.sidebar.markdown(
         """
-        <div style="padding-top:4px; padding-bottom:6px;">
-            <div style="font-size:18px; font-weight:800; color:#EC4899; line-height:1.4;">
-                🐝 Sue for Bee Assistance system
-            </div>
-            <div style="margin-top:10px; font-size:14px; line-height:1.9; color:#374151;">
-                📢 日誌入力だけ必要時に他事業所へ<br>
-                一時送信できるある。
+        <div style="display:flex;align-items:center;gap:10px;margin-left:20px;">
+            <div style="font-size:36px;">&#128029;</div>
+            <div>
+                <div style="font-weight:bold;font-size:24px;">
+                    Sue for Bee
+                </div>
+                <div style="font-size:16px;color:gray;">
+                    Assistance System
+                </div>
             </div>
         </div>
         """,
         unsafe_allow_html=True
     )
-    st.sidebar.divider()
+
+    st.sidebar.markdown("<div style='margin-top:30px;'></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("メニューを選択してください")
+
+    st.sidebar.markdown(
+        """
+        <style>
+        section[data-testid="stSidebar"] .stButton {
+            margin-bottom: 12px !important;
+        }
+
+        section[data-testid="stSidebar"] .stButton > button {
+            width: 100% !important;
+            height: 56px !important;
+            min-height: 56px !important;
+            border-radius: 12px !important;
+            border: 1px solid #d9d9d9 !important;
+            background: #ffffff !important;
+            color: #1f2d3d !important;
+            font-weight: 700 !important;
+            padding: 0 !important;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
+            text-align: left !important;
+            box-sizing: border-box !important;
+        }
+
+        section[data-testid="stSidebar"] .stButton > button:hover {
+            border-color: #ff9f43 !important;
+            color: #ff7b54 !important;
+            background: #fffaf5 !important;
+        }
+
+        section[data-testid="stSidebar"] .stButton > button > div {
+            width: 100% !important;
+            height: 56px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
+            text-align: left !important;
+            padding: 0 16px !important;
+            box-sizing: border-box !important;
+        }
+
+        section[data-testid="stSidebar"] .stButton > button > div p,
+        section[data-testid="stSidebar"] .stButton > button > div span {
+            width: 100% !important;
+            margin: 0 !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+            line-height: 1.2 !important;
+        }
+
+        .menu-selected-wrap {
+            width: 100%;
+            margin: 0 0 12px 0;
+        }
+
+        .menu-selected-box {
+            width: 100%;
+            height: 56px;
+            border-radius: 12px;
+            border: 1px solid #ff9f43;
+            background: linear-gradient(90deg, #fff1e8 0%, #fff7e6 100%);
+            color: #d35400;
+            font-weight: 700;
+            padding: 0 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            line-height: 1.2;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stMarkdown"] {
+            margin-bottom: 0 !important;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] {
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p {
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
 
 def render_login_page_shell():
@@ -64,13 +157,14 @@ def render_login_page_shell():
             background:#FFFFFF;
             box-shadow:0 1px 3px rgba(0,0,0,0.05);
         ">
-            <div style="font-size:16px;font-weight:800;color:#EC4899; margin-bottom:6px;">
-                🐝 Sue for Bee Assistance system
+            <div style="display:flex;align-items:center;gap:12px;">
+                <div style="font-size:38px;">&#128029;</div>
+                <div>
+                    <div style="font-weight:bold;font-size:28px;">Sue for Bee</div>
+                    <div style="font-size:18px;color:gray;">Assistance System</div>
+                </div>
             </div>
-            <div style="font-size:28px;font-weight:800;color:#111827;">
-                作業管理システム
-            </div>
-            <div style="margin-top:8px;font-size:14px;color:#4B5563;line-height:1.8;">
+            <div style="margin-top:16px;font-size:14px;color:#4B5563;line-height:1.8;">
                 事業所と職員のログイン情報で入るある。<br>
                 通常は自事業所固定、🐝日誌入力だけ必要時に例外送信できる設計ある。
             </div>

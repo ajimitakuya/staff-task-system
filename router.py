@@ -23,7 +23,6 @@ DEFAULT_PAGE = "① 未着手の任務（掲示板）"
 def init_page_session():
     if "current_page" not in st.session_state:
         st.session_state.current_page = DEFAULT_PAGE
-
     if "bee_menu_unlocked" not in st.session_state:
         st.session_state["bee_menu_unlocked"] = False
     if "other_office_register_unlocked" not in st.session_state:
@@ -46,9 +45,20 @@ def get_current_page() -> str:
 
 
 def heart_label(text: str) -> str:
-    if st.session_state.get("heart_mode", False):
-        return str(text).replace("🤫", "💕")
-    return str(text)
+    if not st.session_state.get("heart_mode", False):
+        return str(text)
+
+    s = str(text)
+
+    if len(s) >= 2 and s[1] == " ":
+        return f"💕 {s[2:]}"
+    if len(s) >= 3 and s[2] == " ":
+        return f"💕 {s[3:]}"
+
+    if "knowbe" in s.lower():
+        return "💕knowbe日誌入力💕"
+
+    return f"💕 {s}"
 
 
 def process_secret_command():
@@ -68,20 +78,8 @@ def process_secret_command():
 
 def render_selected_menu(label: str):
     st.sidebar.markdown(
-        f"""
-        <div style="
-            background:#EEF2FF;
-            border:1px solid #C7D2FE;
-            border-radius:12px;
-            padding:12px 14px;
-            margin-bottom:8px;
-            font-weight:700;
-            color:#1F2937;
-        ">
-            ● {label}
-        </div>
-        """,
-        unsafe_allow_html=True,
+        f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {label}</div></div>',
+        unsafe_allow_html=True
     )
 
 
@@ -111,27 +109,27 @@ def render_sidebar_navigation():
         ("書類_就労分野シート", "就労分野シート"),
     ]
 
-    st.sidebar.markdown("## 📚 メニュー")
-
     for label, target_page in main_page_options:
+        is_selected = (get_current_page() == target_page)
         display_label = heart_label(label)
-        if get_current_page() == target_page:
+
+        if is_selected:
             render_selected_menu(display_label)
         else:
-            if st.sidebar.button(display_label, key=f"menu_{target_page}", use_container_width=True):
+            if st.sidebar.button(display_label, key=f"menu_{label}", use_container_width=True):
                 set_page(target_page)
 
     st.sidebar.markdown("### 利用者書類")
 
     for page_key, label in document_page_options:
+        is_selected = (get_current_page() == page_key)
         display_label = heart_label(label)
-        if get_current_page() == page_key:
+
+        if is_selected:
             render_selected_menu(display_label)
         else:
             if st.sidebar.button(display_label, key=f"menu_{page_key}", use_container_width=True):
                 set_page(page_key)
-
-    st.sidebar.divider()
 
     if st.sidebar.button("個人ログアウト", key="sidebar_logout", use_container_width=True):
         for k in [
@@ -159,8 +157,9 @@ def render_sidebar_navigation():
         knowbe_label = "🐝knowbe日誌入力🐝"
         if st.session_state.get("heart_mode", False):
             knowbe_label = "💕knowbe日誌入力💕"
+
         if st.sidebar.button(knowbe_label, key="knowbe_menu_button", use_container_width=True):
-            set_page("🐝 Knowbe日誌入力")
+            set_page("🐝knowbe日誌入力🐝")
 
     if st.session_state.get("other_office_register_unlocked", False):
         if st.sidebar.button("💻他事業所へ登録💻", key="other_office_register_menu_button", use_container_width=True):
@@ -169,20 +168,16 @@ def render_sidebar_navigation():
     st.sidebar.text_input(
         "secret command",
         key="secret_bee_cmd",
-        label_visibility="collapsed",
-        on_change=process_secret_command,
-        placeholder=""
+        on_change=process_secret_command
     )
 
     if st.session_state.get("is_admin", False):
-        st.sidebar.markdown("### 管理者メニュー")
         if st.sidebar.button("スタッフ登録・削除", key="menu_staff_manage", use_container_width=True):
             set_page("⑨ 管理者")
 
         if st.sidebar.button("Knowbe情報登録", key="menu_knowbe_settings", use_container_width=True):
             set_page("Knowbe情報登録")
 
-    st.sidebar.divider()
     st.sidebar.caption("System Version 2.0")
 
 
@@ -249,7 +244,7 @@ def route_page(
         render_company_knowbe_settings_page()
         return
 
-    if page == "🐝 Knowbe日誌入力":
+    if page in ["🐝knowbe日誌入力🐝", "🐝 Knowbe日誌入力"]:
         render_bee_diary_page(
             generate_fn=bee_generate_fn,
             send_fn=bee_send_fn,
