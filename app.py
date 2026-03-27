@@ -57,8 +57,8 @@ def main():
 
     # 左サイド
     render_sidebar_common()
-    render_sidebar_task_status()
     render_sidebar_navigation()
+    render_sidebar_task_status()
 
     # 本体
     route_page(
