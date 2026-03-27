@@ -9861,6 +9861,7 @@ elif page == "⑨ 利用者情報":
             master_df = pd.DataFrame(columns=[
                 "company_id",
                 "resident_id", "resident_name", "status",
+                "resident_category",
                 "consultant", "consultant_phone",
                 "caseworker", "caseworker_phone",
                 "hospital", "hospital_phone",
@@ -9873,6 +9874,7 @@ elif page == "⑨ 利用者情報":
             for col in [
                 "company_id",
                 "resident_id", "resident_name", "status",
+                "resident_category",
                 "consultant", "consultant_phone",
                 "caseworker", "caseworker_phone",
                 "hospital", "hospital_phone",
@@ -9986,9 +9988,23 @@ elif page == "⑨ 利用者情報":
                         status = st.selectbox("状態", ["利用中", "退所"])
 
                     with basic1[2]:
+                        category_list = [
+                            "個別支援計画案",
+                            "サービス担当者会議",
+                            "個別支援計画",
+                            "モニタリング",
+                            "在宅評価シート",
+                            "アセスメント",
+                            "生活保護",
+                            "その他",
+                        ]
+
+                        current_val = str(st.session_state.get("edit_resident_category", "その他")).strip()
+
                         resident_category = st.selectbox(
                             "カテゴリ",
-                            RESIDENT_CATEGORY_OPTIONS
+                            category_list,
+                            index=category_list.index(current_val) if current_val in category_list else len(category_list)-1
                         )
 
                     basic2 = st.columns(3)
