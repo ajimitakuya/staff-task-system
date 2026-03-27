@@ -9853,6 +9853,9 @@ elif page == "⑨ 利用者情報":
 
         current_company_id = str(st.session_state.get("company_id", "")).strip()
 
+        if "selected_resident_id" not in st.session_state:
+            st.session_state["selected_resident_id"] = ""
+
         master_df = load_db("resident_master")
         if master_df is None or master_df.empty:
             master_df = pd.DataFrame(columns=[
@@ -9886,7 +9889,7 @@ elif page == "⑨ 利用者情報":
         # ------------------------------------------
         # 一覧モード
         # ------------------------------------------
-        if not st.session_state.selected_resident_id:
+        if not st.session_state.get("selected_resident_id"):
             reset_resident_edit_flags()
 
             top_cols = st.columns([1, 1, 3])
@@ -10943,11 +10946,6 @@ elif page == "⑨ 利用者情報":
                             st.success("メモを削除したある。")
                             st.rerun()
 
-                        if st.button(
-                            "この紐づきを削除",
-                            key=f"delete_contact_link_{selected_id}_{contact_id}",
-                            use_container_width=True
-                        ):
                             links_df = get_resident_links_df()
                             new_links_df = links_df[
                                 ~(
@@ -10974,7 +10972,6 @@ elif page == "⓪ 検索":
 
     CATEGORY1_OPTIONS = [
         "全部",
-        "利用者関連",
         "運営関連",
         "外部連携",
         "その他",
@@ -10982,16 +10979,6 @@ elif page == "⓪ 検索":
 
     CATEGORY2_MAP = {
         "全部": ["全部"],
-        "利用者関連": [
-            "全部",
-            "個別支援計画案",
-            "サービス担当者会議",
-            "個別支援計画",
-            "モニタリング",
-            "在宅評価シート",
-            "アセスメント",
-            "その他",
-        ],
         "運営関連": [
             "全部",
             "マニュアル",
@@ -11014,12 +11001,6 @@ elif page == "⓪ 検索":
             "その他",
         ],
     }
-
-    PUBLIC_ASSISTANCE_OPTIONS = [
-        "全部",
-        "生活保護",
-        "生活保護以外",
-    ]
 
     doc_df = load_db("document_master")
 
@@ -11061,8 +11042,6 @@ elif page == "⓪ 検索":
                 st.caption(f"カテゴリ: {row['category_main']} / {row['category_sub']}")
                 if row["source"] == "倉庫":
                     st.caption(f"公開設定: {row['visibility_type']}")
-
-    search_cols = st.columns([2, 2, 2, 2, 3])
 
     search_cols = st.columns([2, 2, 2, 3])
 
