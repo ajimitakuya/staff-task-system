@@ -10938,13 +10938,17 @@ elif page == "⑨ 利用者情報":
                             st.rerun()
 
     show_resident_page()
+                            
 
 elif page == "⓪ 検索":
 
     st.title("🔍 検索")
-    st.write("利用者・関係者・書類をまとめて探せるページある。")
+    st.write("利用者・関係者・資料をまとめて探せるページある。")
 
-    st.markdown("### 📁 書類検索")
+    # ------------------------------------------
+    # 書類検索
+    # ------------------------------------------
+    st.markdown("## 📁 書類検索")
 
     CATEGORY1_OPTIONS = [
         "全部",
@@ -10989,6 +10993,12 @@ elif page == "⓪ 検索":
         ],
     }
 
+    PUBLIC_ASSISTANCE_OPTIONS = [
+        "全部",
+        "生活保護",
+        "生活保護以外",
+    ]
+
     doc_df = load_db("document_master")
 
     if doc_df is None or doc_df.empty:
@@ -11008,35 +11018,55 @@ elif page == "⓪ 検索":
 
     doc_df = doc_df.fillna("").copy()
 
-    search_cols = st.columns([2, 2, 2, 3])
+    # 書類アップロード・倉庫の簡易検索
+    shared_keyword = st.text_input(
+        "書類アップロード・倉庫を検索",
+        key="shared_doc_search"
+    )
+
+    if shared_keyword.strip():
+        result_df = search_shared_documents(shared_keyword)
+
+        if result_df.empty:
+            st.info("該当する資料がないある。")
+        else:
+            st.markdown(f"### 倉庫・アップロード検索結果（{len(result_df)}件）")
+            for _, row in result_df.iterrows():
+                st.markdown("---")
+                st.markdown(f"**{row['title']}**")
+                st.caption(f"{row['source']} / {row['id']} / {row['file_name']}")
+                st.write(row["description"])
+                st.caption(f"カテゴリ: {row['category_main']} / {row['category_sub']}")
+                if row["source"] == "倉庫":
+                    st.caption(f"公開設定: {row['visibility_type']}")
+
+    search_cols = st.columns([2, 2, 2, 2, 3])
 
     with search_cols[0]:
-        cat1 = st.selectbox(
-            "カテゴリ1",
-            CATEGORY1_OPTIONS,
-            key="doc_search_cat1"
-        )
+        cat1 = st.selectbox("カテゴリ1", CATEGORY1_OPTIONS, key="doc_search_cat1")
 
     with search_cols[1]:
         cat2_options = CATEGORY2_MAP.get(cat1, ["全部"])
-        cat2 = st.selectbox(
-            "カテゴリ2",
-            cat2_options,
-            key="doc_search_cat2"
-        )
+        cat2 = st.selectbox("カテゴリ2", cat2_options, key="doc_search_cat2")
 
     with search_cols[2]:
         status_candidates = ["全部"]
         if not doc_df.empty:
-            status_values = sorted([x for x in doc_df["status"].astype(str).unique().tolist() if str(x).strip()])
+            status_values = sorted([
+                x for x in doc_df["status"].astype(str).unique().tolist()
+                if str(x).strip()
+            ])
             status_candidates += status_values
-        status_filter = st.selectbox(
-            "状態",
-            status_candidates,
-            key="doc_search_status"
-        )
+        status_filter = st.selectbox("状態", status_candidates, key="doc_search_status")
 
     with search_cols[3]:
+        welfare_filter = st.selectbox(
+            "生活保護区分",
+            PUBLIC_ASSISTANCE_OPTIONS,
+            key="doc_search_welfare"
+        )
+
+    with search_cols[4]:
         kw = st.text_input(
             "キーワード",
             key="doc_search_kw",
@@ -11054,6 +11084,15 @@ elif page == "⓪ 検索":
     if status_filter != "全部":
         view_df = view_df[view_df["status"].astype(str) == status_filter]
 
+    if welfare_filter == "生活保護":
+        view_df = view_df[
+            view_df["category3"].astype(str).str.strip() == "生活保護"
+        ]
+    elif welfare_filter == "生活保護以外":
+        view_df = view_df[
+            view_df["category3"].astype(str).str.strip() != "生活保護"
+        ]
+
     if kw.strip():
         kw_l = kw.strip().lower()
         view_df = view_df[
@@ -11070,14 +11109,12 @@ elif page == "⓪ 検索":
         ]
 
     if view_df.empty:
-        st.info("該当する資料はありません。")
+        st.info("条件に合う資料はないある。")
     else:
         try:
             view_df = view_df.sort_values("updated_at", ascending=False)
         except Exception:
             pass
-
-        st.caption(f"{len(view_df)}件見つかったある。")
 
         for _, row in view_df.iterrows():
             document_id = str(row.get("document_id", "")).strip()
@@ -11086,42 +11123,18 @@ elif page == "⓪ 検索":
             category3 = str(row.get("category3", "")).strip()
             title = str(row.get("title", "")).strip()
             file_type = str(row.get("file_type", "")).strip()
-            url = str(row.get("url", "")).strip()
             summary = str(row.get("summary", "")).strip()
             memo = str(row.get("memo", "")).strip()
             status = str(row.get("status", "")).strip()
-            updated_at = str(row.get("updated_at", "")).strip()
 
             with st.container(border=True):
-                st.markdown(
-                    f"""
-                    <div style="
-                        border-left: 6px solid #c7ced6;
-                        background:#ffffff;
-                        padding:12px 14px;
-                        border-radius:10px;
-                        margin-bottom:10px;
-                    ">
-                        <div style="font-size:18px; font-weight:700; margin-bottom:6px;">
-                            {title if title else '無題資料'}
-                        </div>
-                        <div style="line-height:1.8;">
-                            <b>ID:</b> {document_id}<br>
-                            <b>分類:</b> {category1} / {category2} / {category3}<br>
-                            <b>種類:</b> {file_type}<br>
-                            <b>状態:</b> {status}<br>
-                            <b>更新日:</b> {updated_at}
-                        </div>
-                        <div style="margin-top:8px;">
-                            <b>概要:</b> {summary}
-                        </div>
-                        <div style="margin-top:8px; color:#555;">
-                            {memo}
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                st.markdown(f"**{title if title else '無題資料'}**")
+                st.write(f"{category1} / {category2} / {category3}")
+                st.write(f"種類: {file_type} / 状態: {status}")
+                if summary:
+                    st.write(f"概要: {summary}")
+                if memo:
+                    st.write(f"メモ: {memo}")
 
                 file_bytes, filename, mime = get_download_file_data(row)
                 if file_bytes:
@@ -11134,205 +11147,7 @@ elif page == "⓪ 検索":
                         use_container_width=True
                     )
 
-                if url:
-                    st.link_button("資料を開く", url, use_container_width=True)
-
     st.divider()
-
-    # ------------------------------------------
-    # 関係者検索
-    # ------------------------------------------
-    st.markdown("### ☎️ 関係者検索")
-
-    contacts_df = get_external_contacts_df()
-    links_df = get_resident_links_df()
-    master_df = get_resident_master_df()
-
-    if contacts_df.empty:
-        st.info("関係者データはまだ登録されてないある。")
-    else:
-        contact_kw = st.text_input(
-            "関係者キーワード",
-            key="contact_search_kw",
-            placeholder="氏名・所属・電話番号など"
-        )
-
-        contact_view_df = contacts_df.copy()
-
-        if contact_kw.strip():
-            kw2 = contact_kw.strip().lower()
-            contact_view_df = contact_view_df[
-                contact_view_df.apply(
-                    lambda row:
-                        kw2 in str(row.get("name", "")).lower()
-                        or kw2 in str(row.get("organization", "")).lower()
-                        or kw2 in str(row.get("phone", "")).lower()
-                        or kw2 in str(row.get("memo", "")).lower()
-                        or kw2 in str(row.get("category1", "")).lower()
-                        or kw2 in str(row.get("category2", "")).lower(),
-                    axis=1
-                )
-            ]
-
-        if contact_view_df.empty:
-            st.info("該当する関係者はありません。")
-        else:
-            for _, row in contact_view_df.iterrows():
-                contact_id = str(row.get("contact_id", "")).strip()
-                name = str(row.get("name", "")).strip()
-                organization = str(row.get("organization", "")).strip()
-                phone = str(row.get("phone", "")).strip()
-                memo = str(row.get("memo", "")).strip()
-                category1 = str(row.get("category1", "")).strip()
-                category2 = str(row.get("category2", "")).strip()
-
-                linked_names = []
-                if not links_df.empty and not master_df.empty:
-                    target_links = links_df[links_df["contact_id"].astype(str) == contact_id]
-                    for _, lrow in target_links.iterrows():
-                        rid = str(lrow.get("resident_id", "")).strip()
-                        hit = master_df[master_df["resident_id"].astype(str) == rid]
-                        if not hit.empty:
-                            linked_name = str(hit.iloc[0].get("resident_name", "")).strip()
-                            if linked_name:
-                                linked_names.append(linked_name)
-
-                with st.container(border=True):
-                    st.markdown(f"**{name if name else '名称未設定'}**")
-                    st.write(f"{organization} / {category1} / {category2}")
-                    if phone:
-                        st.write(f"電話: {phone}")
-                    if memo:
-                        st.write(f"メモ: {memo}")
-                    if linked_names:
-                        st.write("担当利用者: " + "、".join(linked_names))
-
-elif page == "⑩ 書類アップロード":
-
-    st.title("📤 書類アップロード")
-    st.write("書類を登録するページある。検索は⓪ 検索から行ってほしいある。")
-
-    with st.expander("＋ 書類を登録", expanded=True):
-        with st.form("document_upload_form", clear_on_submit=True):
-
-            category1 = st.text_input("カテゴリ1")
-            category2 = st.text_input("カテゴリ2")
-            category3 = st.text_input("カテゴリ3")
-
-            title = st.text_input("タイトル")
-            summary = st.text_area("概要")
-            memo = st.text_area("メモ")
-
-            uploaded_file = st.file_uploader(
-                "ファイル",
-                type=["xlsx", "xls", "pdf", "docx", "doc"]
-            )
-
-            submitted = st.form_submit_button("登録")
-
-            if submitted:
-                if not uploaded_file:
-                    st.error("ファイルを選択してください")
-                elif not title.strip():
-                    st.error("タイトルを入力してください")
-                else:
-                    save_uploaded_document(
-                        category1,
-                        category2,
-                        category3,
-                        title,
-                        summary,
-                        memo,
-                        uploaded_file
-                    )
-                    st.success("書類を登録しました")
-                    st.rerun()
-
-    st.divider()
-
-    if False:
-        st.markdown("### 書類検索")
-
-        doc_df = get_document_master_df()
-        keyword = st.text_input("キーワード")
-
-        if not doc_df.empty:
-            result_df = doc_df.copy()
-
-            if keyword.strip():
-                kw = keyword.lower()
-
-                result_df = result_df[
-                    result_df.apply(
-                        lambda row:
-                            kw in str(row.get("title", "")).lower()
-                            or kw in str(row.get("category1", "")).lower()
-                            or kw in str(row.get("category2", "")).lower()
-                            or kw in str(row.get("category3", "")).lower()
-                            or kw in str(row.get("summary", "")).lower()
-                            or kw in str(row.get("memo", "")).lower(),
-                        axis=1
-                    )
-                ]
-
-            if result_df.empty:
-                st.info("該当する書類はありません")
-            else:
-                result_df = result_df.sort_values("updated_at", ascending=False)
-
-                for _, row in result_df.iterrows():
-                    st.write(row.get("title", ""))
-
-                title = row["title"]
-                cat1 = row["category1"]
-                cat2 = row["category2"]
-                cat3 = row["category3"]
-
-                st.markdown(f"### {title}")
-                st.caption(f"{cat1} / {cat2} / {cat3}")
-
-                file_bytes, filename, mime = get_download_file_data(row)
-
-                if file_bytes:
-
-                    st.download_button(
-                        label="ダウンロード",
-                        data=file_bytes,
-                        file_name=filename,
-                        mime=mime,
-                        key=f"doc_{row['document_id']}"
-                    )
-
-                st.divider()
-                            
-
-elif page == "⓪ 検索":
-
-    st.title("🔍 検索")
-    st.write("利用者・関係者・資料をまとめて探せるページある。")
-    
-    # ------------------------------------------
-    # 簡易キーワード検索
-    # ------------------------------------------
-    st.markdown("## 書類検索")
-
-    shared_keyword = st.text_input("書類アップロード・倉庫を検索", key="shared_doc_search")
-
-    if shared_keyword.strip():
-        result_df = search_shared_documents(shared_keyword)
-
-        if result_df.empty:
-            st.info("該当する資料がないある。")
-        else:
-            st.markdown(f"### 検索結果（{len(result_df)}件）")
-            for _, row in result_df.iterrows():
-                st.markdown("---")
-                st.markdown(f"## {row['title']}")
-                st.caption(f"{row['source']} / {row['id']} / {row['file_name']}")
-                st.write(row["description"])
-                st.caption(f"カテゴリ: {row['category_main']} / {row['category_sub']}")
-                if row["source"] == "倉庫":
-                    st.caption(f"公開設定: {row['visibility_type']}")
 
     # ------------------------------------------
     # 関係者検索
@@ -11570,239 +11385,32 @@ elif page == "⓪ 検索":
                 st.write(f"相談員: {consultant} / ケースワーカー: {caseworker}")
                 st.write(f"病院: {hospital} / 看護: {nurse} / 介護: {care}")
 
-    st.divider()
-
-    # ------------------------------------------
-    # 資料検索
-    # ------------------------------------------
-    st.markdown("### 📁 書類検索")
-
-    CATEGORY1_OPTIONS = [
-        "全部",
-        "利用者関連",
-        "運営関連",
-        "外部連携",
-        "その他",
-    ]
-
-    CATEGORY2_MAP = {
-        "全部": ["全部"],
-        "利用者関連": [
-            "全部",
-            "個別支援計画案",
-            "サービス担当者会議",
-            "個別支援計画",
-            "モニタリング",
-            "在宅評価シート",
-            "アセスメント",
-            "その他",
-        ],
-        "運営関連": [
-            "全部",
-            "マニュアル",
-            "帳票",
-            "研修",
-            "行政提出",
-            "その他",
-        ],
-        "外部連携": [
-            "全部",
-            "病院",
-            "訪問看護",
-            "ケアマネ",
-            "薬局",
-            "行政",
-            "その他",
-        ],
-        "その他": [
-            "全部",
-            "その他",
-        ],
-    }
-
-    PUBLIC_ASSISTANCE_OPTIONS = [
-        "全部",
-        "生活保護",
-        "生活保護以外",
-    ]
-
-    doc_df = load_db("document_master")
-
-    if doc_df is None or doc_df.empty:
-        doc_df = pd.DataFrame(columns=[
-            "document_id", "category1", "category2", "category3",
-            "title", "file_type", "url", "summary", "memo",
-            "status", "updated_at", "created_at"
-        ])
-    else:
-        for col in [
-            "document_id", "category1", "category2", "category3",
-            "title", "file_type", "url", "summary", "memo",
-            "status", "updated_at", "created_at"
-        ]:
-            if col not in doc_df.columns:
-                doc_df[col] = ""
-
-    doc_df = doc_df.fillna("").copy()
-
-    search_cols = st.columns([2, 2, 2, 2, 3])
-
-    with search_cols[0]:
-        cat1 = st.selectbox("カテゴリ1", CATEGORY1_OPTIONS, key="doc_search_cat1")
-
-    with search_cols[1]:
-        cat2_options = CATEGORY2_MAP.get(cat1, ["全部"])
-        cat2 = st.selectbox("カテゴリ2", cat2_options, key="doc_search_cat2")
-
-    with search_cols[2]:
-        status_candidates = ["全部"]
-        if not doc_df.empty:
-            status_values = sorted([
-                x for x in doc_df["status"].astype(str).unique().tolist()
-                if str(x).strip()
-            ])
-            status_candidates += status_values
-        status_filter = st.selectbox("状態", status_candidates, key="doc_search_status")
-
-    with search_cols[3]:
-        welfare_filter = st.selectbox(
-            "生活保護区分",
-            PUBLIC_ASSISTANCE_OPTIONS,
-            key="doc_search_welfare"
-        )
-
-    with search_cols[4]:
-        kw = st.text_input(
-            "キーワード",
-            key="doc_search_kw",
-            placeholder="タイトル・概要・メモで検索"
-        )
-
-    view_df = doc_df.copy()
-
-    if cat1 != "全部":
-        view_df = view_df[view_df["category1"].astype(str) == cat1]
-
-    if cat2 != "全部":
-        view_df = view_df[view_df["category2"].astype(str) == cat2]
-
-    if status_filter != "全部":
-        view_df = view_df[view_df["status"].astype(str) == status_filter]
-
-    if welfare_filter == "生活保護":
-        view_df = view_df[
-            view_df["category3"].astype(str).str.strip() == "生活保護"
-        ]
-
-    elif welfare_filter == "生活保護以外":
-        view_df = view_df[
-            view_df["category3"].astype(str).str.strip() != "生活保護"
-        ]
-
-    if kw.strip():
-        kw_l = kw.strip().lower()
-        view_df = view_df[
-            view_df.apply(
-                lambda row:
-                    kw_l in str(row.get("title", "")).lower()
-                    or kw_l in str(row.get("summary", "")).lower()
-                    or kw_l in str(row.get("memo", "")).lower()
-                    or kw_l in str(row.get("category1", "")).lower()
-                    or kw_l in str(row.get("category2", "")).lower()
-                    or kw_l in str(row.get("category3", "")).lower(),
-                axis=1
-            )
-        ]
-
-    if view_df.empty:
-        st.info("条件に合う資料はないある。")
-    else:
-        try:
-            view_df = view_df.sort_values("updated_at", ascending=False)
-        except Exception:
-            pass
-
-        for _, row in view_df.iterrows():
-            document_id = str(row.get("document_id", "")).strip()
-            category1 = str(row.get("category1", "")).strip()
-            category2 = str(row.get("category2", "")).strip()
-            category3 = str(row.get("category3", "")).strip()
-            title = str(row.get("title", "")).strip()
-            file_type = str(row.get("file_type", "")).strip()
-            summary = str(row.get("summary", "")).strip()
-            memo = str(row.get("memo", "")).strip()
-            status = str(row.get("status", "")).strip()
-
-            with st.container(border=True):
-                st.markdown(f"**{title if title else '無題資料'}**")
-                st.write(f"{category1} / {category2} / {category3}")
-                st.write(f"種類: {file_type} / 状態: {status}")
-                if summary:
-                    st.write(f"概要: {summary}")
-                if memo:
-                    st.write(f"メモ: {memo}")
-
-                file_bytes, filename, mime = get_download_file_data(row)
-                if file_bytes:
-                    st.download_button(
-                        "ダウンロード",
-                        data=file_bytes,
-                        file_name=filename,
-                        mime=mime,
-                        key=f"download_doc_{document_id}",
-                        use_container_width=True
-                    )
-
-def render_admin_logs_mini():
-    if not bool(st.session_state.get("is_admin", False)):
-        return
-
-    company_id = str(st.session_state.get("company_id", "")).strip()
-    df = get_admin_logs_df()
-
-    if df is None or df.empty:
-        return
-
-    work = df[df["company_id"].astype(str) == company_id].copy()
-
-    try:
-        work = work.sort_values(["created_at"], ascending=[False])
-    except Exception:
-        pass
-
-    with st.expander("管理者ログを見る"):
-        if work.empty:
-            st.info("まだログがないある。")
-        else:
-            st.dataframe(
-                work[[
-                    "created_at",
-                    "acted_by_display_name",
-                    "action_type",
-                    "target_type",
-                    "target_id",
-                    "action_detail",
-                ]],
-                use_container_width=True
-            )
-
+# ==========================================
+# 利用者書類
+# ==========================================
 def render_secret_generation_panel(doc_title: str):
     st.info("🤫 秘密モードある。ここに後で『新しい方針欄』『過去のデータから作成』『Gemini自動入力』を追加していくある。")
+
 
 def render_secret_page(doc_title: str):
     st.title(f"🤫 {doc_title}")
     render_secret_generation_panel(doc_title)
     st.divider()
+
     if doc_title == "サービス担当者会議":
         render_meeting_form_page(doc_title)
     elif doc_title == "モニタリング":
         render_monitoring_form_page(doc_title)
+    elif doc_title == "在宅評価シート":
+        render_home_evaluation_form_page(doc_title)
+    elif doc_title == "アセスメント":
+        render_assessment_form_page(doc_title)
+    elif doc_title == "基本シート":
+        render_basic_sheet_form_page(doc_title)
+    elif doc_title == "就労分野シート":
+        render_work_field_form_page(doc_title)
     else:
         render_plan_form_page(doc_title)
-
-# ==========================================
-# 利用者書類
-# ==========================================
 
 if page == "書類_個別支援計画案":
     if st.session_state.get("secret_doc_mode", False):
