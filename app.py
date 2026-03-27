@@ -9888,7 +9888,6 @@ elif page == "⑨ 利用者情報":
             master_df = pd.DataFrame(columns=[
                 "company_id",
                 "resident_id", "resident_name", "status",
-                "resident_category",
                 "consultant", "consultant_phone",
                 "caseworker", "caseworker_phone",
                 "hospital", "hospital_phone",
@@ -9901,7 +9900,6 @@ elif page == "⑨ 利用者情報":
             for col in [
                 "company_id",
                 "resident_id", "resident_name", "status",
-                "resident_category",
                 "consultant", "consultant_phone",
                 "caseworker", "caseworker_phone",
                 "hospital", "hospital_phone",
@@ -9996,17 +9994,6 @@ elif page == "⑨ 利用者情報":
 
                 with st.form("resident_add_form"):
                     st.markdown("### 基本情報")
-
-                    RESIDENT_CATEGORY_OPTIONS = [
-                        "個別支援計画案",
-                        "サービス担当者会議",
-                        "個別支援計画",
-                        "モニタリング",
-                        "在宅評価シート",
-                        "アセスメント",
-                        "生活保護",
-                        "その他",
-                    ]       
 
                     # 1行目
                     basic1 = st.columns(3)
@@ -11288,7 +11275,6 @@ elif page == "⓪ 検索":
             "resident_id",
             "resident_name",
             "status",
-            "resident_category",
             "public_assistance",
             "consultant",
             "consultant_phone",
@@ -11309,7 +11295,6 @@ elif page == "⓪ 検索":
             "resident_id",
             "resident_name",
             "status",
-            "resident_category",
             "public_assistance",
             "consultant",
             "consultant_phone",
@@ -11334,18 +11319,6 @@ elif page == "⓪ 検索":
         resident_df = resident_df[
             resident_df["company_id"].astype(str).str.strip() == current_company_id
         ].copy()
-
-    RESIDENT_CATEGORY_OPTIONS = [
-        "全部",
-        "個別支援計画案",
-        "サービス担当者会議",
-        "個別支援計画",
-        "モニタリング",
-        "在宅評価シート",
-        "アセスメント",
-        "生活保護",
-        "その他",
-    ]
 
     resident_search_cols = st.columns([2, 2, 2, 3])
 
@@ -11430,8 +11403,7 @@ elif page == "⓪ 検索":
             with st.container(border=True):
                 st.markdown(f"**{resident_name if resident_name else '氏名未設定'}**")
                 st.write(f"利用者ID: {resident_id}")
-                resident_category = str(row.get("resident_category", "")).strip()
-                st.write(f"状態: {status} / カテゴリ: {resident_category} / 生活保護区分: {public_assistance}")
+                st.write(f"状態: {status} / 生活保護受給: {public_assistance}")
                 st.write(f"相談員: {consultant} / ケースワーカー: {caseworker}")
                 st.write(f"病院: {hospital} / 看護: {nurse} / 介護: {care}")
 
