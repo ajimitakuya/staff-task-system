@@ -24,6 +24,17 @@ def init_page_session():
     if "current_page" not in st.session_state:
         st.session_state.current_page = DEFAULT_PAGE
 
+    if "bee_menu_unlocked" not in st.session_state:
+        st.session_state["bee_menu_unlocked"] = False
+    if "other_office_register_unlocked" not in st.session_state:
+        st.session_state["other_office_register_unlocked"] = False
+    if "secret_doc_mode" not in st.session_state:
+        st.session_state["secret_doc_mode"] = False
+    if "heart_mode" not in st.session_state:
+        st.session_state["heart_mode"] = False
+    if "secret_bee_cmd" not in st.session_state:
+        st.session_state["secret_bee_cmd"] = ""
+
 
 def set_page(page_name: str):
     st.session_state.current_page = str(page_name)
@@ -34,51 +45,145 @@ def get_current_page() -> str:
     return str(st.session_state.get("current_page", DEFAULT_PAGE)).strip()
 
 
-def _menu_button(label: str, page_name: str, key: str):
-    current = get_current_page()
-    selected = current == page_name
+def heart_label(text: str) -> str:
+    if st.session_state.get("heart_mode", False):
+        return str(text).replace("🤫", "💕")
+    return str(text)
 
-    if selected:
-        st.sidebar.markdown(
-            f"""
-            <div style="
-                background:#EEF2FF;
-                border:1px solid #C7D2FE;
-                border-radius:12px;
-                padding:12px 14px;
-                margin-bottom:8px;
-                font-weight:700;
-                color:#1F2937;
-            ">
-                {label}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        if st.sidebar.button(label, key=key, use_container_width=True):
-            set_page(page_name)
+
+def process_secret_command():
+    cmd = str(st.session_state.get("secret_bee_cmd", "")).strip()
+
+    if cmd == "🐝":
+        st.session_state["bee_menu_unlocked"] = True
+    elif cmd == "登録💻":
+        st.session_state["other_office_register_unlocked"] = True
+    elif cmd == "🤫":
+        st.session_state["secret_doc_mode"] = True
+    elif cmd == "💕":
+        st.session_state["heart_mode"] = True
+
+    st.session_state["secret_bee_cmd"] = ""
+
+
+def render_selected_menu(label: str):
+    st.sidebar.markdown(
+        f"""
+        <div style="
+            background:#EEF2FF;
+            border:1px solid #C7D2FE;
+            border-radius:12px;
+            padding:12px 14px;
+            margin-bottom:8px;
+            font-weight:700;
+            color:#1F2937;
+        ">
+            ● {label}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_sidebar_navigation():
-    st.sidebar.markdown("### 📚 メニュー")
+    main_page_options = [
+        ("⓪ 検索", "⑩ 検索"),
+        ("① 未着手の任務（掲示板）", "① 未着手の任務（掲示板）"),
+        ("② タスクの引き受け・報告", "② タスクの引き受け・報告"),
+        ("③ 稼働状況・完了履歴", "③ 稼働状況・完了履歴"),
+        ("④ チームチャット", "休憩室_チャットルーム"),
+        ("⑤ 業務マニュアル", "④ マニュアル"),
+        ("⑥ 日誌入力状況", "⑤ 記録状況"),
+        ("⑦ タスクカレンダー", "⑥ カレンダー"),
+        ("⑧ 緊急一覧", "⑧ 緊急一覧"),
+        ("⑨ 利用者情報", "⑦ 利用者情報"),
+        ("⑩ 書類アップロード", "休憩室_書類アップロード"),
+    ]
 
-    _menu_button("① 未着手の任務（掲示板）", "① 未着手の任務（掲示板）", "menu_01")
-    _menu_button("② タスクの引き受け・報告", "② タスクの引き受け・報告", "menu_02")
-    _menu_button("③ 稼働状況・完了履歴", "③ 稼働状況・完了履歴", "menu_03")
-    _menu_button("④ マニュアル", "④ マニュアル", "menu_04")
-    _menu_button("⑤ 記録状況", "⑤ 記録状況", "menu_05")
-    _menu_button("⑥ カレンダー", "⑥ カレンダー", "menu_06")
-    _menu_button("⑦ 利用者情報", "⑦ 利用者情報", "menu_07")
-    _menu_button("⑧ 保存書類", "⑧ 保存書類", "menu_08")
-    _menu_button("⑨ 管理者", "⑨ 管理者", "menu_09")
-    _menu_button("⑩ 検索", "⑩ 検索", "menu_10")
+    document_page_options = [
+        ("書類_個別支援計画案", "🤫個別支援計画案🤫" if st.session_state.get("secret_doc_mode", False) else "個別支援計画案"),
+        ("書類_サービス担当者会議", "🤫サービス担当者会議🤫" if st.session_state.get("secret_doc_mode", False) else "サービス担当者会議"),
+        ("書類_個別支援計画", "🤫個別支援計画🤫" if st.session_state.get("secret_doc_mode", False) else "個別支援計画"),
+        ("書類_モニタリング", "🤫モニタリング🤫" if st.session_state.get("secret_doc_mode", False) else "モニタリング"),
+        ("書類_在宅評価シート", "在宅評価シート"),
+        ("書類_アセスメント", "アセスメント"),
+        ("書類_基本シート", "基本シート"),
+        ("書類_就労分野シート", "就労分野シート"),
+    ]
+
+    st.sidebar.markdown("## 📚 メニュー")
+
+    for label, target_page in main_page_options:
+        display_label = heart_label(label)
+        if get_current_page() == target_page:
+            render_selected_menu(display_label)
+        else:
+            if st.sidebar.button(display_label, key=f"menu_{target_page}", use_container_width=True):
+                set_page(target_page)
+
+    st.sidebar.markdown("### 利用者書類")
+
+    for page_key, label in document_page_options:
+        display_label = heart_label(label)
+        if get_current_page() == page_key:
+            render_selected_menu(display_label)
+        else:
+            if st.sidebar.button(display_label, key=f"menu_{page_key}", use_container_width=True):
+                set_page(page_key)
 
     st.sidebar.divider()
 
-    _menu_button("☕ 休憩室", "休憩室", "menu_break")
-    _menu_button("🔐 Knowbe情報登録", "Knowbe情報登録", "menu_knowbe")
-    _menu_button("🐝 Knowbe日誌入力", "🐝 Knowbe日誌入力", "menu_bee")
+    if st.sidebar.button("個人ログアウト", key="sidebar_logout", use_container_width=True):
+        for k in [
+            "logged_in", "company_id", "company_name", "company_code", "company_login_id",
+            "user_id", "user", "user_login_id", "is_admin", "role_type",
+            "current_page", "bee_menu_unlocked", "other_office_register_unlocked",
+            "secret_doc_mode", "heart_mode", "secret_bee_cmd"
+        ]:
+            if k in st.session_state:
+                del st.session_state[k]
+        st.rerun()
+
+    if st.sidebar.button("事業所切り替え", key="sidebar_switch_company", use_container_width=True):
+        for k in [
+            "logged_in", "company_id", "company_name", "company_code", "company_login_id",
+            "user_id", "user", "user_login_id", "is_admin", "role_type",
+            "current_page", "bee_menu_unlocked", "other_office_register_unlocked",
+            "secret_doc_mode", "heart_mode", "secret_bee_cmd"
+        ]:
+            if k in st.session_state:
+                del st.session_state[k]
+        st.rerun()
+
+    if st.session_state.get("bee_menu_unlocked", False):
+        knowbe_label = "🐝knowbe日誌入力🐝"
+        if st.session_state.get("heart_mode", False):
+            knowbe_label = "💕knowbe日誌入力💕"
+        if st.sidebar.button(knowbe_label, key="knowbe_menu_button", use_container_width=True):
+            set_page("🐝 Knowbe日誌入力")
+
+    if st.session_state.get("other_office_register_unlocked", False):
+        if st.sidebar.button("💻他事業所へ登録💻", key="other_office_register_menu_button", use_container_width=True):
+            set_page("💻他事業所へ登録💻")
+
+    st.sidebar.text_input(
+        "secret command",
+        key="secret_bee_cmd",
+        label_visibility="collapsed",
+        on_change=process_secret_command,
+        placeholder=""
+    )
+
+    if st.session_state.get("is_admin", False):
+        st.sidebar.markdown("### 管理者メニュー")
+        if st.sidebar.button("スタッフ登録・削除", key="menu_staff_manage", use_container_width=True):
+            set_page("⑨ 管理者")
+
+        if st.sidebar.button("Knowbe情報登録", key="menu_knowbe_settings", use_container_width=True):
+            set_page("Knowbe情報登録")
+
+    st.sidebar.divider()
+    st.sidebar.caption("System Version 2.0")
 
 
 def render_placeholder_page(title: str):
@@ -120,14 +225,6 @@ def route_page(
         render_resident_info_page()
         return
 
-    if page == "⑧ 保存書類":
-        render_saved_documents_page()
-        return
-
-    if page == "⑨ 管理者":
-        render_admin_page()
-        return
-
     if page == "⑩ 検索":
         render_search_page()
         return
@@ -157,6 +254,21 @@ def route_page(
             generate_fn=bee_generate_fn,
             send_fn=bee_send_fn,
         )
+        return
+
+    if page in [
+        "⑧ 緊急一覧",
+        "書類_個別支援計画案",
+        "書類_サービス担当者会議",
+        "書類_個別支援計画",
+        "書類_モニタリング",
+        "書類_在宅評価シート",
+        "書類_アセスメント",
+        "書類_基本シート",
+        "書類_就労分野シート",
+        "💻他事業所へ登録💻",
+    ]:
+        render_placeholder_page(page)
         return
 
     render_placeholder_page(page)
