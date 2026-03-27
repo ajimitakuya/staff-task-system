@@ -34,7 +34,7 @@ def get_genai_client():
         api_key = os.environ.get("GEMINI_API_KEY", "")
 
     if not api_key:
-        raise ValueError("GEMINI_API_KEY が設定されてないある")
+        raise ValueError("GEMINI_API_KEY が設定されていません")
 
     import google.generativeai as genai
     genai.configure(api_key=api_key)
@@ -8764,6 +8764,53 @@ def render_resident_schedule_html(schedule_view):
 
     st.markdown(legend_html + table_html, unsafe_allow_html=True)
 
+def render_contact_page():
+    st.title("📩 お問い合わせ")
+
+    st.caption("不具合・要望・導入相談などを送信できるある。")
+
+    company_name = st.session_state.get("company_name", "")
+    user_name = st.session_state.get("user", "")
+
+    st.info(f"事業所: {company_name} / ユーザー: {user_name}")
+
+    st.divider()
+
+    contact_type = st.selectbox(
+        "お問い合わせ種別",
+        ["不具合", "使い方", "要望", "導入相談", "その他"]
+    )
+
+    message = st.text_area("内容", height=200)
+
+    if st.button("送信する", use_container_width=True):
+        if not message.strip():
+            st.error("内容を入力してほしいある。")
+            return
+
+        df = load_db("contact_messages")
+
+        if df is None or df.empty:
+            df = pd.DataFrame(columns=[
+                "id", "company_name", "user_name",
+                "contact_type", "message", "created_at"
+            ])
+
+        new_row = pd.DataFrame([{
+            "id": f"C{int(time.time())}",
+            "company_name": company_name,
+            "user_name": user_name,
+            "contact_type": contact_type,
+            "message": message,
+            "created_at": now_jst().strftime("%Y-%m-%d %H:%M:%S")
+        }])
+
+        df = pd.concat([df, new_row], ignore_index=True)
+        save_db(df, "contact_messages")
+
+        st.success("送信したある！ありがとうある🙏")
+        st.rerun()
+
 
 def go_resident_detail(resident_id):
     st.session_state.selected_resident_id = resident_id
@@ -8854,6 +8901,13 @@ else:
     if st.sidebar.button("🍵休憩室🍵", key="menu_break_room_fixed", use_container_width=True):
         st.session_state.current_page = "休憩室"
         st.rerun()
+
+    st.sidebar.markdown("---")
+
+    if st.sidebar.button("📩 お問い合わせ", use_container_width=True):
+        st.session_state.current_page = "お問い合わせ"
+        st.rerun()
+
 # ==========================================
 # ① 未着手の任務（掲示板）
 # ==========================================
@@ -11485,3 +11539,5 @@ elif page == "ICカード管理":
     render_ic_card_manage_page()
 elif page == "Knowbe情報登録":
     render_company_knowbe_settings_page()
+elif page == "お問い合わせ":
+    render_contact_page()
