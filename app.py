@@ -149,6 +149,7 @@ def load_db(file, retries=3, delay=0.8):
                     "resident_master": [
                         "company_id",
                         "resident_id", "resident_name", "status", "public_assistance", 
+                        "disability_type",
                         "consultant", "consultant_phone",
                         "caseworker", "caseworker_phone",
                         "hospital", "hospital_phone",
@@ -10007,59 +10008,33 @@ elif page == "⑨ 利用者情報":
                         "その他",
                     ]       
 
+                    # 1行目
                     basic1 = st.columns(3)
                     with basic1[0]:
-                        resident_name = st.text_input("利用者名")
+                        resident_name = st.text_input("利用者名", key="add_resident_name")
                     with basic1[1]:
-                        status = st.selectbox("状態", ["利用中", "退所"])
-
-                    with basic1[2]:
-                        category_list = [
-                            "個別支援計画案",
-                            "サービス担当者会議",
-                            "個別支援計画",
-                            "モニタリング",
-                            "在宅評価シート",
-                            "アセスメント",
-                            "生活保護",
-                            "その他",
-                        ]
-
-                        current_val = str(st.session_state.get("edit_resident_category", "その他")).strip()
-
-                        resident_category = st.selectbox(
-                            "カテゴリ",
-                            category_list,
-                            index=category_list.index(current_val) if current_val in category_list else len(category_list)-1
-                        )
-
-                    basic2 = st.columns(3)
-                    with basic2[0]:
-                        consultant = st.text_input("相談員")
-
+                        status = st.selectbox("状態", ["利用中", "退所"], key="add_status")
+ 
+                    # 2行目
                     basic2 = st.columns(2)
                     with basic2[0]:
-                        disability_type = st.selectbox(
-                            "障害区分",
-                            ["精神", "身体"]
-                        )
+                        disability_type = st.selectbox("障害区分", ["精神", "身体"], key="add_disability")
                     with basic2[1]:
-                        public_assistance = st.selectbox(
-                            "生活保護受給",
-                            ["あり", "なし"]
-                        )
+                        public_assistance = st.selectbox("生活保護受給", ["あり", "なし"], key="add_pa")
 
+                    # 3行目
                     basic3 = st.columns(2)
                     with basic3[0]:
-                        consultant = st.text_input("相談員")
+                        consultant = st.text_input("相談員", key="add_consultant")
                     with basic3[1]:
-                        consultant_phone = st.text_input("相談員電話")
+                        consultant_phone = st.text_input("相談員電話", key="add_consultant_phone")
 
+                    # 4行目
                     basic4 = st.columns(2)
                     with basic4[0]:
-                        caseworker = st.text_input("ケースワーカー")
+                        caseworker = st.text_input("ケースワーカー", key="add_caseworker")
                     with basic4[1]:
-                        caseworker_phone = st.text_input("ケースワーカー電話")
+                        caseworker_phone = st.text_input("ケースワーカー電話", key="add_caseworker_phone")
 
                     st.markdown("### 病院・看護・介護の週間予定")
                     st.caption("同じ曜日に2回以上ある場合は、同じ曜日の下の2つ目・3つ目・4つ目にもそのまま入力してほしいある。Enterは不要ある。")
