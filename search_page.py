@@ -218,7 +218,7 @@ def render_result_card(item, index: int):
 
 
 def render_search_page():
-    st.title("⑩ 検索")
+    st.title("⓪ 検索")
     st.caption("書類アップロード・倉庫・保存書類・マニュアルを横断検索するある。")
 
     company_id = get_current_company_id()
@@ -226,7 +226,7 @@ def render_search_page():
     keyword = st.text_input("検索キーワード", key="global_search_keyword")
 
     source_options = ["すべて", "書類アップロード", "倉庫", "保存書類", "マニュアル"]
-    selected_source = st.selectbox("対象", source_options, key="global_search_source")
+    selected_source = st.selectbox("カテゴリー", source_options, key="global_search_source")
 
     if not keyword.strip():
         st.info("キーワードを入れると検索できるある。")

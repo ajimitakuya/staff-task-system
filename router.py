@@ -234,7 +234,7 @@ def route_page(
         render_resident_info_page()
         return
 
-    if page == "⑩ 検索":
+    if page == "⓪ 検索":
         render_search_page()
         return
 
