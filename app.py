@@ -15,6 +15,7 @@ from router import (
     render_sidebar_navigation,
     route_page,
 )
+from task_board import render_sidebar_task_status
 
 
 # =========================
@@ -41,8 +42,7 @@ def init_app():
 def bee_generate_hook(payload):
     """
     ここは最後に既存の Gemini 生成関数へつなぐある。
-    今は bee_diary.py 側の default_generate_diary_texts が使われるので、
-    None を返して route 側の既定動作でもOKある。
+    いまは空返しで、bee_diary.py 側の編集欄を直接使える状態にしておくある。
     """
     return {
         "generated_status": "",
@@ -53,24 +53,9 @@ def bee_generate_hook(payload):
 def bee_send_hook(payload):
     """
     ここは最後に既存の Knowbe 送信関数へつなぐある。
-    いまは仮実装。
+    いまは仮実装ある。
     """
-    return False, "まだ Knowbe 送信本体は未接続ある。最終 app.py 完成版でつなぐある。"
-
-
-# =========================
-# まだ分割していない旧ページの仮置き
-# あとで順番に移植 or 接続するある
-# =========================
-def render_old_task_board_placeholder():
-    st.title("① 未着手の任務（掲示板）")
-    st.info("このページは旧 app.py 側の本体をあとで接続するある。")
-
-
-def render_custom_pages():
-    return {
-        "① 未着手の任務（掲示板）": render_old_task_board_placeholder,
-    }
+    return False, "まだ Knowbe 送信本体は未接続ある。最終接続でつなぐある。"
 
 
 # =========================
@@ -79,19 +64,25 @@ def render_custom_pages():
 def main():
     init_app()
 
+    # -------------------------
+    # ログイン前
+    # -------------------------
     if not is_logged_in():
         render_login_page_shell()
         render_login_page()
         return
 
+    # -------------------------
+    # ログイン後
+    # -------------------------
     render_app_header()
     render_sidebar_common()
+    render_sidebar_task_status()
     render_sidebar_navigation()
 
     route_page(
         bee_generate_fn=bee_generate_hook,
         bee_send_fn=bee_send_hook,
-        custom_pages=render_custom_pages(),
     )
 
 
