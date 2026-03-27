@@ -280,20 +280,23 @@ def render_sidebar_task_status():
     active_count = len(my_active)
     todo_count = len(my_todo)
 
-    if st.sidebar.button(f"着手中のタスク {active_count}件", key="go_my_active", use_container_width=True):
+    if st.sidebar.button(f"作業中: {active_count}件", key="go_my_active", use_container_width=True):
         st.session_state.current_page = "② タスクの引き受け・報告"
         st.rerun()
 
-    if st.sidebar.button(f"未着手のタスク {todo_count}件", key="go_todo_board", use_container_width=True):
+    if st.sidebar.button(f"未着手全体: {todo_count}件", key="go_todo_board", use_container_width=True):
         st.session_state.current_page = "① 未着手の任務（掲示板）"
         st.rerun()
 
-    st.sidebar.markdown("<div style='margin-top:6px;'></div>", unsafe_allow_html=True)
+    page = st.session_state.get("current_page", "① 未着手の任務（掲示板）")
+    is_break_selected = (page == "休憩室")
 
-    current_page = str(st.session_state.get("current_page", "")).strip()
-    if current_page in ["休憩室", "休憩室_チャットルーム", "休憩室_書類アップロード", "休憩室_倉庫"]:
-        _render_selected_break_room()
+    if is_break_selected:
+        st.sidebar.markdown(
+            '<div class="menu-selected-wrap"><div class="menu-selected-box">● 🍵休憩室🍵</div></div>',
+            unsafe_allow_html=True
+        )
     else:
-        if st.sidebar.button("🍵 休憩室 🍵", key="menu_break_room_fixed", use_container_width=True):
+        if st.sidebar.button("🍵休憩室🍵", key="menu_break_room_fixed", use_container_width=True):
             st.session_state.current_page = "休憩室"
             st.rerun()

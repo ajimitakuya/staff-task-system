@@ -82,17 +82,17 @@ def render_selected_menu(label: str):
 
 def render_sidebar_navigation():
     main_page_options = [
-        ("⓪ 検索", "⑩ 検索"),
-        ("① 未着手の任務（掲示板）", "① 未着手の任務（掲示板）"),
-        ("② タスクの引き受け・報告", "② タスクの引き受け・報告"),
-        ("③ 稼働状況・完了履歴", "③ 稼働状況・完了履歴"),
-        ("④ チームチャット", "休憩室_チャットルーム"),
-        ("⑤ 業務マニュアル", "④ マニュアル"),
-        ("⑥ 日誌入力状況", "⑤ 記録状況"),
-        ("⑦ タスクカレンダー", "⑥ カレンダー"),
-        ("⑧ 緊急一覧", "⑧ 緊急一覧"),
-        ("⑨ 利用者情報", "⑦ 利用者情報"),
-        ("⑩ 書類アップロード", "休憩室_書類アップロード"),
+        "⓪ 検索",
+        "① 未着手の任務（掲示板）",
+        "② タスクの引き受け・報告",
+        "③ 稼働状況・完了履歴",
+        "④ チームチャット",
+        "⑤ 業務マニュアル",
+        "⑥ 日誌入力状況",
+        "⑦ タスクカレンダー",
+        "⑧ 緊急一覧",
+        "⑨ 利用者情報",
+        "⑩ 書類アップロード",
     ]
 
     document_page_options = [
@@ -106,27 +106,35 @@ def render_sidebar_navigation():
         ("書類_就労分野シート", "就労分野シート"),
     ]
 
-    for label, target_page in main_page_options:
-        is_selected = (get_current_page() == target_page)
-        display_label = heart_label(label)
+    for p in main_page_options:
+        is_selected = (st.session_state.get("current_page", "") == p)
+        display_p = heart_label(p)
 
         if is_selected:
-            render_selected_menu(display_label)
+            st.sidebar.markdown(
+                f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {display_p}</div></div>',
+                unsafe_allow_html=True
+            )
         else:
-            if st.sidebar.button(display_label, key=f"menu_{label}", use_container_width=True):
-                set_page(target_page)
+            if st.sidebar.button(display_p, key=f"menu_{p}", use_container_width=True):
+                st.session_state.current_page = p
+                st.rerun()
 
     st.sidebar.markdown("### 利用者書類")
 
     for page_key, label in document_page_options:
-        is_selected = (get_current_page() == page_key)
+        is_selected = (st.session_state.get("current_page", "") == page_key)
         display_label = heart_label(label)
 
         if is_selected:
-            render_selected_menu(display_label)
+            st.sidebar.markdown(
+                f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {display_label}</div></div>',
+                unsafe_allow_html=True
+            )
         else:
             if st.sidebar.button(display_label, key=f"menu_{page_key}", use_container_width=True):
-                set_page(page_key)
+                st.session_state.current_page = page_key
+                st.rerun()
 
     if st.sidebar.button("個人ログアウト", key="sidebar_logout", use_container_width=True):
         for k in [
@@ -156,11 +164,13 @@ def render_sidebar_navigation():
             knowbe_label = "💕knowbe日誌入力💕"
 
         if st.sidebar.button(knowbe_label, key="knowbe_menu_button", use_container_width=True):
-            set_page("🐝knowbe日誌入力🐝")
+            st.session_state.current_page = "🐝knowbe日誌入力🐝"
+            st.rerun()
 
     if st.session_state.get("other_office_register_unlocked", False):
         if st.sidebar.button("💻他事業所へ登録💻", key="other_office_register_menu_button", use_container_width=True):
-            set_page("💻他事業所へ登録💻")
+            st.session_state.current_page = "💻他事業所へ登録💻"
+            st.rerun()
 
     st.sidebar.text_input(
         "secret command",
@@ -170,18 +180,18 @@ def render_sidebar_navigation():
     )
 
     if st.session_state.get("is_admin", False):
-        st.sidebar.markdown("### 管理者メニュー")
-
         if st.sidebar.button("スタッフ登録・削除", key="menu_staff_manage", use_container_width=True):
-            set_page("⑨ 管理者")
+            st.session_state.current_page = "⑨ 管理者"
+            st.rerun()
 
         if st.sidebar.button("非接触ICカード登録", key="menu_ic_card_manage", use_container_width=True):
-            set_page("ICカード管理")
+            st.session_state.current_page = "ICカード管理"
+            st.rerun()
 
         if st.sidebar.button("Knowbe情報登録", key="menu_knowbe_settings", use_container_width=True):
-            set_page("Knowbe情報登録")
+            st.session_state.current_page = "Knowbe情報登録"
+            st.rerun()
 
-    st.sidebar.divider()
     st.sidebar.caption("System Version 2.0")
 
 
