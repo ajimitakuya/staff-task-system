@@ -4449,6 +4449,7 @@ page_options = [
     "休憩室_チャットルーム",
     "休憩室_書類アップロード",
     "休憩室_倉庫",
+    "お問い合わせ",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
