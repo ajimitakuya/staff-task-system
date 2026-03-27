@@ -14,7 +14,7 @@ import google.generativeai as genai
 import tempfile
 from contextlib import contextmanager
 from openpyxl import Workbook
-from db import get_company_row
+from db import get_company_row_by_id
 
 JST = timezone(timedelta(hours=9))
 def now_jst():
