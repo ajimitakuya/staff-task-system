@@ -254,6 +254,10 @@ def route_page(
             generate_fn=bee_generate_fn,
             send_fn=bee_send_fn,
         )
+        
+        return
+    if page == "休憩室":
+        render_break_room_page()
         return
 
     if page in [

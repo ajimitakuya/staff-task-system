@@ -250,10 +250,14 @@ def render_my_tasks_page():
 
 
 def render_sidebar_task_status():
+    import pandas as pd
+    import streamlit as st
+    from db import get_df
+
     try:
-        task_df = get_tasks_df().fillna("")
+        task_df = get_df("task").fillna("")
     except Exception:
-        task_df = pd.DataFrame(columns=get_task_required_cols())
+        task_df = pd.DataFrame(columns=["id", "task", "status", "user", "limit", "priority", "updated_at"])
 
     current_user = str(st.session_state.get("user", "")).strip()
 
@@ -279,3 +283,17 @@ def render_sidebar_task_status():
     if st.sidebar.button(f"未着手全体: {todo_count}件", key="go_todo_board", use_container_width=True):
         st.session_state.current_page = "① 未着手の任務（掲示板）"
         st.rerun()
+
+    st.sidebar.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+
+    is_break_selected = (st.session_state.get("current_page", "") == "休憩室")
+
+    if is_break_selected:
+        st.sidebar.markdown(
+            '<div class="menu-selected-wrap"><div class="menu-selected-box">● 🍵休憩室🍵</div></div>',
+            unsafe_allow_html=True
+        )
+    else:
+        if st.sidebar.button("🍵休憩室🍵", key="menu_break_room_fixed", use_container_width=True):
+            st.session_state.current_page = "休憩室"
+            st.rerun()
