@@ -148,7 +148,7 @@ def load_db(file, retries=3, delay=0.8):
                     "active_users": ["user", "login_at", "last_seen"],
                     "resident_master": [
                         "company_id",
-                        "resident_id", "resident_name", "status", "public_assistance",
+                        "resident_id", "resident_name", "status", "public_assistance", 
                         "consultant", "consultant_phone",
                         "caseworker", "caseworker_phone",
                         "hospital", "hospital_phone",
@@ -11489,6 +11489,12 @@ elif page == "⓪ 検索":
 
     resident_df = resident_df.fillna("").copy()
 
+    current_company_id = str(st.session_state.get("company_id", "")).strip()
+    if current_company_id:
+        resident_df = resident_df[
+            resident_df["company_id"].astype(str).str.strip() == current_company_id
+        ].copy()
+
     resident_search_cols = st.columns([2, 2, 3])
 
     with resident_search_cols[0]:
@@ -11513,12 +11519,6 @@ elif page == "⓪ 検索":
         )
 
     resident_view_df = resident_df.copy()
-
-    current_company_id = str(st.session_state.get("company_id", "")).strip()
-    if current_company_id:
-        resident_view_df = resident_view_df[
-            resident_view_df["company_id"].astype(str).str.strip() == current_company_id
-        ].copy()
 
     if resident_status != "全部":
         resident_view_df = resident_view_df[
@@ -11569,6 +11569,8 @@ elif page == "⓪ 検索":
                 st.write(f"状態: {status} / 生活保護区分: {public_assistance}")
                 st.write(f"相談員: {consultant} / ケースワーカー: {caseworker}")
                 st.write(f"病院: {hospital} / 看護: {nurse} / 介護: {care}")
+
+    st.divider()
 
     # ------------------------------------------
     # 資料検索
