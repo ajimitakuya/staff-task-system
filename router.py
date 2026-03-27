@@ -34,49 +34,51 @@ def get_current_page() -> str:
     return str(st.session_state.get("current_page", DEFAULT_PAGE)).strip()
 
 
+def _menu_button(label: str, page_name: str, key: str):
+    current = get_current_page()
+    selected = current == page_name
+
+    if selected:
+        st.sidebar.markdown(
+            f"""
+            <div style="
+                background:#EEF2FF;
+                border:1px solid #C7D2FE;
+                border-radius:12px;
+                padding:12px 14px;
+                margin-bottom:8px;
+                font-weight:700;
+                color:#1F2937;
+            ">
+                {label}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        if st.sidebar.button(label, key=key, use_container_width=True):
+            set_page(page_name)
+
+
 def render_sidebar_navigation():
-    st.sidebar.markdown("## 📚 メニュー")
+    st.sidebar.markdown("### 📚 メニュー")
 
-    if st.sidebar.button("① 未着手の任務（掲示板）", use_container_width=True):
-        set_page("① 未着手の任務（掲示板）")
-
-    if st.sidebar.button("② タスクの引き受け・報告", use_container_width=True):
-        set_page("② タスクの引き受け・報告")
-
-    if st.sidebar.button("③ 稼働状況・完了履歴", use_container_width=True):
-        set_page("③ 稼働状況・完了履歴")
-
-    if st.sidebar.button("④ マニュアル", use_container_width=True):
-        set_page("④ マニュアル")
-
-    if st.sidebar.button("⑤ 記録状況", use_container_width=True):
-        set_page("⑤ 記録状況")
-
-    if st.sidebar.button("⑥ カレンダー", use_container_width=True):
-        set_page("⑥ カレンダー")
-
-    if st.sidebar.button("⑦ 利用者情報", use_container_width=True):
-        set_page("⑦ 利用者情報")
-
-    if st.sidebar.button("⑧ 保存書類", use_container_width=True):
-        set_page("⑧ 保存書類")
-
-    if st.sidebar.button("⑨ 管理者", use_container_width=True):
-        set_page("⑨ 管理者")
-
-    if st.sidebar.button("⑩ 検索", use_container_width=True):
-        set_page("⑩ 検索")
+    _menu_button("① 未着手の任務（掲示板）", "① 未着手の任務（掲示板）", "menu_01")
+    _menu_button("② タスクの引き受け・報告", "② タスクの引き受け・報告", "menu_02")
+    _menu_button("③ 稼働状況・完了履歴", "③ 稼働状況・完了履歴", "menu_03")
+    _menu_button("④ マニュアル", "④ マニュアル", "menu_04")
+    _menu_button("⑤ 記録状況", "⑤ 記録状況", "menu_05")
+    _menu_button("⑥ カレンダー", "⑥ カレンダー", "menu_06")
+    _menu_button("⑦ 利用者情報", "⑦ 利用者情報", "menu_07")
+    _menu_button("⑧ 保存書類", "⑧ 保存書類", "menu_08")
+    _menu_button("⑨ 管理者", "⑨ 管理者", "menu_09")
+    _menu_button("⑩ 検索", "⑩ 検索", "menu_10")
 
     st.sidebar.divider()
 
-    if st.sidebar.button("☕ 休憩室", use_container_width=True):
-        set_page("休憩室")
-
-    if st.sidebar.button("🔐 Knowbe情報登録", use_container_width=True):
-        set_page("Knowbe情報登録")
-
-    if st.sidebar.button("🐝 Knowbe日誌入力", use_container_width=True):
-        set_page("🐝 Knowbe日誌入力")
+    _menu_button("☕ 休憩室", "休憩室", "menu_break")
+    _menu_button("🔐 Knowbe情報登録", "Knowbe情報登録", "menu_knowbe")
+    _menu_button("🐝 Knowbe日誌入力", "🐝 Knowbe日誌入力", "menu_bee")
 
 
 def render_placeholder_page(title: str):
