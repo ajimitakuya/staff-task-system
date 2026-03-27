@@ -7809,7 +7809,7 @@ def get_knowbe_credentials_from_app(company_id=None):
     password = ""
 
     try:
-        company_row = get_company_row(company_id)
+        company_row = get_company_row_by_id(company_id)
     except Exception:
         company_row = {}
 
