@@ -332,7 +332,18 @@ def load_db(file, retries=3, delay=0.8):
                         "created_at",
                         "updated_at",
                         "memo",
-                    ],                    
+                    ],      
+                    "contact_messages": [
+                        "id",
+                        "company_id",
+                        "company_name",
+                        "user_id",
+                        "user_name",
+                        "contact_type",
+                        "message",
+                        "status",
+                        "created_at",
+                    ],                                  
                 }
 
                 for col in expected_cols[file]:
@@ -1591,6 +1602,79 @@ def render_break_room_page():
         st.caption("全事業所共通の資料置き場ある。")
         if st.button("倉庫へ", key="go_warehouse_page", use_container_width=True):
             st.session_state.current_page = "休憩室_倉庫"
+            st.rerun()
+
+def render_contact_page():
+    st.title("📩 お問い合わせ")
+    st.caption("不具合報告・ご要望・導入相談などを送れるある。")
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+    company_name = str(st.session_state.get("company_name", "")).strip()
+    user_id = str(st.session_state.get("user_id", "")).strip()
+    user_name = str(st.session_state.get("user", "")).strip()
+
+    top_cols = st.columns([1, 1])
+
+    with top_cols[0]:
+        if st.button("← 戻る", key="back_from_contact_page", use_container_width=True):
+            st.session_state.current_page = "① 未着手の任務（掲示板）"
+            st.rerun()
+
+    with top_cols[1]:
+        st.info(f"事業所: {company_name} / ログイン中: {user_name}")
+
+    st.divider()
+
+    contact_type = st.selectbox(
+        "お問い合わせ種別",
+        ["不具合", "使い方", "要望", "導入相談", "その他"],
+        key="contact_type"
+    )
+
+    message = st.text_area(
+        "内容",
+        height=220,
+        key="contact_message",
+        placeholder="ここに要望や不具合内容を書くある"
+    )
+
+    if st.button("送信する", key="send_contact_message", use_container_width=True):
+        if not str(message).strip():
+            st.error("内容を入力してほしいある。")
+        else:
+            df = load_db("contact_messages")
+            if df is None or df.empty:
+                df = pd.DataFrame(columns=[
+                    "id",
+                    "company_id",
+                    "company_name",
+                    "user_id",
+                    "user_name",
+                    "contact_type",
+                    "message",
+                    "status",
+                    "created_at",
+                ])
+
+            new_id = f"C{int(time.time())}"
+
+            new_row = pd.DataFrame([{
+                "id": new_id,
+                "company_id": company_id,
+                "company_name": company_name,
+                "user_id": user_id,
+                "user_name": user_name,
+                "contact_type": str(contact_type).strip(),
+                "message": str(message).strip(),
+                "status": "未対応",
+                "created_at": now_jst().strftime("%Y-%m-%d %H:%M:%S"),
+            }])
+
+            df = pd.concat([df, new_row], ignore_index=True)
+            save_db(df, "contact_messages")
+
+            st.success("お問い合わせを送信したある！")
+            st.session_state.contact_message = ""
             st.rerun()
 
 def render_chat_room_page():
@@ -8765,54 +8849,6 @@ def render_resident_schedule_html(schedule_view):
 
     st.markdown(legend_html + table_html, unsafe_allow_html=True)
 
-def render_contact_page():
-    st.title("📩 お問い合わせ")
-
-    st.caption("不具合・要望・導入相談などを送信できるある。")
-
-    company_name = st.session_state.get("company_name", "")
-    user_name = st.session_state.get("user", "")
-
-    st.info(f"事業所: {company_name} / ユーザー: {user_name}")
-
-    st.divider()
-
-    contact_type = st.selectbox(
-        "お問い合わせ種別",
-        ["不具合", "使い方", "要望", "導入相談", "その他"]
-    )
-
-    message = st.text_area("内容", height=200)
-
-    if st.button("送信する", use_container_width=True):
-        if not message.strip():
-            st.error("内容を入力してほしいある。")
-            return
-
-        df = load_db("contact_messages")
-
-        if df is None or df.empty:
-            df = pd.DataFrame(columns=[
-                "id", "company_name", "user_name",
-                "contact_type", "message", "created_at"
-            ])
-
-        new_row = pd.DataFrame([{
-            "id": f"C{int(time.time())}",
-            "company_name": company_name,
-            "user_name": user_name,
-            "contact_type": contact_type,
-            "message": message,
-            "created_at": now_jst().strftime("%Y-%m-%d %H:%M:%S")
-        }])
-
-        df = pd.concat([df, new_row], ignore_index=True)
-        save_db(df, "contact_messages")
-
-        st.success("送信したある！ありがとうある🙏")
-        st.rerun()
-
-
 def go_resident_detail(resident_id):
     st.session_state.selected_resident_id = resident_id
     st.rerun()
@@ -8902,8 +8938,6 @@ else:
     if st.sidebar.button("🍵休憩室🍵", key="menu_break_room_fixed", use_container_width=True):
         st.session_state.current_page = "休憩室"
         st.rerun()
-
-    st.sidebar.markdown("---")
 
     if st.sidebar.button("📩 お問い合わせ", use_container_width=True):
         st.session_state.current_page = "お問い合わせ"
