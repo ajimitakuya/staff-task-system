@@ -59,12 +59,6 @@ def render_sidebar_system_box():
         st.divider()
 
 
-def render_sidebar_common():
-    render_sidebar_user_box()
-    render_sidebar_system_box()
-    render_logout_button()
-
-
 def render_page_container_start(page_title: str = "", caption: str = ""):
     if page_title:
         st.title(page_title)

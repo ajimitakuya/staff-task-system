@@ -6,7 +6,12 @@ from archive import render_archive_page
 from warehouse import render_warehouse_page
 from company_settings import render_company_knowbe_settings_page
 from bee_diary import render_bee_diary_page
-
+from task_board import render_task_board_page, render_my_tasks_page
+from task_history import render_task_history_page
+from manual_page import render_manual_page
+from record_status import render_record_status_page
+from calendar_page import render_calendar_page
+from saved_documents_page import render_saved_documents_page
 
 DEFAULT_PAGE = "① 未着手の任務（掲示板）"
 
@@ -95,27 +100,27 @@ def route_page(
 
     # まだ分割していない既存ページ群は一旦プレースホルダ
     if page == "① 未着手の任務（掲示板）":
-        render_placeholder_page("① 未着手の任務（掲示板）")
+        render_task_board_page()
         return
 
-    if page == "② 進行中の任務":
-        render_placeholder_page("② 進行中の任務")
+    if page == "② タスクの引き受け・報告":
+        render_my_tasks_page()
         return
 
-    if page == "③ 完了した任務":
-        render_placeholder_page("③ 完了した任務")
+    if page == "③ 稼働状況・完了履歴":
+        render_task_history_page()
         return
 
     if page == "④ マニュアル":
-        render_placeholder_page("④ マニュアル")
+        render_manual_page()
         return
 
     if page == "⑤ 記録状況":
-        render_placeholder_page("⑤ 記録状況")
+        render_record_status_page()
         return
 
     if page == "⑥ カレンダー":
-        render_placeholder_page("⑥ カレンダー")
+        render_calendar_page()
         return
 
     if page == "⑦ 利用者情報":
@@ -123,8 +128,9 @@ def route_page(
         return
 
     if page == "⑧ 保存書類":
-        render_placeholder_page("⑧ 保存書類")
+        render_saved_documents_page()
         return
+       
 
     if page == "⑨ 管理者":
         render_placeholder_page("⑨ 管理者")
