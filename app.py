@@ -9901,12 +9901,12 @@ elif page == "⑨ 利用者情報":
 
             with top_cols[0]:
                 if st.button("利用者一覧", use_container_width=True):
-                    st.session_state.get("resident_mode", "利用者一覧") = "利用中"
+                    st.session_state["resident_mode"] = "利用中"
                     st.rerun()
 
             with top_cols[1]:
                 if st.button("退所者一覧", use_container_width=True):
-                    st.session_state.get("resident_mode", "利用者一覧") = "退所"
+                    st.session_state["resident_mode"] = "退所"
                     st.rerun()
 
             with top_cols[2]:
