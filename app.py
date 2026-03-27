@@ -148,7 +148,7 @@ def load_db(file, retries=3, delay=0.8):
                     "active_users": ["user", "login_at", "last_seen"],
                     "resident_master": [
                         "company_id",
-                        "resident_id", "resident_name", "status",
+                        "resident_id", "resident_name", "status", "public_assistance",
                         "consultant", "consultant_phone",
                         "caseworker", "caseworker_phone",
                         "hospital", "hospital_phone",
@@ -11438,9 +11438,142 @@ elif page == "⓪ 検索":
     st.divider()
 
     # ------------------------------------------
+    # 利用者検索
+    # ------------------------------------------
+    st.markdown("## 👤 利用者検索")
+
+    resident_df = load_db("resident_master")
+
+    if resident_df is None or resident_df.empty:
+        resident_df = pd.DataFrame(columns=[
+            "company_id",
+            "resident_id",
+            "resident_name",
+            "status",
+            "public_assistance",
+            "consultant",
+            "consultant_phone",
+            "caseworker",
+            "caseworker_phone",
+            "hospital",
+            "hospital_phone",
+            "nurse",
+            "nurse_phone",
+            "care",
+            "care_phone",
+            "created_at",
+            "updated_at",
+        ])
+    else:
+        for col in [
+            "company_id",
+            "resident_id",
+            "resident_name",
+            "status",
+            "public_assistance",
+            "consultant",
+            "consultant_phone",
+            "caseworker",
+            "caseworker_phone",
+            "hospital",
+            "hospital_phone",
+            "nurse",
+            "nurse_phone",
+            "care",
+            "care_phone",
+            "created_at",
+            "updated_at",
+        ]:
+            if col not in resident_df.columns:
+                resident_df[col] = ""
+
+    resident_df = resident_df.fillna("").copy()
+
+    resident_search_cols = st.columns([2, 2, 3])
+
+    with resident_search_cols[0]:
+        resident_status = st.selectbox(
+            "利用状態",
+            ["全部", "利用中", "停止中", "終了"],
+            key="resident_search_status"
+        )
+
+    with resident_search_cols[1]:
+        public_assistance_filter = st.selectbox(
+            "生活保護区分",
+            ["全部", "生活保護", "生活保護以外"],
+            key="resident_search_public_assistance"
+        )
+
+    with resident_search_cols[2]:
+        resident_kw = st.text_input(
+            "キーワード",
+            key="resident_search_kw",
+            placeholder="利用者名・利用者IDで検索"
+        )
+
+    resident_view_df = resident_df.copy()
+
+    current_company_id = str(st.session_state.get("company_id", "")).strip()
+    if current_company_id:
+        resident_view_df = resident_view_df[
+            resident_view_df["company_id"].astype(str).str.strip() == current_company_id
+        ].copy()
+
+    if resident_status != "全部":
+        resident_view_df = resident_view_df[
+            resident_view_df["status"].astype(str).str.strip() == resident_status
+        ].copy()
+
+    if public_assistance_filter != "全部":
+        resident_view_df = resident_view_df[
+            resident_view_df["public_assistance"].astype(str).str.strip() == public_assistance_filter
+        ].copy()
+
+    if resident_kw.strip():
+        kw = resident_kw.strip().lower()
+        resident_view_df = resident_view_df[
+            resident_view_df.apply(
+                lambda row:
+                    kw in str(row.get("resident_id", "")).lower()
+                    or kw in str(row.get("resident_name", "")).lower(),
+                axis=1
+            )
+        ]
+
+    if resident_view_df.empty:
+        st.info("条件に合う利用者はいないある。")
+    else:
+        try:
+            resident_view_df = resident_view_df.sort_values(
+                ["status", "resident_id"],
+                ascending=[True, True]
+            )
+        except Exception:
+            pass
+
+        for _, row in resident_view_df.iterrows():
+            resident_id = str(row.get("resident_id", "")).strip()
+            resident_name = str(row.get("resident_name", "")).strip()
+            status = str(row.get("status", "")).strip()
+            public_assistance = str(row.get("public_assistance", "")).strip()
+            consultant = str(row.get("consultant", "")).strip()
+            caseworker = str(row.get("caseworker", "")).strip()
+            hospital = str(row.get("hospital", "")).strip()
+            nurse = str(row.get("nurse", "")).strip()
+            care = str(row.get("care", "")).strip()
+
+            with st.container(border=True):
+                st.markdown(f"**{resident_name if resident_name else '氏名未設定'}**")
+                st.write(f"利用者ID: {resident_id}")
+                st.write(f"状態: {status} / 生活保護区分: {public_assistance}")
+                st.write(f"相談員: {consultant} / ケースワーカー: {caseworker}")
+                st.write(f"病院: {hospital} / 看護: {nurse} / 介護: {care}")
+
+    # ------------------------------------------
     # 資料検索
     # ------------------------------------------
-    st.markdown("## 📁 資料検索")
+    st.markdown("### 📁 書類検索")
 
     CATEGORY1_OPTIONS = [
         "全部",
@@ -11485,6 +11618,12 @@ elif page == "⓪ 検索":
         ],
     }
 
+    PUBLIC_ASSISTANCE_OPTIONS = [
+        "全部",
+        "生活保護",
+        "生活保護以外",
+    ]
+
     doc_df = load_db("document_master")
 
     if doc_df is None or doc_df.empty:
@@ -11504,7 +11643,7 @@ elif page == "⓪ 検索":
 
     doc_df = doc_df.fillna("").copy()
 
-    search_cols = st.columns([2, 2, 2, 3])
+    search_cols = st.columns([2, 2, 2, 2, 3])
 
     with search_cols[0]:
         cat1 = st.selectbox("カテゴリ1", CATEGORY1_OPTIONS, key="doc_search_cat1")
@@ -11516,11 +11655,21 @@ elif page == "⓪ 検索":
     with search_cols[2]:
         status_candidates = ["全部"]
         if not doc_df.empty:
-            status_values = sorted([x for x in doc_df["status"].astype(str).unique().tolist() if str(x).strip()])
+            status_values = sorted([
+                x for x in doc_df["status"].astype(str).unique().tolist()
+                if str(x).strip()
+            ])
             status_candidates += status_values
         status_filter = st.selectbox("状態", status_candidates, key="doc_search_status")
 
     with search_cols[3]:
+        welfare_filter = st.selectbox(
+            "生活保護区分",
+            PUBLIC_ASSISTANCE_OPTIONS,
+            key="doc_search_welfare"
+        )
+
+    with search_cols[4]:
         kw = st.text_input(
             "キーワード",
             key="doc_search_kw",
@@ -11537,6 +11686,16 @@ elif page == "⓪ 検索":
 
     if status_filter != "全部":
         view_df = view_df[view_df["status"].astype(str) == status_filter]
+
+    if welfare_filter == "生活保護":
+        view_df = view_df[
+            view_df["category3"].astype(str).str.strip() == "生活保護"
+        ]
+
+    elif welfare_filter == "生活保護以外":
+        view_df = view_df[
+            view_df["category3"].astype(str).str.strip() != "生活保護"
+        ]
 
     if kw.strip():
         kw_l = kw.strip().lower()
