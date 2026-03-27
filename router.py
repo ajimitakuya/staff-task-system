@@ -81,7 +81,6 @@ def render_selected_menu(label: str):
 
 
 def render_sidebar_navigation():
-    # ex-app の並びそのまま
     main_page_options = [
         ("⓪ 検索", "⑩ 検索"),
         ("① 未着手の任務（掲示板）", "① 未着手の任務（掲示板）"),
@@ -254,10 +253,6 @@ def route_page(
             generate_fn=bee_generate_fn,
             send_fn=bee_send_fn,
         )
-        
-        return
-    if page == "休憩室":
-        render_break_room_page()
         return
 
     if page in [

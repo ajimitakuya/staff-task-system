@@ -81,11 +81,6 @@ def get_next_task_id(task_df=None):
 
 
 def sync_task_events_to_calendar(company_id=None):
-    """
-    旧app.pyでは task → calendar 同期が入っていたが、
-    今回はまず安全版として no-op にしておくある。
-    あとで calendar.py を戻すときに本接続するある。
-    """
     return
 
 
@@ -249,15 +244,24 @@ def render_my_tasks_page():
             st.rerun()
 
 
-def render_sidebar_task_status():
-    import pandas as pd
-    import streamlit as st
-    from db import get_df
+def _render_selected_break_room():
+    st.sidebar.markdown(
+        '<div class="menu-selected-wrap"><div class="menu-selected-box">● 🍵休憩室🍵</div></div>',
+        unsafe_allow_html=True
+    )
 
+
+def render_sidebar_task_status():
     try:
         task_df = get_df("task").fillna("")
     except Exception:
-        task_df = pd.DataFrame(columns=["id", "task", "status", "user", "limit", "priority", "updated_at"])
+        task_df = pd.DataFrame(
+            columns=["company_id", "id", "task", "status", "user", "limit", "priority", "updated_at"]
+        )
+
+    current_company_id = get_current_company_id()
+    if "company_id" in task_df.columns:
+        task_df = task_df[task_df["company_id"].astype(str).str.strip() == current_company_id].copy()
 
     current_user = str(st.session_state.get("user", "")).strip()
 
@@ -276,24 +280,20 @@ def render_sidebar_task_status():
     active_count = len(my_active)
     todo_count = len(my_todo)
 
-    if st.sidebar.button(f"作業中: {active_count}件", key="go_my_active", use_container_width=True):
+    if st.sidebar.button(f"着手中のタスク {active_count}件", key="go_my_active", use_container_width=True):
         st.session_state.current_page = "② タスクの引き受け・報告"
         st.rerun()
 
-    if st.sidebar.button(f"未着手全体: {todo_count}件", key="go_todo_board", use_container_width=True):
+    if st.sidebar.button(f"未着手のタスク {todo_count}件", key="go_todo_board", use_container_width=True):
         st.session_state.current_page = "① 未着手の任務（掲示板）"
         st.rerun()
 
-    st.sidebar.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='margin-top:6px;'></div>", unsafe_allow_html=True)
 
-    is_break_selected = (st.session_state.get("current_page", "") == "休憩室")
-
-    if is_break_selected:
-        st.sidebar.markdown(
-            '<div class="menu-selected-wrap"><div class="menu-selected-box">● 🍵休憩室🍵</div></div>',
-            unsafe_allow_html=True
-        )
+    current_page = str(st.session_state.get("current_page", "")).strip()
+    if current_page in ["休憩室", "休憩室_チャットルーム", "休憩室_書類アップロード", "休憩室_倉庫"]:
+        _render_selected_break_room()
     else:
-        if st.sidebar.button("🍵休憩室🍵", key="menu_break_room_fixed", use_container_width=True):
+        if st.sidebar.button("🍵 休憩室 🍵", key="menu_break_room_fixed", use_container_width=True):
             st.session_state.current_page = "休憩室"
             st.rerun()
