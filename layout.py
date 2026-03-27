@@ -9,14 +9,17 @@ def render_app_header():
     st.markdown(
         f"""
         <div style="
-            padding:14px 18px;
+            padding:16px 20px;
             border:1px solid #E5E7EB;
             border-radius:16px;
             background:#FFFFFF;
             box-shadow:0 1px 3px rgba(0,0,0,0.05);
             margin-bottom:14px;
         ">
-            <div style="font-size:24px;font-weight:700;color:#111827;">
+            <div style="font-size:15px;font-weight:700;color:#EC4899; margin-bottom:4px;">
+                🐝 Sue for Bee Assistance system
+            </div>
+            <div style="font-size:24px;font-weight:800;color:#111827;">
                 作業管理システム
             </div>
             <div style="margin-top:8px;font-size:14px;color:#4B5563;">
@@ -32,11 +35,16 @@ def render_app_header():
 
 
 def render_sidebar_common():
-    # ex-app の見た目に寄せる
     st.sidebar.markdown(
         """
-        <div style="font-size:14px; line-height:1.8; color:#374151;">
-            📢 日誌入力だけ必要時に他事業所へ一時送信できるある。
+        <div style="padding-top:4px; padding-bottom:6px;">
+            <div style="font-size:18px; font-weight:800; color:#EC4899; line-height:1.4;">
+                🐝 Sue for Bee Assistance system
+            </div>
+            <div style="margin-top:10px; font-size:14px; line-height:1.9; color:#374151;">
+                📢 日誌入力だけ必要時に他事業所へ<br>
+                一時送信できるある。
+            </div>
         </div>
         """,
         unsafe_allow_html=True
@@ -56,6 +64,9 @@ def render_login_page_shell():
             background:#FFFFFF;
             box-shadow:0 1px 3px rgba(0,0,0,0.05);
         ">
+            <div style="font-size:16px;font-weight:800;color:#EC4899; margin-bottom:6px;">
+                🐝 Sue for Bee Assistance system
+            </div>
             <div style="font-size:28px;font-weight:800;color:#111827;">
                 作業管理システム
             </div>
