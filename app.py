@@ -7598,6 +7598,7 @@ def get_assistant_plans_df():
 
 
 def save_staff_examples_record(
+    company_id,
     staff_name,
     home_start_example,
     home_end_example,
@@ -7606,44 +7607,45 @@ def save_staff_examples_record(
     outside_start_example,
     outside_end_example,
 ):
-    df = load_db("resident_schedule")
+    df = load_db("staff_examples")
+    required_cols = [
+        "company_id",
+        "staff_name",
+        "home_start_example", "home_end_example",
+        "day_start_example", "day_end_example",
+        "outside_start_example", "outside_end_example",
+        "updated_at"
+    ]
+    df = normalize_company_scoped_df(df, required_cols)
 
-    if df is None or df.empty:
-        return pd.DataFrame()
+    company_id = str(company_id).strip()
+    staff_name = str(staff_name).strip()
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
-    df = df.fillna("").copy()
+    mask = (
+        (df["company_id"] == company_id) &
+        (df["staff_name"].astype(str).str.strip() == staff_name)
+    )
 
-    if "company_id" not in df.columns:
-        df["company_id"] = ""
-
-    company_id = str(st.session_state.get("company_id", "")).strip()
-
-    df["company_id"] = df["company_id"].astype(str).str.strip()
-    return df[df["company_id"] == company_id]
-    updated_at = now_jst().strftime("%Y-%m-%d %H:%M:%S")
-
-    hit_idx = df.index[df["staff_name"].astype(str) == str(staff_name)].tolist()
-
-    row_data = {
-        "staff_name": str(staff_name),
+    new_data = {
+        "company_id": company_id,
+        "staff_name": staff_name,
         "home_start_example": str(home_start_example),
         "home_end_example": str(home_end_example),
         "day_start_example": str(day_start_example),
         "day_end_example": str(day_end_example),
         "outside_start_example": str(outside_start_example),
         "outside_end_example": str(outside_end_example),
-        "updated_at": updated_at,
+        "updated_at": now_str,
     }
 
-    if hit_idx:
-        idx = hit_idx[0]
-        for k, v in row_data.items():
-            df.at[idx, k] = v
+    if mask.any():
+        for k, v in new_data.items():
+            df.loc[mask, k] = v
     else:
-        df = pd.concat([df, pd.DataFrame([row_data])], ignore_index=True)
+        df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
 
     save_db(df, "staff_examples")
-    return True
 
 
 def save_personal_rules_record(company_id, staff_name, rule_text):
