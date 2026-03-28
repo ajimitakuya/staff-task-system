@@ -1921,26 +1921,34 @@ ID: {room_id}
                 else:
                     for _, msg in room_msgs.iterrows():
                         display_name = str(msg.get("display_name", "")).strip()
-                        company_id = str(msg.get("company_id", "")).strip()
                         message_text = str(msg.get("message_text", "")).strip()
                         created_at = str(msg.get("created_at", "")).strip()
-                        has_attachment = str(msg.get("has_attachment", "")).strip()
-                        linked_file_id = str(msg.get("linked_file_id", "")).strip()
+                        company_id = str(msg.get("company_id", "")).strip()
 
-                        attach_text = ""
-                        if has_attachment == "1" and linked_file_id:
-                            attach_text = f"<div style='margin-top:6px;color:#2563eb;'>📎 添付あり（倉庫ID: {linked_file_id}）</div>"
+                        # 自分かどうか判定（ここは今のログイン情報に合わせて調整OK）
+                        is_me = company_id == st.session_state.get("company_id", "")
 
-                        st.markdown(
-                            f"""
-                            <div style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:10px;background:#fff;">
-                                <div style="font-size:13px;color:#666;"><b>{display_name}</b> / {company_id} / {created_at}</div>
-                                <div style="margin-top:6px;white-space:pre-wrap;">{message_text}</div>
-                                {attach_text}
+                        align = "flex-end" if is_me else "flex-start"
+                        bg = "#2563eb" if is_me else "#E5E7EB"
+                        color = "white" if is_me else "#111827"
+
+                        st.markdown(f"""
+                        <div style="display:flex;justify-content:{align};margin-bottom:10px;">
+                            <div style="
+                                max-width:70%;
+                                padding:10px 14px;
+                                border-radius:16px;
+                                background:{bg};
+                                color:{color};
+                                font-size:14px;
+                            ">
+                                {message_text}
+                                <div style="font-size:11px;margin-top:4px;opacity:0.6;">
+                                    {display_name} / {created_at}
+                                </div>
                             </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
+                        </div>
+                        """, unsafe_allow_html=True)
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
     st.caption("現在ログインしている自分を、別の事業所にも登録するページです。")
