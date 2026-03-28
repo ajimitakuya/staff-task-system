@@ -1678,6 +1678,38 @@ def render_contact_page():
             st.rerun()
 
 def render_chat_room_page():
+
+    st.markdown("""
+    <style>
+
+    /* 全ボタンをまず白＋黒枠にする */
+    div.stButton > button {
+        background: white !important;
+        color: #111827 !important;
+        border: 1px solid #111827 !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+    }
+
+    /* hover */
+    div.stButton > button:hover {
+        background: #f9fafb !important;
+    }
+
+    /* 「詳細を見る」だけ青にする */
+    button[data-testid="baseButton-secondary"][id^="select_room_"] {
+        background: #2563eb !important;
+        color: white !important;
+        border: none !important;
+    }
+
+    button[data-testid="baseButton-secondary"][id^="select_room_"]:hover {
+        background: #1d4ed8 !important;
+    }
+
+    </style>
+    """, unsafe_allow_html=True)
+
     st.title("💬 チャットルーム")
     st.caption("ルーム一覧・新規作成・投稿ができます。")
 
