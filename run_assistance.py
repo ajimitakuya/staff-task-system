@@ -2302,21 +2302,6 @@ def _build_single_item_from_app(
         work_memo=str(work_memo).strip(),
     )
 
-def set_input_value(driver, el, value: str):
-    value = "" if value is None else str(value)
-    driver.execute_script("""
-        const el = arguments[0];
-        const val = arguments[1];
-        el.focus();
-        el.value = '';
-        el.dispatchEvent(new Event('input', {bubbles:true}));
-        el.value = val;
-        el.dispatchEvent(new Event('input', {bubbles:true}));
-        el.dispatchEvent(new Event('change', {bubbles:true}));
-        el.blur();
-    """, el, value)
-
-
 def _find_work_time_inputs(dialog):
     start_el = None
     end_el = None
