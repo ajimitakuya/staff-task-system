@@ -8468,6 +8468,101 @@ def render_bee_journal_page():
     with send_top_cols[2]:
         st.write("開始/終了メモ入力後、下のボタンから送信する")
 
+    bulk_send_cols = st.columns([1, 1])
+
+    with bulk_send_cols[0]:
+        bulk_send_raw = st.button(
+            "一気に書き込む\n（開始/終了メモそのまま）",
+            key="bee_bulk_send_raw",
+            use_container_width=True,
+            disabled=bool(time_errors)
+        )
+
+    with bulk_send_cols[1]:
+        bulk_send_gemini = st.button(
+            "一気に書き込む\n（Gemini生成文を送信）",
+            key="bee_bulk_send_gemini",
+            use_container_width=True,
+            disabled=bool(time_errors)
+        )
+
+    if bulk_send_raw:
+        try:
+            ok = send_to_knowbe_from_bee(
+                company_id=target_company_id,
+                target_date=str(target_date),
+                resident_name=resident_name,
+                service_type=service_type,
+                start_time=start_time,
+                end_time=end_time,
+                meal_flag=meal_flag,
+                note_text=preview_note,
+                generated_status=start_memo,
+                generated_support=end_memo,
+                staff_name=staff_name,
+                knowbe_target="bulk_raw",
+                work_start_time=work_start_time,
+                work_end_time=work_end_time,
+                work_break_time=work_break_time,
+                work_memo="",
+                login_username=resolved_knowbe_user,
+                login_password=resolved_knowbe_pw,
+                send_user_status=True,
+                send_staff_comment=True,
+            )
+            if ok:
+                st.success("一気送信できました！")
+        except Exception as e:
+            st.error(f"一気送信失敗です: {e}")
+
+    if bulk_send_gemini:
+        try:
+            generated_status = st.session_state.get("bee_generated_status", "").strip()
+            generated_support = st.session_state.get("bee_generated_support", "").strip()
+
+            if not generated_status and not generated_support:
+                generated_status, generated_support = generate_bee_texts(
+                    resident_name=resident_name,
+                    service_type=service_type,
+                    meal_flag=meal_flag,
+                    note_text=preview_note,
+                    start_memo=start_memo,
+                    end_memo=end_memo,
+                    staff_name=staff_name,
+                    plan_text=plan_text,
+                    examples_text=examples_text,
+                    rule_text=loaded_rule_text,
+                )
+                st.session_state["bee_generated_status"] = generated_status
+                st.session_state["bee_generated_support"] = generated_support
+
+            ok = send_to_knowbe_from_bee(
+                company_id=target_company_id,
+                target_date=str(target_date),
+                resident_name=resident_name,
+                service_type=service_type,
+                start_time=start_time,
+                end_time=end_time,
+                meal_flag=meal_flag,
+                note_text=preview_note,
+                generated_status=generated_status,
+                generated_support=generated_support,
+                staff_name=staff_name,
+                knowbe_target="bulk_gemini",
+                work_start_time=work_start_time,
+                work_end_time=work_end_time,
+                work_break_time=work_break_time,
+                work_memo="",
+                login_username=resolved_knowbe_user,
+                login_password=resolved_knowbe_pw,
+                send_user_status=True,
+                send_staff_comment=True,
+            )
+            if ok:
+                st.success("Gemini文で一気送信できました！")
+        except Exception as e:
+            st.error(f"Gemini一気送信失敗です: {e}")
+
     st.warning(
         "Knowbe送信を使うには、画面上でKnowbe情報を入力するか、管理者メニューの『Knowbe情報登録』で保存してください。"
     )

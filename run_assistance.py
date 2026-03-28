@@ -2371,6 +2371,7 @@ def process_one_daily_record_direct(
     user_text: str,
     staff_text: str
 ) -> bool:
+    print("🔥 実行開始したある！！！", flush=True)
     """
     app用：Gemini生成済みの本文をそのまま1人分だけ送る
     """
