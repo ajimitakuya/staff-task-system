@@ -8289,7 +8289,7 @@ def render_bee_journal_page():
     """, unsafe_allow_html=True)
 
     if "bee_use_plan" not in st.session_state:
-        st.session_state["bee_use_plan"] = True
+        st.session_state["knowbe_bee_use_plan"]
 
     use_plan = st.session_state.get("bee_use_plan", True)
 
@@ -8375,7 +8375,7 @@ def render_bee_journal_page():
         "staff_name": staff_name,
         "service_type": service_type,
         "knowbe_user": st.session_state.get("bee_knownbe_user_name", "未登録"),
-        "use_plan": st.session_state.get("bee_use_plan", True),
+        "use_plan": st.session_state.get("knowbe_bee_use_plan", False),
     }
 
     st.divider()
@@ -8421,18 +8421,14 @@ def render_bee_journal_page():
         )
 
     with send_cols[1]:
-        clear_gemini_cache = st.button(
-            "前回の生成文を消す",
-            key="bee_clear_generated_cache",
-            width="stretch"
+        bulk_send_raw = st.button(
+            "Geminiの編集なしで\nそのままknowbeへ入力する",
+            key="bee_bulk_send_raw",
+            width="stretch",
+            disabled=bool(time_errors)
         )
 
-    if clear_gemini_cache:
-        st.session_state.pop("bee_generated_status", None)
-        st.session_state.pop("bee_generated_support", None)
-        st.success("前回のGemini生成内容を消しました！")
-        st.rerun()
-
+    # Gemini送信ボタンを押した瞬間に、前回生成文を自動で消す
     if bulk_send_gemini:
         try:
             # 毎回、前回キャッシュを消してから今の入力で再生成する
@@ -8486,128 +8482,161 @@ def render_bee_journal_page():
         except Exception as e:
             st.error(f"Gemini一気送信失敗です: {e}")
 
-    st.warning(
-        "Knowbe送信を使うには、画面上でKnowbe情報を入力するか、管理者メニューの『Knowbe情報登録』で保存してください。"
-    )
+    elif bulk_send_raw:
+        try:
+            ok = send_to_knowbe_from_bee(
+                company_id=target_company_id,
+                target_date=str(target_date),
+                resident_name=resident_name,
+                service_type=service_type,
+                start_time=start_time,
+                end_time=end_time,
+                meal_flag=meal_flag,
+                note_text=preview_note,
+                generated_status=start_memo,
+                generated_support=end_memo,
+                staff_name=staff_name,
+                knowbe_target="bulk_raw",
+                work_start_time=work_start_time,
+                work_end_time=work_end_time,
+                work_break_time=work_break_time,
+                work_memo="",
+                login_username=resolved_knowbe_user,
+                login_password=resolved_knowbe_pw,
+                send_user_status=True,
+                send_staff_comment=True,
+            )
 
-    st.divider()
-    st.markdown("## 補助設定")
+            if ok:
+                st.success("Gemini編集なしでそのままKnowbeへ入力できました！")
 
-    use_plan = st.checkbox(
-        "個別支援計画を参照する",
-        value=st.session_state.get("bee_use_plan", False),
-        key="bee_use_plan"
-    )
+        except Exception as e:
+            st.error(f"編集なし送信失敗です: {e}")
 
-    st.divider()
-    st.markdown("## スタッフ例文・個人ルール")
-
-    if not example_row:
-        st.warning("この入力者のスタッフ例文は未登録です。")
-    if not rule_row:
-        st.warning("この入力者の個人ルールは未登録です。")
-
-    if "bee_rule_edit_open" not in st.session_state:
-        st.session_state["bee_rule_edit_open"] = False
-
-    is_editing = st.session_state["bee_rule_edit_open"]
-
-    ex_cols1 = st.columns(2)
-    with ex_cols1[0]:
-        home_start_value = st.text_area(
-            "在宅作業開始例文",
-            value=example_row.get("home_start_example", "") if example_row else "",
-            key="bee_home_start_example_unified",
-            height=100,
-            disabled=not is_editing
-        )
-    with ex_cols1[1]:
-        home_end_value = st.text_area(
-            "在宅作業終了例文",
-            value=example_row.get("home_end_example", "") if example_row else "",
-            key="bee_home_end_example_unified",
-            height=100,
-            disabled=not is_editing
+        st.warning(
+            "Knowbe送信を使うには、画面上でKnowbe情報を入力するか、管理者メニューの『Knowbe情報登録』で保存してください。"
         )
 
-    ex_cols2 = st.columns(2)
-    with ex_cols2[0]:
-        day_start_value = st.text_area(
-            "通所作業開始例文",
-            value=example_row.get("day_start_example", "") if example_row else "",
-            key="bee_day_start_example_unified",
-            height=100,
-            disabled=not is_editing
-        )
-    with ex_cols2[1]:
-        day_end_value = st.text_area(
-            "通所作業終了例文",
-            value=example_row.get("day_end_example", "") if example_row else "",
-            key="bee_day_end_example_unified",
-            height=100,
-            disabled=not is_editing
+        st.divider()
+        st.markdown("## 補助設定")
+
+        if "knowbe_bee_use_plan" not in st.session_state:
+            st.session_state["knowbe_bee_use_plan"] = False
+
+        use_plan = st.checkbox(
+            "個別支援計画を参照する",
+            key="knowbe_bee_use_plan"
         )
 
-    ex_cols3 = st.columns(2)
-    with ex_cols3[0]:
-        outside_start_value = st.text_area(
-            "施設外作業開始例文",
-            value=example_row.get("outside_start_example", "") if example_row else "",
-            key="bee_outside_start_example_unified",
-            height=100,
-            disabled=not is_editing
-        )
-    with ex_cols3[1]:
-        outside_end_value = st.text_area(
-            "施設外作業終了例文",
-            value=example_row.get("outside_end_example", "") if example_row else "",
-            key="bee_outside_end_example_unified",
-            height=100,
-            disabled=not is_editing
-        )
+        st.divider()
+        st.markdown("## スタッフ例文・個人ルール")
 
-    bottom_cols = st.columns([5, 1])
-    with bottom_cols[0]:
-        rule_text_value = st.text_area(
-            "個人ルール",
-            value=rule_row.get("rule_text", "") if rule_row else "未登録です",
-            key="bee_rule_text_unified",
-            height=160,
-            disabled=not is_editing,
-            placeholder="未登録です"
-        )
+        if not example_row:
+            st.warning("この入力者のスタッフ例文は未登録です。")
+        if not rule_row:
+            st.warning("この入力者の個人ルールは未登録です。")
 
-    with bottom_cols[1]:
-        st.write("")
-        st.write("")
-        if not is_editing:
-            if st.button("編集", key="bee_rule_edit_open_btn", use_container_width=True):
-                st.session_state["bee_rule_edit_open"] = True
-                st.rerun()
-        else:
-            if st.button("登録", key="bee_save_examples_rules", use_container_width=True):
-                save_staff_examples_record(
-                    company_id=target_company_id,
-                    staff_name=staff_name,
-                    home_start_example=home_start_value,
-                    home_end_example=home_end_value,
-                    day_start_example=day_start_value,
-                    day_end_example=day_end_value,
-                    outside_start_example=outside_start_value,
-                    outside_end_example=outside_end_value,
-                )
-                save_personal_rules_record(
-                    company_id=target_company_id,
-                    staff_name=staff_name,
-                    rule_text="" if rule_text_value == "未登録です" else rule_text_value,
-                )
-                st.success("スタッフ例文・個人ルールを登録しました！")
-                st.session_state["bee_rule_edit_open"] = False
-                st.rerun()
+        if "bee_rule_edit_open" not in st.session_state:
+            st.session_state["bee_rule_edit_open"] = False
 
-    st.divider()
-    st.markdown("## 入力内容確認")
-    st.json(save_payload) 
+        is_editing = st.session_state["bee_rule_edit_open"]
+
+        ex_cols1 = st.columns(2)
+        with ex_cols1[0]:
+            home_start_value = st.text_area(
+                "在宅作業開始例文",
+                value=example_row.get("home_start_example", "") if example_row else "",
+                key="bee_home_start_example_unified",
+                height=100,
+                disabled=not is_editing
+            )
+        with ex_cols1[1]:
+            home_end_value = st.text_area(
+                "在宅作業終了例文",
+                value=example_row.get("home_end_example", "") if example_row else "",
+                key="bee_home_end_example_unified",
+                height=100,
+                disabled=not is_editing
+            )
+
+        ex_cols2 = st.columns(2)
+        with ex_cols2[0]:
+            day_start_value = st.text_area(
+                "通所作業開始例文",
+                value=example_row.get("day_start_example", "") if example_row else "",
+                key="bee_day_start_example_unified",
+                height=100,
+                disabled=not is_editing
+            )
+        with ex_cols2[1]:
+            day_end_value = st.text_area(
+                "通所作業終了例文",
+                value=example_row.get("day_end_example", "") if example_row else "",
+                key="bee_day_end_example_unified",
+                height=100,
+                disabled=not is_editing
+            )
+
+        ex_cols3 = st.columns(2)
+        with ex_cols3[0]:
+            outside_start_value = st.text_area(
+                "施設外作業開始例文",
+                value=example_row.get("outside_start_example", "") if example_row else "",
+                key="bee_outside_start_example_unified",
+                height=100,
+                disabled=not is_editing
+            )
+        with ex_cols3[1]:
+            outside_end_value = st.text_area(
+                "施設外作業終了例文",
+                value=example_row.get("outside_end_example", "") if example_row else "",
+                key="bee_outside_end_example_unified",
+                height=100,
+                disabled=not is_editing
+            )
+
+        bottom_cols = st.columns([5, 1])
+        with bottom_cols[0]:
+            rule_text_value = st.text_area(
+                "個人ルール",
+                value=rule_row.get("rule_text", "") if rule_row else "未登録です",
+                key="bee_rule_text_unified",
+                height=160,
+                disabled=not is_editing,
+                placeholder="未登録です"
+            )
+
+        with bottom_cols[1]:
+            st.write("")
+            st.write("")
+            if not is_editing:
+                if st.button("編集", key="bee_rule_edit_open_btn", use_container_width=True):
+                    st.session_state["bee_rule_edit_open"] = True
+                    st.rerun()
+            else:
+                if st.button("登録", key="bee_save_examples_rules", use_container_width=True):
+                    save_staff_examples_record(
+                        company_id=target_company_id,
+                        staff_name=staff_name,
+                        home_start_example=home_start_value,
+                        home_end_example=home_end_value,
+                        day_start_example=day_start_value,
+                        day_end_example=day_end_value,
+                        outside_start_example=outside_start_value,
+                        outside_end_example=outside_end_value,
+                    )
+                    save_personal_rules_record(
+                        company_id=target_company_id,
+                        staff_name=staff_name,
+                        rule_text="" if rule_text_value == "未登録です" else rule_text_value,
+                    )
+                    st.success("スタッフ例文・個人ルールを登録しました！")
+                    st.session_state["bee_rule_edit_open"] = False
+                    st.rerun()
+
+        st.divider()
+        st.markdown("## 入力内容確認")
+        st.json(save_payload) 
 
 def get_resident_schedule_df():
     df = load_db("resident_schedule")
