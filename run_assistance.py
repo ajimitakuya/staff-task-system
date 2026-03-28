@@ -1989,6 +1989,232 @@ def open_daily_record_page(driver, y: int, m: int, d: int) -> bool:
         dump_debug(driver, "open_daily_record_page_fail")
         return False
 
+# =========================
+# 利用者ごと → 支援記録 → 本文取得
+# =========================
+def goto_users_summary(driver):
+    """
+    Knowbe の「記録 → 利用者ごと」ページへ直接移動する
+    """
+    target_url = "https://mgr.knowbe.jp/v2/?_page=record/users_summary/#/record/users_summary"
+    driver.get(target_url)
+    time.sleep(1.5)
+
+    WebDriverWait(driver, 15).until(
+        EC.presence_of_element_located(
+            (By.XPATH, "//*[contains(normalize-space(.), '利用者ごとの記録')]")
+        )
+    )
+    return True
+
+
+def normalize_resident_name_for_match(s: str) -> str:
+    return str(s).replace(" ", "").replace("　", "").strip()
+
+
+def find_user_card_by_name(driver, resident_name: str):
+    """
+    利用者ごとの一覧から、指定氏名を含むカード（行ブロック）を探す
+    """
+    target = normalize_resident_name_for_match(resident_name)
+
+    # 名前本体っぽい span を拾う
+    name_spans = driver.find_elements(By.XPATH, "//span[contains(@class,'jss509')]")
+
+    for sp in name_spans:
+        try:
+            txt = normalize_resident_name_for_match(sp.text)
+            if not txt:
+                continue
+
+            if target in txt:
+                # この span を含む利用者ブロックを上へたどる
+                # ボタン群（アセスメント/個別支援計画/支援記録...）を持つ親を探す
+                cur = sp
+                for _ in range(8):
+                    try:
+                        cur = cur.find_element(By.XPATH, "..")
+                    except Exception:
+                        break
+
+                    try:
+                        buttons = cur.find_elements(
+                            By.XPATH,
+                            ".//button[.//span[contains(normalize-space(.), '支援記録')] or contains(normalize-space(.), '支援記録')]"
+                        )
+                    except Exception:
+                        buttons = []
+
+                    if buttons:
+                        return cur
+        except Exception:
+            continue
+
+    return None
+
+
+def open_support_record_for_resident(driver, resident_name: str) -> bool:
+    """
+    一覧から対象利用者の「支援記録」ボタンを押す
+    """
+    card = find_user_card_by_name(driver, resident_name)
+    if card is None:
+        return False
+
+    btn_xps = [
+        ".//button[.//span[contains(normalize-space(.), '支援記録')]]",
+        ".//button[contains(normalize-space(.), '支援記録')]",
+        ".//*[self::span or self::p or self::div][contains(normalize-space(.), '支援記録')]/ancestor::button[1]",
+    ]
+
+    for xp in btn_xps:
+        try:
+            btns = card.find_elements(By.XPATH, xp)
+        except Exception:
+            btns = []
+
+        for btn in btns:
+            try:
+                if not btn.is_displayed():
+                    continue
+            except Exception:
+                pass
+
+            if safe_click(driver, btn):
+                time.sleep(1.5)
+                return True
+
+    return False
+
+
+def goto_support_record_month(driver, target_year: int, target_month: int) -> bool:
+    """
+    支援記録ページに入ったあと、URLの /support/YYYY/M を対象月へ差し替えて移動する
+    """
+    cur = driver.current_url or ""
+
+    m = re.search(r"/support/(\d{4})/(\d{1,2})(?:$|[/?#])", cur)
+    if not m:
+        return False
+
+    new_url = re.sub(
+        r"/support/\d{4}/\d{1,2}(?=$|[/?#])",
+        f"/support/{target_year}/{target_month}",
+        cur
+    )
+
+    driver.get(new_url)
+    time.sleep(1.5)
+
+    # 支援記録ページが見えていることを確認
+    WebDriverWait(driver, 15).until(
+        EC.presence_of_element_located(
+            (By.XPATH, "//*[contains(normalize-space(.), '支援記録')]")
+        )
+    )
+    return True
+
+
+def extract_support_record_text(driver) -> str:
+    """
+    第1版:
+    まずは body 全体を取得し、その中から支援記録に関係する本文を返す。
+    必要なら後で本文コンテナ限定に進化させる。
+    """
+    body_text = ""
+    try:
+        body_text = driver.find_element(By.TAG_NAME, "body").text or ""
+    except Exception:
+        body_text = ""
+
+    body_text = body_text.strip()
+    if not body_text:
+        return ""
+
+    # できるだけ支援記録本文っぽい位置から切り出す
+    start_candidates = [
+        "支援記録",
+        "利用日数",
+        "日付",
+    ]
+
+    start_idx = -1
+    for key in start_candidates:
+        idx = body_text.find(key)
+        if idx != -1:
+            start_idx = idx
+            break
+
+    if start_idx != -1:
+        body_text = body_text[start_idx:].strip()
+
+    return body_text
+
+
+def fetch_user_support_record_text_from_app(
+    resident_name: str,
+    target_year: int,
+    target_month: int,
+    login_username: str,
+    login_password: str,
+):
+    """
+    app から呼ぶ用：
+    利用者ごと → 支援記録 → 対象月 の本文を文字列で返す
+    """
+    if not resident_name:
+        raise RuntimeError("[FATAL] resident_name が空です")
+    if not target_year:
+        raise RuntimeError("[FATAL] target_year が空です")
+    if not target_month:
+        raise RuntimeError("[FATAL] target_month が空です")
+    if not login_username or not login_password:
+        raise RuntimeError("[FATAL] Knowbeログイン情報が空です")
+
+    driver = build_chrome_driver()
+
+    try:
+        log("[STEP] goto users summary")
+        goto_users_summary(driver)
+
+        log("[STEP] login")
+        manual_login_wait(driver, login_username, login_password)
+
+        # ログイン後は再度一覧へ
+        goto_users_summary(driver)
+
+        log(f"[STEP] find resident: {resident_name}")
+        ok = open_support_record_for_resident(driver, resident_name)
+        if not ok:
+            dump_debug(driver, "resident_not_found_in_users_summary")
+            raise RuntimeError(f"[FATAL] 利用者一覧で対象利用者が見つかりません: {resident_name}")
+
+        log("[STEP] goto support target month")
+        ok = goto_support_record_month(driver, int(target_year), int(target_month))
+        if not ok:
+            dump_debug(driver, "goto_support_record_month_fail")
+            raise RuntimeError(f"[FATAL] 支援記録の対象月へ移動できません: {target_year}/{target_month}")
+
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located(
+                (By.XPATH, "//*[contains(normalize-space(.), '利用者状態') or contains(normalize-space(.), '職員考察')]")
+            )
+        )
+
+        log("[STEP] extract support record text")
+        support_text = extract_support_record_text(driver)
+
+        if not support_text.strip():
+            dump_debug(driver, "support_record_text_empty")
+            raise RuntimeError("[FATAL] 支援記録本文の取得に失敗しました")
+
+        return support_text
+
+    finally:
+        try:
+            driver.quit()
+        except Exception:
+            pass
 
 def run_daily_records(driver, excel_path: str, items: List[PersonItem], targets: List[PersonItem], y: int, m: int, d: int):
     """
@@ -2171,7 +2397,7 @@ def process_one_daily_record_direct(
         log(f"⚠️ 日々の記録 行発見失敗ある: {it.name}")
         return False
 
-    work_label = _daily_record_work_label(it.service, it.note)
+    work_label = _daily_record_work_label(it)
 
     if not _set_daily_work_for_row(driver, row, work_label):
         log(f"⚠️ 作業欄の選択失敗ある: {it.name}")
@@ -2292,7 +2518,7 @@ def send_one_record_from_app(
         if row is None:
             raise RuntimeError(f"[FATAL] 日々の記録 行発見失敗ある: {it.name}")
 
-        work_label = _daily_record_work_label(it.service, it.note)
+        work_label = _daily_record_work_label(it)
 
         if not _set_daily_work_for_row(driver, row, work_label):
             raise RuntimeError(f"[FATAL] 作業欄の選択失敗ある: {it.name}")

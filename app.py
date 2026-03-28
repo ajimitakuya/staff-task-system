@@ -8058,8 +8058,6 @@ def render_bee_journal_page():
         else:
             st.warning("Knowbe情報が未設定です。管理者メニューの『Knowbe情報登録』で保存するか、この画面で入力してください。")
 
-    target_company_id = str(st.session_state.get("company_id", "")).strip()
-
     st.markdown("## 利用者選択")
 
     master_df = load_db("resident_master")
@@ -8438,8 +8436,32 @@ def render_bee_journal_page():
     with send_top_cols[1]:
         if st.button("保存", key="bee_save_button", use_container_width=True):
             try:
-                save_db("diary_input_rules", save_payload)
+                save_diary_input_record(
+                    company_id=target_company_id,
+                    date=str(target_date),
+                    resident_id=resident_id,
+                    resident_name=resident_name,
+                    start_time=start_time,
+                    end_time=end_time,
+                    work_start_time=work_start_time,
+                    work_end_time=work_end_time,
+                    work_break_time=work_break_time,
+                    meal_flag=meal_flag,
+                    note=preview_note,
+                    start_memo=start_memo,
+                    end_memo=end_memo,
+                    staff_name=staff_name,
+                    generated_status=st.session_state.get("bee_generated_status", ""),
+                    generated_support=st.session_state.get("bee_generated_support", ""),
+                    service_type=service_type,
+                    knowbe_target="",
+                    send_status="draft",
+                    sent_at="",
+                    send_error="",
+                    record_mode="manual",
+                )
                 st.success("保存できました！")
+                st.rerun()
             except Exception as e:
                 st.error(f"保存失敗です: {e}")
 
