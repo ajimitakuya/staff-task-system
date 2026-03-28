@@ -8421,7 +8421,7 @@ def render_bee_journal_page():
 
     with send_cols[0]:
         bulk_send_gemini = st.button(
-            "一気に書き込む\n（Gemini生成文を送信）",
+            "開始メモをGeminiで編集して利用者状態欄へ\n終了メモをGeminiで編集して職員考察欄へ\nまとめて送信）",
             key="bee_bulk_send_gemini",
             width="stretch",
             disabled=bool(time_errors)
@@ -8429,7 +8429,7 @@ def render_bee_journal_page():
 
     with send_cols[1]:
         bulk_send_raw = st.button(
-            "Geminiの編集なしで\nそのままknowbeへ入力する",
+            "開始メモを入力した文のまま編集なしで利用者状態欄へ\n終了メモを入力した文のまま編集なしで職員考察欄へ\nまとめて送信",
             key="bee_bulk_send_raw",
             width="stretch",
             disabled=bool(time_errors)
