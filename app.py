@@ -1787,35 +1787,40 @@ def render_chat_room_page():
                 bg_color = "#E5E7EB" if is_selected else bg_color
 
                 card_html = f"""
-<div style="background:{bg_color};border-left:8px solid {line_color};border:{border_style};border-radius:14px;padding:16px 18px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-<div style="font-size:24px;font-weight:700;color:#1F2937;line-height:1.2;">{room_name}</div>
+                <div style="background:{bg_color};border-left:8px solid {line_color};border:{border_style};border-radius:14px;padding:16px 18px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+                <div style="font-size:24px;font-weight:700;color:#1F2937;line-height:1.2;">{room_name}</div>
 
-<div style="margin-top:10px;font-size:15px;color:#374151;">
-<span style="display:inline-block;width:12px;height:12px;border-radius:999px;background:{dot_color};margin-right:8px;vertical-align:middle;"></span>
-{room_type_label}
-</div>
+                <div style="margin-top:10px;font-size:15px;color:#374151;">
+                <span style="display:inline-block;width:12px;height:12px;border-radius:999px;background:{dot_color};margin-right:8px;vertical-align:middle;"></span>
+                {room_type_label}
+                </div>
 
-<div style="margin-top:10px;font-size:14px;color:#4B5563;">
-説明: {safe_desc}
-</div>
+                <div style="margin-top:10px;font-size:14px;color:#4B5563;">
+                説明: {safe_desc}
+                </div>
 
-<div style="margin-top:6px;font-size:14px;color:#4B5563;">
-ID: {room_id}
-<div style="margin-top:12px;">
-    <button style="
-        width:100%;
-        padding:8px;
-        border-radius:8px;
-        border:none;
-        background:#2563eb;
-        color:white;
-        font-weight:600;
-    ">
-        詳細を見る
-    </button>
-</div>
-"""
+                <div style="margin-top:6px;font-size:14px;color:#4B5563;">
+                ID: {room_id}
+                </div>
+                </div>
+                """
                 st.markdown(card_html, unsafe_allow_html=True)
+
+                st.markdown("""
+                <style>
+                div.stButton > button[kind="secondary"] {
+                    background: #2563eb !important;
+                    color: white !important;
+                    font-weight: 600 !important;
+                    border: none !important;
+                    border-radius: 8px !important;
+                }
+                div.stButton > button[kind="secondary"]:hover {
+                    background: #1d4ed8 !important;
+                    color: white !important;
+                }
+                </style>
+                """, unsafe_allow_html=True)                
 
                 if st.button("詳細を見る", key=f"select_room_{room_id}", use_container_width=True):
                     if room_type == "limited":
