@@ -8305,6 +8305,8 @@ def render_bee_journal_page():
     examples_text = build_examples_text(service_type, example_row)
     loaded_rule_text = rule_row.get("rule_text", "") if rule_row else ""
 
+    st.caption(f"DEBUG 個人ルール読込: {loaded_rule_text!r}")
+
     preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
 
     memo_cols = st.columns(2)
