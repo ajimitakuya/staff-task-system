@@ -8412,7 +8412,7 @@ def render_bee_journal_page():
 
     with send_cols[0]:
         bulk_send_gemini = st.button(
-            "一気に書き込む\n(Geminiで生成分を送信)",
+            "一気に書き込む\n（Gemini生成文を送信）",
             key="bee_bulk_send_gemini",
             width="stretch",
             disabled=bool(time_errors)
@@ -8433,7 +8433,7 @@ def render_bee_journal_page():
 
     if bulk_send_gemini:
         try:
-            # 毎回、前回キャッシュを消してから「今の画面の内容」で再生成する
+            # 毎回、前回キャッシュを消してから今の入力で再生成する
             st.session_state.pop("bee_generated_status", None)
             st.session_state.pop("bee_generated_support", None)
 
@@ -8450,7 +8450,6 @@ def render_bee_journal_page():
                 rule_text=loaded_rule_text,
             )
 
-            # 今回生成した内容を保持
             st.session_state["bee_generated_status"] = generated_status
             st.session_state["bee_generated_support"] = generated_support
 
@@ -8479,108 +8478,6 @@ def render_bee_journal_page():
 
             if ok:
                 st.success("Gemini文で一気送信できました！")
-
-                # 次回に前回文が混ざらないよう送信後も消す
-                st.session_state.pop("bee_generated_status", None)
-                st.session_state.pop("bee_generated_support", None)
-
-        except Exception as e:
-            st.error(f"Gemini一気送信失敗です: {e}")
-
-    bulk_send_cols = st.columns([1, 1])
-
-    with bulk_send_cols[0]:
-        bulk_send_raw = st.button(
-            "一気に書き込む\n（開始/終了メモそのまま）",
-            key="bee_bulk_send_raw",
-            use_container_width=True,
-            disabled=bool(time_errors)
-        )
-
-    with bulk_send_cols[1]:
-        bulk_send_gemini = st.button(
-            "一気に書き込む\n（Gemini生成文を送信）",
-            key="bee_bulk_send_gemini",
-            use_container_width=True,
-            disabled=bool(time_errors)
-        )
-
-    if bulk_send_raw:
-        try:
-            ok = send_to_knowbe_from_bee(
-                company_id=target_company_id,
-                target_date=str(target_date),
-                resident_name=resident_name,
-                service_type=service_type,
-                start_time=start_time,
-                end_time=end_time,
-                meal_flag=meal_flag,
-                note_text=preview_note,
-                generated_status=start_memo,
-                generated_support=end_memo,
-                staff_name=staff_name,
-                knowbe_target="bulk_raw",
-                work_start_time=work_start_time,
-                work_end_time=work_end_time,
-                work_break_time=work_break_time,
-                work_memo="",
-                login_username=resolved_knowbe_user,
-                login_password=resolved_knowbe_pw,
-                send_user_status=True,
-                send_staff_comment=True,
-            )
-            if ok:
-                st.success("一気送信できました！")
-        except Exception as e:
-            st.error(f"一気送信失敗です: {e}")
-
-    if bulk_send_gemini:
-        try:
-            # 毎回、今画面に見えている入力内容から Gemini を再生成する
-            generated_status, generated_support = generate_bee_texts(
-                resident_name=resident_name,
-                service_type=service_type,
-                meal_flag=meal_flag,
-                note_text=preview_note,
-                start_memo=start_memo,
-                end_memo=end_memo,
-                staff_name=staff_name,
-                plan_text=plan_text,
-                examples_text=examples_text,
-                rule_text=loaded_rule_text,
-            )
-
-            # 今回生成した内容で session_state を上書き
-            st.session_state["bee_generated_status"] = generated_status
-            st.session_state["bee_generated_support"] = generated_support
-
-            ok = send_to_knowbe_from_bee(
-                company_id=target_company_id,
-                target_date=str(target_date),
-                resident_name=resident_name,
-                service_type=service_type,
-                start_time=start_time,
-                end_time=end_time,
-                meal_flag=meal_flag,
-                note_text=preview_note,
-                generated_status=generated_status,
-                generated_support=generated_support,
-                staff_name=staff_name,
-                knowbe_target="bulk_gemini",
-                work_start_time=work_start_time,
-                work_end_time=work_end_time,
-                work_break_time=work_break_time,
-                work_memo="",
-                login_username=resolved_knowbe_user,
-                login_password=resolved_knowbe_pw,
-                send_user_status=True,
-                send_staff_comment=True,
-            )
-
-            if ok:
-                st.success("Gemini文で一気送信できました！")
-
-                # 送信後は古い生成文が残って次回に混ざらないように消す
                 st.session_state.pop("bee_generated_status", None)
                 st.session_state.pop("bee_generated_support", None)
 
