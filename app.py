@@ -1919,18 +1919,20 @@ ID: {room_id}
                 if room_msgs.empty:
                     st.info("まだ投稿がありません。")
                 else:
+                    import html
+
                     current_user_name = str(st.session_state.get("user", "")).strip()
                     current_user_id = str(st.session_state.get("user_id", "")).strip()
 
                     for _, msg in room_msgs.iterrows():
                         display_name = str(msg.get("display_name", "")).strip()
                         message_user_id = str(msg.get("user_id", "")).strip()
-                        company_id = str(msg.get("company_id", "")).strip()
                         message_text = str(msg.get("message_text", "")).strip()
                         created_at = str(msg.get("created_at", "")).strip()
                         has_attachment = str(msg.get("has_attachment", "")).strip()
                         linked_file_id = str(msg.get("linked_file_id", "")).strip()
 
+                        # 自分の投稿か判定
                         is_me = False
                         if current_user_id and message_user_id:
                             is_me = (current_user_id == message_user_id)
@@ -1938,55 +1940,46 @@ ID: {room_id}
                             is_me = (current_user_name == display_name)
 
                         justify = "flex-end" if is_me else "flex-start"
-                        bubble_bg = "#D9F1FF" if is_me else "#E5E7EB"
+                        bubble_bg = "#CFEFFF" if is_me else "#E5E7EB"
                         text_color = "#111827"
                         meta_color = "#6B7280"
                         border_radius = "18px 18px 4px 18px" if is_me else "18px 18px 18px 4px"
 
+                        safe_name = html.escape(display_name)
+                        safe_text = html.escape(message_text).replace("\n", "<br>")
+                        safe_time = html.escape(created_at)
+
+                        # 相手だけ名前表示
+                        sender_html = ""
+                        if not is_me and safe_name:
+                            sender_html = f"""
+<span style="display:block;margin-bottom:4px;font-size:12px;color:{meta_color};font-weight:600;">
+{safe_name}
+</span>
+"""
+
                         attach_html = ""
                         if has_attachment == "1" and linked_file_id:
+                            safe_file_id = html.escape(linked_file_id)
                             attach_html = f"""
-                            <div style="margin-top:6px;font-size:12px;color:#2563eb;">
-                                📎 添付あり（倉庫ID: {linked_file_id}）
-                            </div>
-                            """
+<span style="display:block;margin-top:6px;font-size:12px;color:#2563eb;">
+📎 添付あり（倉庫ID: {safe_file_id}）
+</span>
+"""
 
-                        name_html = ""
-                        if not is_me and display_name:
-                            name_html = f"""
-                            <div style="margin-bottom:4px;font-size:12px;color:{meta_color};font-weight:600;">
-                                {display_name}
-                            </div>
-                            """
-
-                        time_html = f"""
-                        <div style="margin-top:6px;font-size:11px;color:{meta_color};text-align:right;">
-                            {created_at}
-                        </div>
-                        """
-
-                        st.markdown(
-                            f"""
-                            <div style="display:flex;justify-content:{justify};margin-bottom:12px;">
-                                <div style="
-                                    max-width:72%;
-                                    background:{bubble_bg};
-                                    color:{text_color};
-                                    padding:12px 14px;
-                                    border-radius:{border_radius};
-                                    box-shadow:0 1px 2px rgba(0,0,0,0.08);
-                                    white-space:pre-wrap;
-                                    word-break:break-word;
-                                ">
-                                    {name_html}
-                                    <div style="font-size:16px;line-height:1.5;">{message_text}</div>
-                                    {attach_html}
-                                    {time_html}
-                                </div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
+                        bubble_html = f"""
+<div style="display:flex;justify-content:{justify};margin-bottom:12px;">
+  <div style="max-width:72%;background:{bubble_bg};color:{text_color};padding:10px 14px;border-radius:{border_radius};box-shadow:0 1px 2px rgba(0,0,0,0.08);">
+    {sender_html}
+    <span style="display:block;font-size:16px;line-height:1.5;word-break:break-word;">{safe_text}</span>
+    {attach_html}
+    <span style="display:block;margin-top:6px;font-size:11px;color:{meta_color};text-align:right;">
+      {safe_time}
+    </span>
+  </div>
+</div>
+"""
+                        st.markdown(bubble_html, unsafe_allow_html=True)
                         
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
