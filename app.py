@@ -1782,6 +1782,9 @@ def render_chat_room_page():
                 safe_desc = desc if desc else "説明なし"
                 is_selected = str(st.session_state.get("selected_room_id", "")).strip() == room_id
                 border_style = "2px solid #111827" if is_selected else "1px solid #E5E7EB"
+                bg_color = "#E5E7EB" if is_selected else bg_color
+                is_selected = str(st.session_state.get("selected_room_id", "")).strip() == room_id
+                bg_color = "#E5E7EB" if is_selected else bg_color
 
                 card_html = f"""
 <div style="background:{bg_color};border-left:8px solid {line_color};border:{border_style};border-radius:14px;padding:16px 18px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
@@ -1798,7 +1801,18 @@ def render_chat_room_page():
 
 <div style="margin-top:6px;font-size:14px;color:#4B5563;">
 ID: {room_id}
-</div>
+<div style="margin-top:12px;">
+    <button style="
+        width:100%;
+        padding:8px;
+        border-radius:8px;
+        border:none;
+        background:#2563eb;
+        color:white;
+        font-weight:600;
+    ">
+        詳細を見る
+    </button>
 </div>
 """
                 st.markdown(card_html, unsafe_allow_html=True)
