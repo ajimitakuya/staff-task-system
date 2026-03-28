@@ -8417,8 +8417,6 @@ def render_bee_journal_page():
                 generated_status, generated_support = generate_bee_texts(
                     resident_name=resident_name,
                     service_type=service_type,
-                    start_time=start_time,
-                    end_time=end_time,
                     meal_flag=meal_flag,
                     note_text=preview_note,
                     start_memo=start_memo,
