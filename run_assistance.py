@@ -2389,14 +2389,58 @@ def _find_work_time_inputs(dialog):
 def open_work_record_dialog_from_row(driver, row) -> bool:
     """
     日々の記録の対象行から、作業時間モーダルを開く
+    かなり強引に複数パターンを総当たりする完全版
     """
+    def _dialog_has_work_inputs(dlg):
+        if dlg is None:
+            return False
+
+        try:
+            if dlg.find_elements(By.CSS_SELECTOR, "input[name='workRecord.startTime']"):
+                return True
+        except Exception:
+            pass
+
+        try:
+            txt = (dlg.text or "").strip()
+        except Exception:
+            txt = ""
+
+        return ("作業開始時間" in txt) or ("作業終了時間" in txt) or ("休憩時間" in txt)
+
+    def _wait_work_dialog(timeout=6):
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            dlg = get_top_dialog(driver)
+            if _dialog_has_work_inputs(dlg):
+                return True
+            time.sleep(0.2)
+        return False
+
+    # まず行を中央へ
+    try:
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", row)
+        time.sleep(0.2)
+    except Exception:
+        pass
+
+    # 1. かなり具体的な候補
     xps = [
         ".//button[contains(., '作業時間')]",
         ".//*[contains(normalize-space(.), '作業時間')]/ancestor::button[1]",
+        ".//*[@role='button' and contains(normalize-space(.), '作業時間')]",
         ".//*[@role='button' and contains(normalize-space(.), '作業')]",
+        ".//*[contains(normalize-space(.), '作業')]/ancestor::*[@role='button'][1]",
         ".//*[@role='button' and contains(@id, 'workRecord')]",
+        ".//*[@role='button' and contains(@name, 'workRecord')]",
         ".//button[.//*[contains(normalize-space(.), '作業')]]",
+        ".//button[.//*[contains(normalize-space(.), '時間')]]",
+        ".//td[last()]//button",
+        ".//button",
+        ".//*[@role='button']",
     ]
+
+    tried = []
 
     for xp in xps:
         try:
@@ -2411,42 +2455,206 @@ def open_work_record_dialog_from_row(driver, row) -> bool:
             except Exception:
                 pass
 
+            try:
+                sig = (
+                    (el.text or "").strip(),
+                    el.get_attribute("id") or "",
+                    el.get_attribute("name") or "",
+                    el.get_attribute("class") or "",
+                    el.get_attribute("aria-label") or "",
+                )
+                if sig in tried:
+                    continue
+                tried.append(sig)
+            except Exception:
+                pass
+
+            try:
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+                time.sleep(0.1)
+            except Exception:
+                pass
+
             if safe_click(driver, el):
-                time.sleep(0.5)
-                try:
-                    WebDriverWait(driver, 5).until(
-                        lambda d: get_top_dialog(d) is not None
-                    )
+                time.sleep(0.4)
+                if _wait_work_dialog(timeout=2.5):
+                    print("[DEBUG] work record dialog opened by candidate button", flush=True)
                     return True
+
+                # ダイアログじゃないものを開いた場合は ESC で閉じる
+                try:
+                    ActionChains(driver).send_keys(Keys.ESCAPE).perform()
+                    time.sleep(0.2)
                 except Exception:
                     pass
 
+    # 2. 行内の input / textarea / select の近くにある clickable 要素を総当たり
+    try:
+        clickables = row.find_elements(
+            By.XPATH,
+            ".//*[(self::button or @role='button' or self::svg or self::span or self::div)]"
+        )
+    except Exception:
+        clickables = []
+
+    for el in clickables[:80]:
+        try:
+            if not el.is_displayed():
+                continue
+        except Exception:
+            continue
+
+        try:
+            txt = ((el.text or "") + " " + (el.get_attribute("aria-label") or "")).strip()
+        except Exception:
+            txt = ""
+
+        # なるべく作業/時間に寄せる
+        if txt and ("作業" not in txt and "時間" not in txt and "work" not in txt.lower()):
+            continue
+
+        try:
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+            time.sleep(0.05)
+        except Exception:
+            pass
+
+        if safe_click(driver, el):
+            time.sleep(0.4)
+            if _wait_work_dialog(timeout=2.5):
+                print("[DEBUG] work record dialog opened by fallback clickable", flush=True)
+                return True
+
+            try:
+                ActionChains(driver).send_keys(Keys.ESCAPE).perform()
+                time.sleep(0.2)
+            except Exception:
+                pass
+
+    print("[DEBUG] work record dialog open failed", flush=True)
     return False
 
+
 def fill_work_record_section(driver, root, it):
+    """
+    作業時間ダイアログ内へ
+      - 作業実施チェック
+      - 作業開始時間
+      - 作業終了時間
+      - 休憩時間
+      - メモ
+    を入力する完全版
+    """
     print("FILL_WORK_RECORD_SECTION ENTER", flush=True)
     print(f"[DEBUG] work_start={it.work_start!r}", flush=True)
     print(f"[DEBUG] work_end={it.work_end!r}", flush=True)
     print(f"[DEBUG] work_break={it.work_break!r}", flush=True)
     print(f"[DEBUG] work_memo={it.work_memo!r}", flush=True)
 
-    # 「作業を実施した」チェック
+    def _find_break_input(dialog):
+        # 最優先：name直指定
+        try:
+            el = dialog.find_element(By.CSS_SELECTOR, "input[name='workRecord.breakTime']")
+            if el.is_displayed():
+                return el
+        except Exception:
+            pass
+
+        # ラベル近傍探索
+        labels = []
+        try:
+            labels = dialog.find_elements(
+                By.XPATH,
+                ".//*[normalize-space(text())='休憩時間' or contains(normalize-space(.), '休憩時間')]"
+            )
+        except Exception:
+            labels = []
+
+        for lab in labels:
+            cur = lab
+            for _ in range(6):
+                try:
+                    cur = cur.find_element(By.XPATH, "..")
+                except Exception:
+                    break
+                try:
+                    inputs = cur.find_elements(By.XPATH, ".//input")
+                except Exception:
+                    inputs = []
+                for inp in inputs:
+                    try:
+                        if inp.is_displayed():
+                            return inp
+                    except Exception:
+                        pass
+
+        # 保険
+        try:
+            inputs = dialog.find_elements(By.XPATH, ".//input")
+        except Exception:
+            inputs = []
+
+        visible = []
+        for inp in inputs:
+            try:
+                if inp.is_displayed():
+                    visible.append(inp)
+            except Exception:
+                pass
+
+        # 通常は [開始, 終了, 休憩] の3つ並び
+        if len(visible) >= 3:
+            try:
+                visible = sorted(visible, key=lambda e: (e.location["y"], e.location["x"]))
+            except Exception:
+                pass
+            return visible[2]
+
+        return None
+
+    def _find_memo_area(dialog):
+        try:
+            el = dialog.find_element(By.CSS_SELECTOR, "textarea[name='workRecord.memo']")
+            if el.is_displayed():
+                return el
+        except Exception:
+            pass
+
+        try:
+            areas = dialog.find_elements(By.TAG_NAME, "textarea")
+        except Exception:
+            areas = []
+
+        for ta in areas:
+            try:
+                if ta.is_displayed():
+                    return ta
+            except Exception:
+                pass
+
+        return None
+
+    # 作業を実施した チェック
     try:
         worked_chk = root.find_element(By.CSS_SELECTOR, "input[name='workRecord.worked']")
         print(f"[DEBUG] worked checked before={worked_chk.is_selected()}", flush=True)
         if not worked_chk.is_selected():
             driver.execute_script("arguments[0].click();", worked_chk)
-            time.sleep(0.2)
+            time.sleep(0.3)
     except Exception as e:
         print(f"[DEBUG] worked checkbox error={e}", flush=True)
 
-    # 作業開始・終了
+    # 少し待つ
+    time.sleep(0.3)
+
+    # 開始・終了
     start_el, end_el = _find_work_time_inputs(root)
     print(f"[DEBUG] start_el found={start_el is not None}", flush=True)
     print(f"[DEBUG] end_el found={end_el is not None}", flush=True)
 
     if start_el is not None and str(it.work_start).strip():
         set_input_value(driver, start_el, str(it.work_start).strip())
+        time.sleep(0.15)
         try:
             print(f"[DEBUG] start value after={start_el.get_attribute('value')!r}", flush=True)
         except Exception:
@@ -2454,6 +2662,7 @@ def fill_work_record_section(driver, root, it):
 
     if end_el is not None and str(it.work_end).strip():
         set_input_value(driver, end_el, str(it.work_end).strip())
+        time.sleep(0.15)
         try:
             print(f"[DEBUG] end value after={end_el.get_attribute('value')!r}", flush=True)
         except Exception:
@@ -2461,21 +2670,30 @@ def fill_work_record_section(driver, root, it):
 
     # 休憩
     try:
-        break_el = root.find_element(By.CSS_SELECTOR, "input[name='workRecord.breakTime']")
-        set_input_value(driver, break_el, str(it.work_break).strip() or "0")
-        try:
-            print(f"[DEBUG] break value after={break_el.get_attribute('value')!r}", flush=True)
-        except Exception:
-            pass
+        break_el = _find_break_input(root)
+        print(f"[DEBUG] break_el found={break_el is not None}", flush=True)
+        if break_el is not None:
+            set_input_value(driver, break_el, str(it.work_break).strip() or "0")
+            time.sleep(0.15)
+            try:
+                print(f"[DEBUG] break value after={break_el.get_attribute('value')!r}", flush=True)
+            except Exception:
+                pass
+        else:
+            print("[DEBUG] break input not found", flush=True)
     except Exception as e:
         print(f"[DEBUG] break input error={e}", flush=True)
 
     # メモ
     try:
-        memo_el = root.find_element(By.CSS_SELECTOR, "textarea[name='workRecord.memo']")
-        set_input_value(driver, memo_el, str(it.work_memo).strip())
+        memo_el = _find_memo_area(root)
+        print(f"[DEBUG] memo_el found={memo_el is not None}", flush=True)
+        if memo_el is not None:
+            set_input_value(driver, memo_el, str(it.work_memo).strip())
+            time.sleep(0.1)
     except Exception as e:
         print(f"[DEBUG] memo input error={e}", flush=True)
+
 
 def process_one_daily_record_direct(
     driver,
@@ -2484,10 +2702,12 @@ def process_one_daily_record_direct(
     user_text: str,
     staff_text: str
 ) -> bool:
-    print("🔥 実行開始したある！！！", flush=True)
     """
     app用：Gemini生成済みの本文をそのまま1人分だけ送る
+    作業時間ダイアログ入力まで含めた完全版
     """
+    print("🔥 実行開始したある！！！", flush=True)
+
     if not click_daily_edit_button(driver):
         return False
 
@@ -2510,9 +2730,49 @@ def process_one_daily_record_direct(
         log(f"⚠️ 記録者選択失敗ある: {it.name}")
         return False
 
+    # 作業時間ダイアログ
+    if not open_work_record_dialog_from_row(driver, row):
+        log(f"⚠️ 作業時間ダイアログが開けないある: {it.name}")
+        return False
+
     dialog = get_top_dialog(driver)
-    if dialog is not None:
-        fill_work_record_section(driver, dialog, it)
+    if dialog is None:
+        log(f"⚠️ 作業時間ダイアログ取得失敗ある: {it.name}")
+        return False
+
+    fill_work_record_section(driver, dialog, it)
+
+    # 作業時間ダイアログの保存
+    work_save_btn = None
+    for xp in [
+        ".//button[contains(.,'保存する')]",
+        ".//button[contains(.,'保存')]",
+        ".//button[contains(.,'登録')]",
+        ".//button[contains(.,'更新')]",
+    ]:
+        try:
+            work_save_btn = dialog.find_element(By.XPATH, xp)
+            break
+        except Exception:
+            continue
+
+    if not work_save_btn:
+        dump_debug(driver, f"work_save_btn_not_found_{it.name}")
+        log(f"⚠️ 作業時間保存ボタンが見つからないある: {it.name}")
+        return False
+
+    if not safe_click(driver, work_save_btn):
+        try:
+            driver.execute_script("arguments[0].click();", work_save_btn)
+        except Exception:
+            dump_debug(driver, f"work_save_btn_click_fail_{it.name}")
+            log(f"⚠️ 作業時間保存ボタンが押せないある: {it.name}")
+            return False
+
+    try:
+        WebDriverWait(driver, 10).until(EC.invisibility_of_element(dialog))
+    except Exception:
+        pass
 
     if not click_daily_save_button(driver):
         log(f"⚠️ 日々の記録 保存失敗ある: {it.name}")
@@ -2520,6 +2780,7 @@ def process_one_daily_record_direct(
 
     log(f"✅ 日々の記録 保存成功ある: {it.name}")
     return True
+
 
 def send_one_record_from_app(
     target_date,
@@ -2542,9 +2803,9 @@ def send_one_record_from_app(
     send_user_status=True,
     send_staff_comment=True,
 ):
-    print("RUN_ASSISTANCE_VERSION = 2026-03-28-row-root-worktime-v2", flush=True)
+    print("RUN_ASSISTANCE_VERSION = 2026-03-29-row-root-worktime-final", flush=True)
     """
-    appから1件だけ渡されたデータを Knowbe に送る
+    appから1件だけ渡されたデータを Knowbe に送る完全版
     send_user_status=False なら利用者状態は触らない
     send_staff_comment=False なら職員考察は触らない
     """
@@ -2601,11 +2862,13 @@ def send_one_record_from_app(
         goto_report_date(driver, y, mo, d)
         print("[STEP] goto_report_date done", flush=True)
 
+        # ① 利用実績
         log(f"🏃 app単発 実績処理: {it.name}")
         ok = process_report_edit(driver, it)
         if not ok:
             raise RuntimeError(f"[FATAL] 利用実績の入力失敗ある: {it.name}")
 
+        # ② 日々の記録ページ
         print("[STEP] open_daily_record_page start", flush=True)
         if not open_daily_record_page(driver, y, mo, d):
             raise RuntimeError("[FATAL] 日々の記録ページへ行けないある")
@@ -2616,13 +2879,17 @@ def send_one_record_from_app(
 
         row = find_row_by_name(driver, it.name)
         if row is None:
+            dump_debug(driver, f"daily_row_not_found_{it.name}")
             raise RuntimeError(f"[FATAL] 日々の記録 行発見失敗ある: {it.name}")
 
         work_label = _daily_record_work_label(it)
 
+        # ③ 作業欄
         if not _set_daily_work_for_row(driver, row, work_label):
+            dump_debug(driver, f"daily_work_set_fail_{it.name}")
             raise RuntimeError(f"[FATAL] 作業欄の選択失敗ある: {it.name}")
 
+        # ④ 利用者状態 / 職員考察
         if not _set_daily_textareas_for_row(
             driver,
             row,
@@ -2631,12 +2898,70 @@ def send_one_record_from_app(
             send_user_status=bool(send_user_status),
             send_staff_comment=bool(send_staff_comment),
         ):
+            dump_debug(driver, f"daily_textarea_fail_{it.name}")
             raise RuntimeError(f"[FATAL] 日々の記録 textarea 入力失敗ある: {it.name}")
 
+        # ⑤ 記録者
         if not _set_daily_recorder_for_row(driver, row, staff_name):
+            dump_debug(driver, f"daily_recorder_fail_{it.name}")
             raise RuntimeError(f"[FATAL] 記録者選択失敗ある: {it.name}")
 
+        # ⑥ 作業時間ダイアログを開く
+        if not open_work_record_dialog_from_row(driver, row):
+            dump_debug(driver, f"work_record_dialog_open_fail_{it.name}")
+            raise RuntimeError(f"[FATAL] 作業時間ダイアログが開けないある: {it.name}")
+
+        dialog = get_top_dialog(driver)
+        if dialog is None:
+            dump_debug(driver, f"work_record_dialog_missing_{it.name}")
+            raise RuntimeError(f"[FATAL] 作業時間ダイアログ取得失敗ある: {it.name}")
+
+        # ⑦ 作業開始 / 終了 / 休憩 / メモ 入力
+        fill_work_record_section(driver, dialog, it)
+
+        # ⑧ 作業時間ダイアログの保存
+        work_save_btn = None
+        for xp in [
+            ".//button[contains(.,'保存する')]",
+            ".//button[contains(.,'保存')]",
+            ".//button[contains(.,'登録')]",
+            ".//button[contains(.,'更新')]",
+        ]:
+            try:
+                work_save_btn = dialog.find_element(By.XPATH, xp)
+                break
+            except Exception:
+                continue
+
+        if not work_save_btn:
+            dump_debug(driver, f"work_save_btn_not_found_{it.name}")
+            raise RuntimeError(f"[FATAL] 作業時間保存ボタンが見つからないある: {it.name}")
+
+        for _ in range(25):
+            try:
+                disabled = work_save_btn.get_attribute("disabled")
+                aria_disabled = (work_save_btn.get_attribute("aria-disabled") or "").lower()
+                if disabled is None and aria_disabled != "true":
+                    break
+            except Exception:
+                pass
+            time.sleep(0.12)
+
+        if not safe_click(driver, work_save_btn):
+            try:
+                driver.execute_script("arguments[0].click();", work_save_btn)
+            except Exception:
+                dump_debug(driver, f"work_save_click_fail_{it.name}")
+                raise RuntimeError(f"[FATAL] 作業時間保存ボタンが押せないある: {it.name}")
+
+        try:
+            WebDriverWait(driver, 10).until(EC.invisibility_of_element(dialog))
+        except Exception:
+            pass
+
+        # ⑨ 日々の記録ページ全体の保存
         if not click_daily_save_button(driver):
+            dump_debug(driver, f"daily_save_fail_{it.name}")
             raise RuntimeError(f"[FATAL] 日々の記録 保存失敗ある: {it.name}")
 
         log("🎊 app単発送信 完了ある！")
