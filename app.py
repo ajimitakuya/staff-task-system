@@ -1678,38 +1678,6 @@ def render_contact_page():
             st.rerun()
 
 def render_chat_room_page():
-
-    st.markdown("""
-    <style>
-
-    /* 全ボタンをまず白＋黒枠にする */
-    div.stButton > button {
-        background: white !important;
-        color: #111827 !important;
-        border: 1px solid #111827 !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-    }
-
-    /* hover */
-    div.stButton > button:hover {
-        background: #f9fafb !important;
-    }
-
-    /* 「詳細を見る」だけ青にする */
-    button[data-testid="baseButton-secondary"][id^="select_room_"] {
-        background: #2563eb !important;
-        color: white !important;
-        border: none !important;
-    }
-
-    button[data-testid="baseButton-secondary"][id^="select_room_"]:hover {
-        background: #1d4ed8 !important;
-    }
-
-    </style>
-    """, unsafe_allow_html=True)
-
     st.title("💬 チャットルーム")
     st.caption("ルーム一覧・新規作成・投稿ができます。")
 
@@ -1728,12 +1696,22 @@ def render_chat_room_page():
     top_cols = st.columns([1, 1])
 
     with top_cols[0]:
-        if st.button("← 休憩室へ戻る", key="back_break_room", use_container_width=True):
+        if st.button(
+            "← 休憩室へ戻る",
+            key="back_break_room",
+            use_container_width=True,
+            type="secondary",
+        ):
             st.session_state.current_page = "休憩室"
             st.rerun()
 
     with top_cols[1]:
-        if st.button("選択中ルームを解除", key="clear_selected_room", use_container_width=True):
+        if st.button(
+            "選択中ルームを解除",
+            key="clear_selected_room",
+            use_container_width=True,
+            type="secondary",
+        ):
             st.session_state.selected_room_id = ""
             st.session_state.pending_room_id = ""
             st.session_state.pending_room_type = ""
@@ -1755,7 +1733,12 @@ def render_chat_room_page():
         )
         room_description = st.text_area("説明", key="new_room_description", height=80)
 
-        if st.button("ルームを作成", key="create_new_room_button", use_container_width=True):
+        if st.button(
+            "ルームを作成",
+            key="create_new_room_button",
+            use_container_width=True,
+            type="secondary",
+        ):
             if not room_name.strip():
                 st.error("ルーム名を入れてください。")
             elif room_type == "limited" and not room_password.strip():
@@ -1815,46 +1798,33 @@ def render_chat_room_page():
                 is_selected = str(st.session_state.get("selected_room_id", "")).strip() == room_id
                 border_style = "2px solid #111827" if is_selected else "1px solid #E5E7EB"
                 bg_color = "#E5E7EB" if is_selected else bg_color
-                is_selected = str(st.session_state.get("selected_room_id", "")).strip() == room_id
-                bg_color = "#E5E7EB" if is_selected else bg_color
 
                 card_html = f"""
-                <div style="background:{bg_color};border-left:8px solid {line_color};border:{border_style};border-radius:14px;padding:16px 18px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-                <div style="font-size:24px;font-weight:700;color:#1F2937;line-height:1.2;">{room_name}</div>
+<div style="background:{bg_color};border-left:8px solid {line_color};border:{border_style};border-radius:14px;padding:16px 18px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+<div style="font-size:24px;font-weight:700;color:#1F2937;line-height:1.2;">{room_name}</div>
 
-                <div style="margin-top:10px;font-size:15px;color:#374151;">
-                <span style="display:inline-block;width:12px;height:12px;border-radius:999px;background:{dot_color};margin-right:8px;vertical-align:middle;"></span>
-                {room_type_label}
-                </div>
+<div style="margin-top:10px;font-size:15px;color:#374151;">
+<span style="display:inline-block;width:12px;height:12px;border-radius:999px;background:{dot_color};margin-right:8px;vertical-align:middle;"></span>
+{room_type_label}
+</div>
 
-                <div style="margin-top:10px;font-size:14px;color:#4B5563;">
-                説明: {safe_desc}
-                </div>
+<div style="margin-top:10px;font-size:14px;color:#4B5563;">
+説明: {safe_desc}
+</div>
 
-                <div style="margin-top:6px;font-size:14px;color:#4B5563;">
-                ID: {room_id}
-                </div>
-                </div>
-                """
+<div style="margin-top:6px;font-size:14px;color:#4B5563;">
+ID: {room_id}
+</div>
+</div>
+"""
                 st.markdown(card_html, unsafe_allow_html=True)
 
-                st.markdown("""
-                <style>
-                div.stButton > button {
-                    background: #2563eb !important;
-                    color: white !important;
-                    font-weight: 600 !important;
-                    border: none !important;
-                    border-radius: 8px !important;
-                }
-                div.stButton > button:hover {
-                    background: #1d4ed8 !important;
-                    color: white !important;
-                }
-                </style>
-                """, unsafe_allow_html=True)  
-
-                if st.button("詳細を見る", key=f"select_room_{room_id}", use_container_width=True):
+                if st.button(
+                    "詳細を見る",
+                    key=f"select_room_{room_id}",
+                    use_container_width=True,
+                    type="primary",
+                ):
                     if room_type == "limited":
                         st.session_state.pending_room_id = room_id
                         st.session_state.pending_room_type = room_type
@@ -1869,7 +1839,12 @@ def render_chat_room_page():
             st.markdown("### パスワード入力")
             pw = st.text_input("ルームパスワード", type="password", key="room_access_password")
 
-            if st.button("入室する", key="enter_limited_room", use_container_width=True):
+            if st.button(
+                "入室する",
+                key="enter_limited_room",
+                use_container_width=True,
+                type="secondary",
+            ):
                 room_id = st.session_state.get("pending_room_id", "")
                 target = rooms_df[rooms_df["room_id"].astype(str) == str(room_id)].copy()
 
@@ -1914,7 +1889,12 @@ def render_chat_room_page():
                     key=f"chat_attach_{selected_room_id}"
                 )
 
-                if st.button("投稿する", key="chat_post_button", use_container_width=True):
+                if st.button(
+                    "投稿する",
+                    key="chat_post_button",
+                    use_container_width=True,
+                    type="secondary",
+                ):
                     if not post_text.strip() and attached_file is None:
                         st.error("メッセージか添付のどちらかを入れてください。")
                     else:
@@ -1961,7 +1941,6 @@ def render_chat_room_page():
                             """,
                             unsafe_allow_html=True
                         )
-
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
     st.caption("現在ログインしている自分を、別の事業所にも登録するページです。")
