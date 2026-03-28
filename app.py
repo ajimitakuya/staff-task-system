@@ -1808,19 +1808,19 @@ def render_chat_room_page():
 
                 st.markdown("""
                 <style>
-                div.stButton > button[kind="secondary"] {
+                div.stButton > button {
                     background: #2563eb !important;
                     color: white !important;
                     font-weight: 600 !important;
                     border: none !important;
                     border-radius: 8px !important;
                 }
-                div.stButton > button[kind="secondary"]:hover {
+                div.stButton > button:hover {
                     background: #1d4ed8 !important;
                     color: white !important;
                 }
                 </style>
-                """, unsafe_allow_html=True)                
+                """, unsafe_allow_html=True)  
 
                 if st.button("詳細を見る", key=f"select_room_{room_id}", use_container_width=True):
                     if room_type == "limited":
