@@ -2380,37 +2380,54 @@ def _find_work_time_inputs(dialog):
 
 
 def fill_work_record_section(driver, dialog, it):
+    print(f"[DEBUG] work_start={it.work_start!r}", flush=True)
+    print(f"[DEBUG] work_end={it.work_end!r}", flush=True)
+    print(f"[DEBUG] work_break={it.work_break!r}", flush=True)
+    print(f"[DEBUG] work_memo={it.work_memo!r}", flush=True)
+
     # 「作業を実施した」チェック
     try:
         worked_chk = dialog.find_element(By.CSS_SELECTOR, "input[name='workRecord.worked']")
+        print(f"[DEBUG] worked checked before={worked_chk.is_selected()}", flush=True)
         if not worked_chk.is_selected():
             driver.execute_script("arguments[0].click();", worked_chk)
             time.sleep(0.2)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[DEBUG] worked checkbox error={e}", flush=True)
 
-    # 作業開始・終了
     start_el, end_el = _find_work_time_inputs(dialog)
+    print(f"[DEBUG] start_el found={start_el is not None}", flush=True)
+    print(f"[DEBUG] end_el found={end_el is not None}", flush=True)
 
     if start_el is not None and str(it.work_start).strip():
         set_input_value(driver, start_el, str(it.work_start).strip())
+        try:
+            print(f"[DEBUG] start value after={start_el.get_attribute('value')!r}", flush=True)
+        except Exception:
+            pass
 
     if end_el is not None and str(it.work_end).strip():
         set_input_value(driver, end_el, str(it.work_end).strip())
+        try:
+            print(f"[DEBUG] end value after={end_el.get_attribute('value')!r}", flush=True)
+        except Exception:
+            pass
 
-    # 休憩
     try:
         break_el = dialog.find_element(By.CSS_SELECTOR, "input[name='workRecord.breakTime']")
         set_input_value(driver, break_el, str(it.work_break).strip() or "0")
-    except Exception:
-        pass
+        try:
+            print(f"[DEBUG] break value after={break_el.get_attribute('value')!r}", flush=True)
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"[DEBUG] break input error={e}", flush=True)
 
-    # メモ
     try:
         memo_el = dialog.find_element(By.CSS_SELECTOR, "textarea[name='workRecord.memo']")
         set_input_value(driver, memo_el, str(it.work_memo).strip())
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[DEBUG] memo input error={e}", flush=True)
 
 def process_one_daily_record_direct(
     driver,
