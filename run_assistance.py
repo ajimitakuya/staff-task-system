@@ -2379,7 +2379,7 @@ def _find_work_time_inputs(dialog):
     return start_el, end_el
 
 
-def fill_work_record_section(driver, dialog, it):
+def fill_work_record_section(driver, root, it):
     print(f"[DEBUG] work_start={it.work_start!r}", flush=True)
     print(f"[DEBUG] work_end={it.work_end!r}", flush=True)
     print(f"[DEBUG] work_break={it.work_break!r}", flush=True)
@@ -2387,7 +2387,7 @@ def fill_work_record_section(driver, dialog, it):
 
     # 「作業を実施した」チェック
     try:
-        worked_chk = dialog.find_element(By.CSS_SELECTOR, "input[name='workRecord.worked']")
+        worked_chk = root.find_element(By.CSS_SELECTOR, "input[name='workRecord.worked']")
         print(f"[DEBUG] worked checked before={worked_chk.is_selected()}", flush=True)
         if not worked_chk.is_selected():
             driver.execute_script("arguments[0].click();", worked_chk)
@@ -2395,7 +2395,8 @@ def fill_work_record_section(driver, dialog, it):
     except Exception as e:
         print(f"[DEBUG] worked checkbox error={e}", flush=True)
 
-    start_el, end_el = _find_work_time_inputs(dialog)
+    # 作業開始・終了
+    start_el, end_el = _find_work_time_inputs(root)
     print(f"[DEBUG] start_el found={start_el is not None}", flush=True)
     print(f"[DEBUG] end_el found={end_el is not None}", flush=True)
 
@@ -2413,8 +2414,9 @@ def fill_work_record_section(driver, dialog, it):
         except Exception:
             pass
 
+    # 休憩
     try:
-        break_el = dialog.find_element(By.CSS_SELECTOR, "input[name='workRecord.breakTime']")
+        break_el = root.find_element(By.CSS_SELECTOR, "input[name='workRecord.breakTime']")
         set_input_value(driver, break_el, str(it.work_break).strip() or "0")
         try:
             print(f"[DEBUG] break value after={break_el.get_attribute('value')!r}", flush=True)
@@ -2423,8 +2425,9 @@ def fill_work_record_section(driver, dialog, it):
     except Exception as e:
         print(f"[DEBUG] break input error={e}", flush=True)
 
+    # メモ
     try:
-        memo_el = dialog.find_element(By.CSS_SELECTOR, "textarea[name='workRecord.memo']")
+        memo_el = root.find_element(By.CSS_SELECTOR, "textarea[name='workRecord.memo']")
         set_input_value(driver, memo_el, str(it.work_memo).strip())
     except Exception as e:
         print(f"[DEBUG] memo input error={e}", flush=True)
@@ -2587,11 +2590,7 @@ def send_one_record_from_app(
         if not _set_daily_recorder_for_row(driver, row, staff_name):
             raise RuntimeError(f"[FATAL] 記録者選択失敗ある: {it.name}")
 
-        dialog = get_top_dialog(driver)
-        if dialog is not None:
-            fill_work_record_section(driver, dialog, it)
-        else:
-            print("[DEBUG] work record dialog not found", flush=True)
+        fill_work_record_section(driver, row, it)
 
         if not click_daily_save_button(driver):
             raise RuntimeError(f"[FATAL] 日々の記録 保存失敗ある: {it.name}")
