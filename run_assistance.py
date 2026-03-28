@@ -2378,8 +2378,45 @@ def _find_work_time_inputs(dialog):
 
     return start_el, end_el
 
+def open_work_record_dialog_from_row(driver, row) -> bool:
+    """
+    日々の記録の対象行から、作業時間モーダルを開く
+    """
+    xps = [
+        ".//button[contains(., '作業時間')]",
+        ".//*[contains(normalize-space(.), '作業時間')]/ancestor::button[1]",
+        ".//*[@role='button' and contains(normalize-space(.), '作業')]",
+        ".//*[@role='button' and contains(@id, 'workRecord')]",
+        ".//button[.//*[contains(normalize-space(.), '作業')]]",
+    ]
+
+    for xp in xps:
+        try:
+            els = row.find_elements(By.XPATH, xp)
+        except Exception:
+            els = []
+
+        for el in els:
+            try:
+                if not el.is_displayed():
+                    continue
+            except Exception:
+                pass
+
+            if safe_click(driver, el):
+                time.sleep(0.5)
+                try:
+                    WebDriverWait(driver, 5).until(
+                        lambda d: get_top_dialog(d) is not None
+                    )
+                    return True
+                except Exception:
+                    pass
+
+    return False
 
 def fill_work_record_section(driver, root, it):
+    print("FILL_WORK_RECORD_SECTION ENTER", flush=True)
     print(f"[DEBUG] work_start={it.work_start!r}", flush=True)
     print(f"[DEBUG] work_end={it.work_end!r}", flush=True)
     print(f"[DEBUG] work_break={it.work_break!r}", flush=True)
@@ -2591,7 +2628,15 @@ def send_one_record_from_app(
         if not _set_daily_recorder_for_row(driver, row, staff_name):
             raise RuntimeError(f"[FATAL] 記録者選択失敗ある: {it.name}")
 
-        fill_work_record_section(driver, row, it)
+        if open_work_record_dialog_from_row(driver, row):
+            dlg = get_top_dialog(driver)
+            if dlg is not None:
+                print("[DEBUG] work record dialog opened", flush=True)
+                fill_work_record_section(driver, dlg, it)
+            else:
+                print("[DEBUG] dialog opened but get_top_dialog returned None", flush=True)
+        else:
+            print("[DEBUG] work record dialog open failed", flush=True)
 
         if not click_daily_save_button(driver):
             raise RuntimeError(f"[FATAL] 日々の記録 保存失敗ある: {it.name}")
