@@ -2570,6 +2570,12 @@ def send_one_record_from_app(
         if not _set_daily_recorder_for_row(driver, row, staff_name):
             raise RuntimeError(f"[FATAL] 記録者選択失敗ある: {it.name}")
 
+        dialog = get_top_dialog(driver)
+        if dialog is not None:
+            fill_work_record_section(driver, dialog, it)
+        else:
+            print("[DEBUG] work record dialog not found", flush=True)
+
         if not click_daily_save_button(driver):
             raise RuntimeError(f"[FATAL] 日々の記録 保存失敗ある: {it.name}")
 
