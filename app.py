@@ -8341,28 +8341,28 @@ def render_bee_journal_page():
 
     with send_memo_cols[0]:
         start_send_raw = st.button(
-            "開始メモを\n編集無しでknowbeへ送信",
+            "<利用者状態欄>\n開始メモをだけを入力した\n文章のままknowbeへ送信",
             key="bee_send_start_raw",
             use_container_width=True
         )
 
     with send_memo_cols[1]:
         start_send_gemini = st.button(
-            "開始メモを\nGeminiで編集してknowbeへ送信",
+            "<職員考察欄>\n開始メモをだけをGeminiで\n文を編集してknowbeへ送信",
             key="bee_send_start_gemini",
             use_container_width=True
         )
 
     with send_memo_cols[2]:
         end_send_raw = st.button(
-            "終了メモを\n編集無しでknowbeへ送信",
+            "<利用者状態欄>\n終了メモをだけを入力した\n文章のままknowbeへ送信",
             key="bee_send_end_raw",
             use_container_width=True
         )
 
     with send_memo_cols[3]:
         end_send_gemini = st.button(
-            "終了メモを\nGeminiで編集してknowbeへ送信",
+            "<職員考察欄>\n終了メモをだけをGeminiで\n文を編集してknowbeへ送信",
             key="bee_send_end_gemini",
             use_container_width=True
         )
