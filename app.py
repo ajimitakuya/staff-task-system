@@ -8151,7 +8151,7 @@ def render_bee_journal_page():
 
     work_time_col1, work_time_col2, work_time_col3 = st.columns(3)
 
-    with work_time_col1]:
+    with work_time_col1:
         work_start_time = st.text_input(
             "作業開始時間",
             value=st.session_state.get("bee_work_start_time", start_time),
