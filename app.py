@@ -1754,7 +1754,6 @@ def render_chat_room_page():
             work = rooms_df.copy()
             work = work[work["status"].astype(str).str.strip().str.lower() == "active"].copy()
 
-            # 部屋タイプは public / limited の2種類だけ扱う
             work["room_type"] = work["room_type"].fillna("").astype(str).str.strip().str.lower()
             work = work[work["room_type"].isin(["public", "limited"])].copy()
 
@@ -1784,45 +1783,25 @@ def render_chat_room_page():
                 is_selected = str(st.session_state.get("selected_room_id", "")).strip() == room_id
                 border_style = "2px solid #111827" if is_selected else "1px solid #E5E7EB"
 
-                st.markdown(
-                    f"""
-                    <div style="
-                        background:{bg_color};
-                        border-left:8px solid {line_color};
-                        border:{border_style};
-                        border-radius:14px;
-                        padding:16px 18px;
-                        margin-bottom:10px;
-                        box-shadow:0 1px 3px rgba(0,0,0,0.05);
-                    ">
-                        <div style="font-size:24px;font-weight:700;color:#1F2937;line-height:1.2;">
-                            {room_name}
-                        </div>
+                card_html = f"""
+<div style="background:{bg_color};border-left:8px solid {line_color};border:{border_style};border-radius:14px;padding:16px 18px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+<div style="font-size:24px;font-weight:700;color:#1F2937;line-height:1.2;">{room_name}</div>
 
-                        <div style="margin-top:10px;font-size:15px;color:#374151;">
-                            <span style="
-                                display:inline-block;
-                                width:12px;
-                                height:12px;
-                                border-radius:999px;
-                                background:{dot_color};
-                                margin-right:8px;
-                                vertical-align:middle;
-                            "></span>
-                            {room_type_label}
-                        </div>
+<div style="margin-top:10px;font-size:15px;color:#374151;">
+<span style="display:inline-block;width:12px;height:12px;border-radius:999px;background:{dot_color};margin-right:8px;vertical-align:middle;"></span>
+{room_type_label}
+</div>
 
-                        <div style="margin-top:10px;font-size:14px;color:#4B5563;">
-                            説明: {safe_desc}
-                        </div>
+<div style="margin-top:10px;font-size:14px;color:#4B5563;">
+説明: {safe_desc}
+</div>
 
-                        <div style="margin-top:6px;font-size:14px;color:#4B5563;">
-                            ID: {room_id}
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+<div style="margin-top:6px;font-size:14px;color:#4B5563;">
+ID: {room_id}
+</div>
+</div>
+"""
+                st.markdown(card_html, unsafe_allow_html=True)
 
                 if st.button("詳細を見る", key=f"select_room_{room_id}", use_container_width=True):
                     if room_type == "limited":
@@ -8413,9 +8392,9 @@ def render_bee_journal_page():
         for err in time_errors:
             st.error(err)
 
-    st.caption(f"DEBUG 個人ルール読込: {loaded_rule_text!r}")
-    st.caption(f"DEBUG start_memo: {start_memo!r}")
-    st.caption(f"DEBUG end_memo: {end_memo!r}")
+    # st.caption(f"DEBUG 個人ルール読込: {loaded_rule_text!r}")
+    # st.caption(f"DEBUG start_memo: {start_memo!r}")
+    # st.caption(f"DEBUG end_memo: {end_memo!r}")
 
     send_cols = st.columns([1, 1])
 
