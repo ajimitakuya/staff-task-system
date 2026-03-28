@@ -1919,10 +1919,6 @@ ID: {room_id}
                 if room_msgs.empty:
                     st.info("まだ投稿がありません。")
                 else:
-                    for _, msg in room_msgs.iterrows():
-                if room_msgs.empty:
-                    st.info("まだ投稿がありません。")
-                else:
                     current_user_name = str(st.session_state.get("user", "")).strip()
                     current_user_id = str(st.session_state.get("user_id", "")).strip()
 
@@ -1935,18 +1931,16 @@ ID: {room_id}
                         has_attachment = str(msg.get("has_attachment", "")).strip()
                         linked_file_id = str(msg.get("linked_file_id", "")).strip()
 
-                        # 自分の投稿か判定
                         is_me = False
                         if current_user_id and message_user_id:
                             is_me = (current_user_id == message_user_id)
                         elif current_user_name and display_name:
                             is_me = (current_user_name == display_name)
 
-                        # LINE風の左右寄せ・色分け
                         justify = "flex-end" if is_me else "flex-start"
-                        bubble_bg = "#D9F1FF" if is_me else "#E5E7EB"   # 自分=薄い水色 / 相手=薄い灰色
-                        text_color = "#111827"                           # 黒文字
-                        meta_color = "#4B5563"
+                        bubble_bg = "#D9F1FF" if is_me else "#E5E7EB"
+                        text_color = "#111827"
+                        meta_color = "#6B7280"
                         border_radius = "18px 18px 4px 18px" if is_me else "18px 18px 18px 4px"
 
                         attach_html = ""
@@ -1956,6 +1950,20 @@ ID: {room_id}
                                 📎 添付あり（倉庫ID: {linked_file_id}）
                             </div>
                             """
+
+                        name_html = ""
+                        if not is_me and display_name:
+                            name_html = f"""
+                            <div style="margin-bottom:4px;font-size:12px;color:{meta_color};font-weight:600;">
+                                {display_name}
+                            </div>
+                            """
+
+                        time_html = f"""
+                        <div style="margin-top:6px;font-size:11px;color:{meta_color};text-align:right;">
+                            {created_at}
+                        </div>
+                        """
 
                         st.markdown(
                             f"""
@@ -1970,11 +1978,10 @@ ID: {room_id}
                                     white-space:pre-wrap;
                                     word-break:break-word;
                                 ">
+                                    {name_html}
                                     <div style="font-size:16px;line-height:1.5;">{message_text}</div>
                                     {attach_html}
-                                    <div style="margin-top:6px;font-size:12px;color:{meta_color};">
-                                        {display_name} / {company_id} / {created_at}
-                                    </div>
+                                    {time_html}
                                 </div>
                             </div>
                             """,
