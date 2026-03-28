@@ -1269,8 +1269,9 @@ def process_report_edit(driver, it: PersonItem) -> bool:
             close_dialog_if_open(driver)
             return False
 
-        # ← ここに追加
+        print("[DEBUG] before fill_work_record_section in process_report_edit", flush=True)
         fill_work_record_section(driver, dlg, it)
+        print("[DEBUG] after fill_work_record_section in process_report_edit", flush=True)
 
         # 保存
         save_btn = None
