@@ -2497,6 +2497,7 @@ def send_one_record_from_app(
     send_user_status=True,
     send_staff_comment=True,
 ):
+    print("RUN_ASSISTANCE_VERSION = 2026-03-28-row-root-worktime-v2", flush=True)
     """
     appから1件だけ渡されたデータを Knowbe に送る
     send_user_status=False なら利用者状態は触らない
@@ -2629,6 +2630,10 @@ def main():
             knowbe_target=os.environ.get("KB_KNOWBE_TARGET", ""),
             login_username=login_username,
             login_password=login_password,
+            work_start_time=os.environ.get("KB_WORK_START_TIME", ""),
+            work_end_time=os.environ.get("KB_WORK_END_TIME", ""),
+            work_break_time=os.environ.get("KB_WORK_BREAK_TIME", "0"),
+            work_memo=os.environ.get("KB_WORK_MEMO", ""),
         )
         return
 
