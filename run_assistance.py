@@ -2704,7 +2704,7 @@ def process_one_daily_record_direct(
 ) -> bool:
     """
     app用：Gemini生成済みの本文をそのまま1人分だけ送る
-    作業時間ダイアログ入力まで含めた完全版
+    ※ 作業時間は process_report_edit 側で入力済み前提
     """
     print("🔥 実行開始したある！！！", flush=True)
 
@@ -2729,6 +2729,13 @@ def process_one_daily_record_direct(
     if not _set_daily_recorder_for_row(driver, row, recorder_name):
         log(f"⚠️ 記録者選択失敗ある: {it.name}")
         return False
+
+    if not click_daily_save_button(driver):
+        log(f"⚠️ 日々の記録 保存失敗ある: {it.name}")
+        return False
+
+    log(f"✅ 日々の記録 保存成功ある: {it.name}")
+    return True
 
     # 作業時間ダイアログ
     if not open_work_record_dialog_from_row(driver, row):
@@ -2803,11 +2810,11 @@ def send_one_record_from_app(
     send_user_status=True,
     send_staff_comment=True,
 ):
-    print("RUN_ASSISTANCE_VERSION = 2026-03-29-row-root-worktime-final", flush=True)
+    print("RUN_ASSISTANCE_VERSION = 2026-03-29-row-root-worktime-final2", flush=True)
     """
     appから1件だけ渡されたデータを Knowbe に送る完全版
-    send_user_status=False なら利用者状態は触らない
-    send_staff_comment=False なら職員考察は触らない
+    作業時間は 利用実績モーダル(process_report_edit) 側で入力する。
+    日々の記録ページでは、作業時間ダイアログは開かない。
     """
     if not target_date:
         raise RuntimeError("[FATAL] target_date が空ある")
@@ -2863,6 +2870,7 @@ def send_one_record_from_app(
         print("[STEP] goto_report_date done", flush=True)
 
         # ① 利用実績
+        # ここで開始時間・終了時間・休憩時間・作業メモまで入力する
         log(f"🏃 app単発 実績処理: {it.name}")
         ok = process_report_edit(driver, it)
         if not ok:
@@ -2906,60 +2914,8 @@ def send_one_record_from_app(
             dump_debug(driver, f"daily_recorder_fail_{it.name}")
             raise RuntimeError(f"[FATAL] 記録者選択失敗ある: {it.name}")
 
-        # ⑥ 作業時間ダイアログを開く
-        if not open_work_record_dialog_from_row(driver, row):
-            dump_debug(driver, f"work_record_dialog_open_fail_{it.name}")
-            raise RuntimeError(f"[FATAL] 作業時間ダイアログが開けないある: {it.name}")
-
-        dialog = get_top_dialog(driver)
-        if dialog is None:
-            dump_debug(driver, f"work_record_dialog_missing_{it.name}")
-            raise RuntimeError(f"[FATAL] 作業時間ダイアログ取得失敗ある: {it.name}")
-
-        # ⑦ 作業開始 / 終了 / 休憩 / メモ 入力
-        fill_work_record_section(driver, dialog, it)
-
-        # ⑧ 作業時間ダイアログの保存
-        work_save_btn = None
-        for xp in [
-            ".//button[contains(.,'保存する')]",
-            ".//button[contains(.,'保存')]",
-            ".//button[contains(.,'登録')]",
-            ".//button[contains(.,'更新')]",
-        ]:
-            try:
-                work_save_btn = dialog.find_element(By.XPATH, xp)
-                break
-            except Exception:
-                continue
-
-        if not work_save_btn:
-            dump_debug(driver, f"work_save_btn_not_found_{it.name}")
-            raise RuntimeError(f"[FATAL] 作業時間保存ボタンが見つからないある: {it.name}")
-
-        for _ in range(25):
-            try:
-                disabled = work_save_btn.get_attribute("disabled")
-                aria_disabled = (work_save_btn.get_attribute("aria-disabled") or "").lower()
-                if disabled is None and aria_disabled != "true":
-                    break
-            except Exception:
-                pass
-            time.sleep(0.12)
-
-        if not safe_click(driver, work_save_btn):
-            try:
-                driver.execute_script("arguments[0].click();", work_save_btn)
-            except Exception:
-                dump_debug(driver, f"work_save_click_fail_{it.name}")
-                raise RuntimeError(f"[FATAL] 作業時間保存ボタンが押せないある: {it.name}")
-
-        try:
-            WebDriverWait(driver, 10).until(EC.invisibility_of_element(dialog))
-        except Exception:
-            pass
-
-        # ⑨ 日々の記録ページ全体の保存
+        # ⑥ 日々の記録ページ全体の保存
+        # ※ 作業時間ダイアログはここでは開かない
         if not click_daily_save_button(driver):
             dump_debug(driver, f"daily_save_fail_{it.name}")
             raise RuntimeError(f"[FATAL] 日々の記録 保存失敗ある: {it.name}")
@@ -2972,7 +2928,6 @@ def send_one_record_from_app(
             driver.quit()
         except Exception:
             pass
-
 
 def main():
     # =========================================
