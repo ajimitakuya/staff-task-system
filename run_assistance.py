@@ -1252,6 +1252,9 @@ def process_report_edit(driver, it: PersonItem) -> bool:
         # F: 備考（完全上書き）
         note_src = (it.note or "").strip()
 
+        # F: 備考（完全上書き）
+        note_src = (it.note or "").strip()
+
         if s == "施設外就労":
             final_note = "施設外就労(実施報告書等添付)"
         else:
@@ -1265,9 +1268,13 @@ def process_report_edit(driver, it: PersonItem) -> bool:
             log(f"⚠️ {it.name} 備考欄が見つからないある → dbg参照")
             close_dialog_if_open(driver)
             return False
-        
+
+        # ← ここに追加
+        fill_work_record_section(driver, dlg, it)
+
         # 保存
         save_btn = None
+        
         for xp in [
             ".//button[contains(.,'保存する')]",
             ".//button[contains(.,'保存')]",
@@ -2627,16 +2634,6 @@ def send_one_record_from_app(
 
         if not _set_daily_recorder_for_row(driver, row, staff_name):
             raise RuntimeError(f"[FATAL] 記録者選択失敗ある: {it.name}")
-
-        if open_work_record_dialog_from_row(driver, row):
-            dlg = get_top_dialog(driver)
-            if dlg is not None:
-                print("[DEBUG] work record dialog opened", flush=True)
-                fill_work_record_section(driver, dlg, it)
-            else:
-                print("[DEBUG] dialog opened but get_top_dialog returned None", flush=True)
-        else:
-            print("[DEBUG] work record dialog open failed", flush=True)
 
         if not click_daily_save_button(driver):
             raise RuntimeError(f"[FATAL] 日々の記録 保存失敗ある: {it.name}")
