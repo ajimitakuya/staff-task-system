@@ -7929,6 +7929,71 @@ def get_knowbe_credentials_from_app(company_id=None):
 
     return username, password
 
+def send_to_knowbe_from_bee(
+    record_id=None,
+    company_id="",
+    target_date="",
+    resident_name="",
+    service_type="",
+    start_time="",
+    end_time="",
+    meal_flag="",
+    note_text="",
+    generated_status="",
+    generated_support="",
+    staff_name="",
+    knowbe_target="",
+    work_start_time="",
+    work_end_time="",
+    work_break_time="",
+    work_memo="",
+    login_username="",
+    login_password="",
+    send_user_status=True,
+    send_staff_comment=True,
+):
+    import traceback
+
+    login_username = str(login_username).strip()
+    login_password = str(login_password).strip()
+
+    if not login_username or not login_password:
+        raise RuntimeError("Knowbeアカウント名またはKnowbeパスワードが未設定です。")
+
+    try:
+        from run_assistance import send_one_record_from_app  # type: ignore
+
+        ok = send_one_record_from_app(
+            target_date=str(target_date).strip(),
+            resident_name=str(resident_name).strip(),
+            service_type=str(service_type).strip(),
+            start_time=str(start_time).strip(),
+            end_time=str(end_time).strip(),
+            meal_flag=str(meal_flag).strip(),
+            note_text=str(note_text).strip(),
+            generated_status=str(generated_status).strip(),
+            generated_support=str(generated_support).strip(),
+            staff_name=str(staff_name).strip(),
+            knowbe_target=str(knowbe_target).strip(),
+            login_username=login_username,
+            login_password=login_password,
+            work_start_time=str(work_start_time).strip(),
+            work_end_time=str(work_end_time).strip(),
+            work_break_time=str(work_break_time).strip(),
+            work_memo=str(work_memo).strip(),
+            send_user_status=bool(send_user_status),
+            send_staff_comment=bool(send_staff_comment),
+        )
+
+    except Exception:
+        st.code(traceback.format_exc())
+        raise
+
+    if not ok:
+        raise RuntimeError("run_assistance.send_one_record_from_app が False を返しました")
+
+    return True
+
 def render_bee_journal_page():
     st.title("🐝knowbe日誌入力🐝")
     st.caption("Sue for Bee Assistance 専用の裏メニューです。")
@@ -7987,14 +8052,23 @@ def render_bee_journal_page():
     info_cols = st.columns(2)
     with info_cols[0]:
         st.info(f"対象事業所: {target_company_name or current_company_name}")
+
     with info_cols[1]:
         if ctx.get("using_saved_knowbe", False):
             st.success(f"保存済みKnowbe情報を使用する：{mask_secret_text(resolved_knowbe_user)}")
+
         elif ctx.get("has_knowbe_credentials", False):
             st.success(f"入力されたKnowbe情報を使用する：{mask_secret_text(resolved_knowbe_user)}")
-        else:
-            st.warning("Knowbe情報が未設定です。管理者メニューの『Knowbe情報登録』で保存するか、この画面で入力してください。")
 
+        else:
+            st.error("Knowbe情報が未登録です。送信するには登録が必要です。")
+
+            if bool(st.session_state.get("is_admin", False)):
+                if st.button("Knowbe情報登録ページへ", key="go_knowbe_settings_from_bee", use_container_width=True):
+                    st.session_state.current_page = "⑨管理者"
+                    st.rerun()
+            else:
+                st.warning("管理者以外は登録できません。管理者へ報告してください。")
     st.markdown("## 利用者選択")
 
     master_df = load_db("resident_master")
