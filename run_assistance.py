@@ -734,7 +734,6 @@ def set_input_value(driver, el, value: str):
     except Exception:
         pass
 
-
 # =========================
 # ドロップダウン選択（強化版）
 # =========================
@@ -2316,17 +2315,66 @@ def _find_work_time_inputs(dialog):
     except Exception:
         end_el = None
 
-    # 保険: 00:00 が2つあるなら順番で取る
-    if start_el is None or end_el is None:
+    if start_el is not None and end_el is not None:
+        return start_el, end_el
+
+    def _find_input_near_label(label_text: str):
         try:
-            hhmm_inputs = dialog.find_elements(By.CSS_SELECTOR, "input[placeholder='00:00']")
-            if len(hhmm_inputs) >= 2:
-                if start_el is None:
-                    start_el = hhmm_inputs[0]
-                if end_el is None:
-                    end_el = hhmm_inputs[1]
+            labels = dialog.find_elements(
+                By.XPATH,
+                f".//*[normalize-space(text())='{label_text}' or contains(normalize-space(.), '{label_text}')]"
+            )
         except Exception:
-            pass
+            labels = []
+
+        for lab in labels:
+            try:
+                if not lab.is_displayed():
+                    continue
+            except Exception:
+                pass
+
+            cur = lab
+            for _ in range(6):
+                try:
+                    cur = cur.find_element(By.XPATH, "..")
+                except Exception:
+                    break
+
+                try:
+                    inputs = cur.find_elements(By.XPATH, ".//input")
+                except Exception:
+                    inputs = []
+
+                visible_inputs = []
+                for inp in inputs:
+                    try:
+                        if inp.is_displayed():
+                            visible_inputs.append(inp)
+                    except Exception:
+                        pass
+
+                if visible_inputs:
+                    try:
+                        visible_inputs = sorted(visible_inputs, key=lambda e: e.location["x"])
+                    except Exception:
+                        pass
+                    return visible_inputs[0]
+
+            try:
+                cand = lab.find_element(By.XPATH, "./following::input[1]")
+                if cand and cand.is_displayed():
+                    return cand
+            except Exception:
+                pass
+
+        return None
+
+    if start_el is None:
+        start_el = _find_input_near_label("作業開始時間")
+
+    if end_el is None:
+        end_el = _find_input_near_label("作業終了時間")
 
     return start_el, end_el
 
