@@ -8495,7 +8495,7 @@ def render_bee_journal_page():
 
     use_plan = st.checkbox(
         "個別支援計画を参照する",
-        value=st.session_state.get("bee_use_plan", True),
+        value=st.session_state.get("bee_use_plan", False),
         key="bee_use_plan"
     )
 
