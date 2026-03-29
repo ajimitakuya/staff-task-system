@@ -1749,9 +1749,9 @@ def render_chat_room_page():
             width="stretch",
             type="secondary",
         ):
-            if not room_name.strip():
+            if not str(room_name).strip():
                 st.error("ルーム名を入れてください。")
-            elif room_type == "limited" and not room_password.strip():
+            elif room_type == "limited" and not str(room_password).strip():
                 st.error("制限ルームにはパスワードが必要です。")
             else:
                 new_room_id = create_chat_room(
@@ -1760,16 +1760,13 @@ def render_chat_room_page():
                     room_password=room_password,
                     description=room_description,
                 )
-                st.success(f"ルーム作成完了！ {new_room_id}")
                 st.session_state.selected_room_id = new_room_id
                 st.session_state.pending_room_id = ""
                 st.session_state.pending_room_type = ""
+                st.success(f"ルーム作成完了: {new_room_id}")
                 st.rerun()
 
     st.divider()
-
-    import html
-    import re
 
     def clean_plain_text(value):
         text = "" if value is None else str(value)
@@ -1780,9 +1777,9 @@ def render_chat_room_page():
     def esc_text(value):
         return html.escape(clean_plain_text(value))
 
-    left_col, right_col = st.columns([1, 2])
+    rooms_col, chat_col = st.columns([1, 2])
 
-    with left_col:
+    with rooms_col:
         st.markdown("### ルーム一覧")
 
         if rooms_df.empty:
@@ -1813,21 +1810,15 @@ def render_chat_room_page():
                 room_type = str(row.get("room_type", "")).strip().lower()
                 desc = clean_plain_text(row.get("description", ""))
 
-                if room_type == "public":
-                    room_type_label = "🟢 公開ルーム"
-                else:
-                    room_type_label = "🩷 制限ルーム"
+                is_selected = (
+                    str(st.session_state.get("selected_room_id", "")).strip() == room_id
+                )
 
-                is_selected = str(st.session_state.get("selected_room_id", "")).strip() == room_id
+                label = "🟢 公開ルーム" if room_type == "public" else "🩷 制限ルーム"
 
                 with st.container(border=True):
-                    title = room_name if room_name else "名称なし"
-                    if is_selected:
-                        st.markdown(f"### {title} ✓")
-                    else:
-                        st.markdown(f"### {title}")
-
-                    st.caption(room_type_label)
+                    st.markdown(f"### {(room_name or '名称なし')}{' ✓' if is_selected else ''}")
+                    st.caption(label)
                     st.write(desc if desc else "説明なし")
                     st.caption(f"ID: {room_id}")
 
@@ -1845,10 +1836,15 @@ def render_chat_room_page():
                             st.session_state.pending_room_id = ""
                             st.session_state.pending_room_type = ""
                         st.rerun()
+
         if st.session_state.get("pending_room_id"):
             st.divider()
             st.markdown("### パスワード入力")
-            pw = st.text_input("ルームパスワード", type="password", key="room_access_password")
+            pw = st.text_input(
+                "ルームパスワード",
+                type="password",
+                key="room_access_password",
+            )
 
             if st.button(
                 "入室する",
@@ -1878,171 +1874,178 @@ def render_chat_room_page():
                         else:
                             st.error("パスワードが違います。")
 
-    with right_col:
+    with chat_col:
         selected_room_id = str(st.session_state.get("selected_room_id", "")).strip()
 
         if not selected_room_id:
             st.info("左からルームを選んでください。")
-        else:
-            if rooms_df.empty:
-                st.warning("選択中ルームが見つかりません。")
+            return
+
+        if rooms_df.empty:
+            st.warning("選択中ルームが見つかりません。")
+            return
+
+        room_row = rooms_df[
+            rooms_df["room_id"].astype(str).str.strip() == selected_room_id
+        ].copy()
+
+        if room_row.empty:
+            st.warning("選択中ルームが見つかりません。")
+            return
+
+        room_name = clean_plain_text(room_row.iloc[0].get("room_name", ""))
+        room_type = clean_plain_text(room_row.iloc[0].get("room_type", ""))
+        room_desc = clean_plain_text(room_row.iloc[0].get("description", ""))
+
+        st.markdown(f"## {room_name if room_name else '名称なし'}")
+        st.caption(f"公開設定: {room_type if room_type else '-'}")
+        if room_desc:
+            st.write(room_desc)
+
+        st.divider()
+
+        post_text = st.text_area(
+            "メッセージ",
+            key="chat_post_text",
+            height=100,
+        )
+        attached_file = st.file_uploader(
+            "添付ファイル（あれば倉庫へ自動保存）",
+            key=f"chat_attach_{selected_room_id}",
+        )
+
+        if st.button(
+            "投稿する",
+            key="chat_post_button",
+            width="stretch",
+            type="secondary",
+        ):
+            post_text_clean = clean_plain_text(post_text)
+
+            if not post_text_clean and attached_file is None:
+                st.error("メッセージか添付のどちらかを入れてください。")
             else:
-                room_row = rooms_df[
-                    rooms_df["room_id"].astype(str).str.strip() == selected_room_id
+                create_chat_message(
+                    selected_room_id,
+                    post_text_clean,
+                    attached_file=attached_file,
+                )
+                st.success("投稿しました！")
+                st.rerun()
+
+        st.divider()
+        st.markdown("### 投稿一覧")
+
+        room_msgs = msgs_df.copy()
+        if not room_msgs.empty:
+            room_msgs = room_msgs[
+                room_msgs["room_id"].astype(str).str.strip() == selected_room_id
+            ].copy()
+
+            if "is_deleted" in room_msgs.columns:
+                room_msgs = room_msgs[
+                    room_msgs["is_deleted"].astype(str).str.strip() != "1"
                 ].copy()
 
-                if room_row.empty:
-                    st.warning("選択中ルームが見つかりません。")
-                else:
-                    room_name = clean_plain_text(room_row.iloc[0].get("room_name", ""))
-                    room_type = clean_plain_text(room_row.iloc[0].get("room_type", ""))
-                    room_desc = clean_plain_text(room_row.iloc[0].get("description", ""))
+            try:
+                room_msgs = room_msgs.sort_values(["created_at"], ascending=[True])
+            except Exception:
+                pass
 
-                    st.markdown(f"## {room_name if room_name else '名称なし'}")
-                    st.caption(f"公開設定: {room_type if room_type else '-'}")
-                    if room_desc:
-                        st.write(room_desc)
+        if room_msgs.empty:
+            st.info("まだ投稿がありません。")
+            return
 
-                    st.divider()
+        current_user_name = str(st.session_state.get("user", "")).strip()
+        current_user_id = str(st.session_state.get("user_id", "")).strip()
 
-                    post_text = st.text_area("メッセージ", key="chat_post_text", height=100)
-                    attached_file = st.file_uploader(
-                        "添付ファイル（あれば倉庫へ自動保存）",
-                        key=f"chat_attach_{selected_room_id}",
+        # 投稿一覧の背景だけ軽く付ける
+        st.markdown(
+            """
+        for _, msg in room_msgs.iterrows():
+            display_name = clean_plain_text(msg.get("display_name", ""))
+            message_user_id = str(msg.get("user_id", "")).strip()
+            message_text = clean_plain_text(msg.get("message_text", ""))
+            created_at = str(msg.get("created_at", "")).strip()
+            has_attachment = str(msg.get("has_attachment", "")).strip()
+            linked_file_id = clean_plain_text(msg.get("linked_file_id", ""))
+
+            is_me = False
+            if current_user_id and message_user_id:
+                is_me = (current_user_id == message_user_id)
+            elif current_user_name and display_name:
+                is_me = (current_user_name == display_name)
+
+            time_text = created_at[-8:] if created_at and len(created_at) >= 8 else created_at
+
+            attach_text = ""
+            if has_attachment == "1":
+                attach_text = (
+                    f"📎 添付あり（倉庫ID: {linked_file_id}）"
+                    if linked_file_id
+                    else "📎 添付あり"
+                )
+
+            left_msg_col, spacer_col, right_msg_col = st.columns([5, 1, 5])
+
+            bubble_text = message_text if message_text else "　"
+            bubble_html = esc_text(bubble_text).replace("\n", "<br>")
+
+            if is_me:
+                with right_msg_col:
+                    st.markdown(
+                        f"""
+                        <div style="
+                            background:#95EC69;
+                            color:#111827;
+                            padding:10px 14px;
+                            border-radius:18px;
+                            border-bottom-right-radius:6px;
+                            margin:6px 0 2px auto;
+                            width:fit-content;
+                            max-width:100%;
+                            word-break:break-word;
+                            white-space:pre-wrap;
+                        ">
+                            {bubble_html}
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
                     )
+                    if attach_text:
+                        st.caption(attach_text)
+                    if time_text:
+                        st.caption(time_text)
 
-                    if st.button(
-                        "投稿する",
-                        key="chat_post_button",
-                        width="stretch",
-                        type="secondary",
-                    ):
-                        post_text_clean = clean_plain_text(post_text)
+            else:
+                with left_msg_col:
+                    if display_name:
+                        st.caption(display_name)
 
-                        if not post_text_clean and attached_file is None:
-                            st.error("メッセージか添付のどちらかを入れてください。")
-                        else:
-                            create_chat_message(
-                                selected_room_id,
-                                post_text_clean,
-                                attached_file=attached_file,
-                            )
-                            st.success("投稿しました！")
-                            st.rerun()
-
-                    st.divider()
-                    st.markdown("### 投稿一覧")
-
-                    room_msgs = msgs_df.copy()
-                    if not room_msgs.empty:
-                        room_msgs = room_msgs[
-                            room_msgs["room_id"].astype(str).str.strip() == selected_room_id
-                        ].copy()
-
-                        if "is_deleted" in room_msgs.columns:
-                            room_msgs = room_msgs[
-                                room_msgs["is_deleted"].astype(str).str.strip() != "1"
-                            ].copy()
-
-                        try:
-                            room_msgs = room_msgs.sort_values(["created_at"], ascending=[True])
-                        except Exception:
-                            pass
-
-                    if room_msgs.empty:
-                        st.info("まだ投稿がありません。")
-                    else:
-                        current_user_name = str(st.session_state.get("user", "")).strip()
-                        current_user_id = str(st.session_state.get("user_id", "")).strip()
-
-                        for _, msg in room_msgs.iterrows():
-                            display_name = clean_plain_text(msg.get("display_name", ""))
-                            message_user_id = str(msg.get("user_id", "")).strip()
-                            message_text = clean_plain_text(msg.get("message_text", ""))
-                            created_at = str(msg.get("created_at", "")).strip()
-                            has_attachment = str(msg.get("has_attachment", "")).strip()
-                            linked_file_id = clean_plain_text(msg.get("linked_file_id", ""))
-
-                            is_me = False
-                            if current_user_id and message_user_id:
-                                is_me = (current_user_id == message_user_id)
-                            elif current_user_name and display_name:
-                                is_me = (current_user_name == display_name)
-
-                            left_col, right_col = st.columns([1, 1])
-
-                            time_text = created_at[-8:] if created_at and len(created_at) >= 8 else created_at
-
-                            attach_text = ""
-                            if has_attachment == "1":
-                                if linked_file_id:
-                                    attach_text = f"📎 添付あり（倉庫ID: {linked_file_id}）"
-                                else:
-                                    attach_text = "📎 添付あり"
-
-                            if is_me:
-                                with right_col:
-                                    bubble_text = message_text if message_text else "　"
-
-                                    st.markdown(
-                                        f"""
-                                        <div style="
-                                            background:#95EC69;
-                                            color:#111827;
-                                            padding:10px 14px;
-                                            border-radius:18px;
-                                            border-bottom-right-radius:6px;
-                                            margin:6px 0 2px auto;
-                                            width:fit-content;
-                                            max-width:100%;
-                                            word-break:break-word;
-                                            white-space:pre-wrap;
-                                        ">
-                                            {esc_text(bubble_text).replace(chr(10), "<br>")}
-                                        </div>
-                                        """,
-                                        unsafe_allow_html=True,
-                                    )
-
-                                    if attach_text:
-                                        st.caption(attach_text)
-
-                                    if time_text:
-                                        st.caption(time_text)
-
-                            else:
-                                with left_col:
-                                    if display_name:
-                                        st.caption(display_name)
-
-                                    bubble_text = message_text if message_text else "　"
-
-                                    st.markdown(
-                                        f"""
-                                        <div style="
-                                            background:#FFFFFF;
-                                            color:#111827;
-                                            border:1px solid #DADADA;
-                                            padding:10px 14px;
-                                            border-radius:18px;
-                                            border-bottom-left-radius:6px;
-                                            margin:6px auto 2px 0;
-                                            width:fit-content;
-                                            max-width:100%;
-                                            word-break:break-word;
-                                            white-space:pre-wrap;
-                                        ">
-                                            {esc_text(bubble_text).replace(chr(10), "<br>")}
-                                        </div>
-                                        """,
-                                        unsafe_allow_html=True,
-                                    )
-
-                                    if attach_text:
-                                        st.caption(attach_text)
-
-                                    if time_text:
-                                        st.caption(time_text)
+                    st.markdown(
+                        f"""
+                        <div style="
+                            background:#FFFFFF;
+                            color:#111827;
+                            border:1px solid #DADADA;
+                            padding:10px 14px;
+                            border-radius:18px;
+                            border-bottom-left-radius:6px;
+                            margin:6px auto 2px 0;
+                            width:fit-content;
+                            max-width:100%;
+                            word-break:break-word;
+                            white-space:pre-wrap;
+                        ">
+                            {bubble_html}
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    if attach_text:
+                        st.caption(attach_text)
+                    if time_text:
+                        st.caption(time_text)
                         
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
