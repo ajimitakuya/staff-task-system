@@ -12594,7 +12594,9 @@ def render_bulk_documents_page():
 
     st.divider()
 
-    if st.button("🚀 3枚まとめて作成", key="bulk_generate_all"):
+    bulk_generate_key = f"bulk_generate_all_{resident_id}"
+
+    if st.button("🚀 3枚まとめて作成", key=bulk_generate_key):
 
         # ========= 基本情報 =========
         resident_name = str(resident_name).strip()
