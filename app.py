@@ -1959,26 +1959,19 @@ def render_chat_room_page():
                     st.divider()
                     st.markdown("### 投稿一覧")
 
+                    import html
+                    import re
+
                     room_msgs = msgs_df.copy()
+                    room_msgs = room_msgs[
+                        (room_msgs["room_id"].astype(str) == selected_room_id) &
+                        (room_msgs["is_deleted"].astype(str) != "1")
+                    ].copy()
 
-                    if not room_msgs.empty:
-                        if "room_id" in room_msgs.columns:
-                            room_msgs = room_msgs[
-                                room_msgs["room_id"].astype(str) == selected_room_id
-                            ].copy()
-
-                        if "is_deleted" in room_msgs.columns:
-                            room_msgs = room_msgs[
-                                room_msgs["is_deleted"].astype(str) != "1"
-                            ].copy()
-
-                        try:
-                            if "created_at" in room_msgs.columns:
-                                room_msgs = room_msgs.sort_values(
-                                    ["created_at"], ascending=[True]
-                                )
-                        except Exception:
-                            pass
+                    try:
+                        room_msgs = room_msgs.sort_values(["created_at"], ascending=[True])
+                    except Exception:
+                        pass
 
                     if room_msgs.empty:
                         st.info("まだ投稿がありません。")
@@ -1986,94 +1979,60 @@ def render_chat_room_page():
                         current_user_name = str(st.session_state.get("user", "")).strip()
                         current_user_id = str(st.session_state.get("user_id", "")).strip()
 
-                        # LINE風CSS
+                        # 🔥CSS（これ1回だけ）
                         st.markdown("""
                         <style>
-                        .line-chat-wrap {
-                            width: 100%;
-                        }
-                        .line-row {
-                            display: flex;
-                            width: 100%;
-                            margin: 6px 0 10px 0;
-                        }
-                        .line-row.me {
-                            justify-content: flex-end;
-                        }
-                        .line-row.other {
-                            justify-content: flex-start;
-                        }
-                        .line-block {
-                            max-width: 72%;
-                            display: flex;
-                            flex-direction: column;
-                        }
+                        .line-row {display:flex;margin:6px 0;}
+                        .line-row.me {justify-content:flex-end;}
+                        .line-row.other {justify-content:flex-start;}
+
+                        .line-block {max-width:70%;}
+
                         .line-name {
-                            font-size: 12px;
-                            color: #6B7280;
-                            margin: 0 0 4px 8px;
-                            font-weight: 600;
+                            font-size:12px;
+                            color:#666;
+                            margin:0 0 4px 6px;
+                            font-weight:bold;
                         }
+
                         .line-bubble {
-                            position: relative;
-                            display: inline-block;
-                            padding: 10px 14px 20px 14px;
-                            border-radius: 18px;
-                            font-size: 15px;
-                            line-height: 1.5;
-                            word-break: break-word;
-                            white-space: pre-wrap;
-                            box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+                            padding:10px 14px 18px;
+                            border-radius:18px;
+                            position:relative;
+                            font-size:15px;
+                            line-height:1.5;
+                            word-break:break-word;
                         }
+
                         .line-bubble.me {
-                            background: #95EC69;
-                            color: #111827;
-                            border-bottom-right-radius: 6px;
+                            background:#95EC69;
+                            border-bottom-right-radius:6px;
                         }
+
                         .line-bubble.other {
-                            background: #FFFFFF;
-                            color: #111827;
-                            border-bottom-left-radius: 6px;
+                            background:#ffffff;
+                            border-bottom-left-radius:6px;
+                            border:1px solid #ddd;
                         }
-                        .line-bubble.me::after {
-                            content: "";
-                            position: absolute;
-                            right: -8px;
-                            bottom: 0;
-                            width: 0;
-                            height: 0;
-                            border-left: 10px solid #95EC69;
-                            border-top: 10px solid transparent;
-                        }
-                        .line-bubble.other::after {
-                            content: "";
-                            position: absolute;
-                            left: -8px;
-                            bottom: 0;
-                            width: 0;
-                            height: 0;
-                            border-right: 10px solid #FFFFFF;
-                            border-top: 10px solid transparent;
-                        }
+
                         .line-time {
-                            position: absolute;
-                            right: 10px;
-                            bottom: 5px;
-                            font-size: 10px;
-                            color: #6B7280;
-                            line-height: 1;
+                            position:absolute;
+                            right:8px;
+                            bottom:4px;
+                            font-size:10px;
+                            color:#666;
                         }
+
                         .line-attach {
-                            display: block;
-                            margin-top: 6px;
-                            font-size: 12px;
-                            color: #2563EB;
+                            display:block;
+                            margin-top:6px;
+                            font-size:12px;
+                            color:#2563eb;
                         }
                         </style>
                         """, unsafe_allow_html=True)
 
-                        st.markdown('<div class="line-chat-wrap">', unsafe_allow_html=True)
-
+                        # 🔥ここから表示
                         for _, msg in room_msgs.iterrows():
                             display_name = str(msg.get("display_name", "")).strip()
                             message_user_id = str(msg.get("user_id", "")).strip()
@@ -2082,7 +2041,7 @@ def render_chat_room_page():
                             has_attachment = str(msg.get("has_attachment", "")).strip()
                             linked_file_id = str(msg.get("linked_file_id", "")).strip()
 
-                            # 自分の投稿か判定
+                            # 自分判定
                             is_me = False
                             if current_user_id and message_user_id:
                                 is_me = (current_user_id == message_user_id)
@@ -2091,25 +2050,23 @@ def render_chat_room_page():
 
                             row_class = "me" if is_me else "other"
 
-                            # HTMLタグ除去
+                            # 🔥HTMLタグ削除（ここ重要）
                             cleaned_text = re.sub(r"<[^>]+>", "", message_text)
                             cleaned_text = html.unescape(cleaned_text).strip()
 
-                            # 時刻を短く
+                            # 🔥改行だけ反映（escapeしない）
+                            safe_text = cleaned_text.replace("\n", "<br>")
+
+                            # 時刻だけ
                             time_only = created_at[-8:] if len(created_at) >= 8 else created_at
 
-                            safe_name = html.escape(display_name)
-                            safe_text = html.escape(cleaned_text)
-                            safe_time = html.escape(time_only)
-
                             sender_html = ""
-                            if not is_me and safe_name:
-                                sender_html = f'<div class="line-name">{safe_name}</div>'
+                            if not is_me and display_name:
+                                sender_html = f'<div class="line-name">{display_name}</div>'
 
                             attach_html = ""
                             if has_attachment == "1" and linked_file_id:
-                                safe_file_id = html.escape(linked_file_id)
-                                attach_html = f'<span class="line-attach">📎 添付あり（倉庫ID: {safe_file_id}）</span>'
+                                attach_html = f'<span class="line-attach">📎 添付あり</span>'
 
                             bubble_html = f"""
                             <div class="line-row {row_class}">
@@ -2118,14 +2075,14 @@ def render_chat_room_page():
                                     <div class="line-bubble {row_class}">
                                         {safe_text}
                                         {attach_html}
-                                        <span class="line-time">{safe_time}</span>
+                                        <span class="line-time">{time_only}</span>
                                     </div>
                                 </div>
                             </div>
                             """
-                            st.markdown(bubble_html, unsafe_allow_html=True)
 
-                        st.markdown("</div>", unsafe_allow_html=True)
+                            # 🔥これ以外使うな
+                            st.markdown(bubble_html, unsafe_allow_html=True)
                         
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
