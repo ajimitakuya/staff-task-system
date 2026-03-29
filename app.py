@@ -241,25 +241,50 @@ def build_plan_cell_data_from_json(plan_json, resident_name, year_val, month_val
         "N21": manager_val,
     }
 
+def apply_bulk_plan_overrides(plan_json, periods, persons):
+    result = json.loads(json.dumps(plan_json, ensure_ascii=False))
+
+    rows = result.get("rows", [])
+    while len(rows) < 3:
+        rows.append({})
+
+    for i in range(3):
+        if i < len(periods):
+            rows[i]["period"] = str(periods[i]).strip()
+        if i < len(persons):
+            person_val = str(persons[i]).strip()
+            rows[i]["person"] = person_val if person_val else "全職員"
+
+    result["rows"] = rows
+    return result
+
 def build_meeting_cell_data_from_json(
     meeting_json,
     resident_name,
     create_year,
     create_month,
     create_day,
+    meeting_year,
+    meeting_month,
+    meeting_day,
     meeting_info,
     attendees,
     meeting_creator,
 ):
     return {
         # 作成年月日
-        "N3": create_year,
-        "P3": create_month,
-        "R3": create_day,
+        "M3": create_year,
+        "O3": create_month,
+        "Q3": create_day,
 
-        # 利用者名・作成者・開催場所
+        # 利用者名・作成者
         "C4": resident_name,
         "M4": meeting_creator,
+
+        # 開催日時・開催場所
+        "C5": meeting_year,
+        "E5": meeting_month,
+        "G5": meeting_day,
         "M5": meeting_info,
 
         # 会議出席者（氏名欄）
@@ -267,7 +292,7 @@ def build_meeting_cell_data_from_json(
         "J8": attendees.get("staff", ""),
         "O8": attendees.get("user", ""),
 
-        "E8": attendees.get("caremanager", ""),
+        "E9": attendees.get("caremanager", ""),
         "J9": attendees.get("nurse", ""),
         "O9": attendees.get("family", ""),
 
@@ -12522,19 +12547,49 @@ def render_bulk_documents_page():
     with plan_draft_cols[3]:
         st.text_input("計画案_サービス管理責任者", key="bulk_plan_draft_manager", placeholder="サービス管理責任者")
 
+    st.markdown("#### 計画案_短期目標ごとの入力")
+
+    for i in range(1, 4):
+        row_cols = st.columns([3, 3])
+        with row_cols[0]:
+            st.text_input(
+                f"計画案_支援期間{i}",
+                key=f"bulk_plan_draft_period_{i}",
+                placeholder=f"{i}つ目の具体的到達目標の支援期間"
+            )
+        with row_cols[1]:
+            st.text_input(
+                f"計画案_担当者{i}",
+                key=f"bulk_plan_draft_person_{i}",
+                value="全職員"
+            )
+
     st.divider()
     st.markdown("### 会議出席者")
 
     meeting_cols_1 = st.columns([2, 2, 2, 4])
 
-    with meeting_cols_1[0]:
-        st.text_input("サ会議_開催年", key="bulk_meeting_year", placeholder="2026")
-    with meeting_cols_1[1]:
-        st.text_input("サ会議_開催月", key="bulk_meeting_month", placeholder="3")
-    with meeting_cols_1[2]:
-        st.text_input("サ会議_開催日", key="bulk_meeting_day", placeholder="29")
-    with meeting_cols_1[3]:
+    st.markdown("### サ会議_作成年月日")
+    meeting_create_cols = st.columns([2, 2, 2, 4])
+
+    with meeting_create_cols[0]:
+        st.text_input("サ会議_作成年", key="bulk_meeting_create_year", placeholder="2026")
+    with meeting_create_cols[1]:
+        st.text_input("サ会議_作成月", key="bulk_meeting_create_month", placeholder="3")
+    with meeting_create_cols[2]:
+        st.text_input("サ会議_作成日", key="bulk_meeting_create_day", placeholder="29")
+    with meeting_create_cols[3]:
         st.text_input("サ会議_作成者", key="bulk_meeting_creator", placeholder="作成者名")
+
+    st.markdown("### サ会議_開催日時")
+    meeting_hold_cols = st.columns([2, 2, 2])
+
+    with meeting_hold_cols[0]:
+        st.text_input("サ会議_開催年", key="bulk_meeting_year", placeholder="2026")
+    with meeting_hold_cols[1]:
+        st.text_input("サ会議_開催月", key="bulk_meeting_month", placeholder="3")
+    with meeting_hold_cols[2]:
+        st.text_input("サ会議_開催日", key="bulk_meeting_day", placeholder="29")
 
     meeting_cols_2 = st.columns(1)
 
@@ -12569,6 +12624,23 @@ def render_bulk_documents_page():
         st.text_input("本計画_日", key="bulk_plan_day", placeholder="29")
     with plan_cols[3]:
         st.text_input("本計画_サービス管理責任者", key="bulk_plan_manager", placeholder="サービス管理責任者")
+
+    st.markdown("#### 本計画_短期目標ごとの入力")
+
+    for i in range(1, 4):
+        row_cols = st.columns([3, 3])
+        with row_cols[0]:
+            st.text_input(
+                f"本計画_支援期間{i}",
+                key=f"bulk_plan_period_{i}",
+                placeholder=f"{i}つ目の具体的到達目標の支援期間"
+            )
+        with row_cols[1]:
+            st.text_input(
+                f"本計画_担当者{i}",
+                key=f"bulk_plan_person_{i}",
+                value="全職員"
+            )
 
     st.divider()
     st.markdown("## 確認")
@@ -12683,7 +12755,40 @@ def render_bulk_documents_page():
             )
 
             # 本計画は現段階では計画案JSONを流用
-            plan_final_json = plan_draft_json
+            draft_periods = [
+                st.session_state.get("bulk_plan_draft_period_1", ""),
+                st.session_state.get("bulk_plan_draft_period_2", ""),
+                st.session_state.get("bulk_plan_draft_period_3", ""),
+            ]
+            draft_persons = [
+                st.session_state.get("bulk_plan_draft_person_1", "全職員"),
+                st.session_state.get("bulk_plan_draft_person_2", "全職員"),
+                st.session_state.get("bulk_plan_draft_person_3", "全職員"),
+            ]
+
+            final_periods = [
+                st.session_state.get("bulk_plan_period_1", ""),
+                st.session_state.get("bulk_plan_period_2", ""),
+                st.session_state.get("bulk_plan_period_3", ""),
+            ]
+            final_persons = [
+                st.session_state.get("bulk_plan_person_1", "全職員"),
+                st.session_state.get("bulk_plan_person_2", "全職員"),
+                st.session_state.get("bulk_plan_person_3", "全職員"),
+            ]
+
+            plan_draft_json = apply_bulk_plan_overrides(
+                plan_draft_json,
+                draft_periods,
+                draft_persons,
+            )
+
+            # 本計画は計画案JSONをベースにしつつ、本計画用の入力値で上書き
+            plan_final_json = apply_bulk_plan_overrides(
+                plan_draft_json,
+                final_periods,
+                final_persons,
+            )
 
             st.session_state["bulk_plan_draft_json"] = plan_draft_json
             st.session_state["bulk_meeting_json"] = meeting_json
@@ -12781,9 +12886,12 @@ def render_bulk_documents_page():
                     cell_data_meeting = build_meeting_cell_data_from_json(
                         st.session_state["bulk_meeting_json"],
                         resident_name,
-                        meeting_year,
-                        meeting_month,
-                        meeting_day,
+                        st.session_state.get("bulk_meeting_create_year", ""),
+                        st.session_state.get("bulk_meeting_create_month", ""),
+                        st.session_state.get("bulk_meeting_create_day", ""),
+                        st.session_state.get("bulk_meeting_year", ""),
+                        st.session_state.get("bulk_meeting_month", ""),
+                        st.session_state.get("bulk_meeting_day", ""),
                         meeting_info,
                         attendees_dict,
                         st.session_state.get("bulk_meeting_creator", ""),
