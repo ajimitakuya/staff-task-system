@@ -1955,79 +1955,6 @@ def render_chat_room_page():
                         current_user_name = str(st.session_state.get("user", "")).strip()
                         current_user_id = str(st.session_state.get("user_id", "")).strip()
 
-                        st.markdown("""
-                        <style>
-                        .line-chat-area{
-                            width:100%;
-                            background:#EEF3F7;
-                            border-radius:18px;
-                            padding:16px 12px;
-                            box-sizing:border-box;
-                        }
-                        .line-row{
-                            display:flex;
-                            width:100%;
-                            margin:10px 0;
-                        }
-                        .line-row.me{
-                            justify-content:flex-end;
-                        }
-                        .line-row.other{
-                            justify-content:flex-start;
-                        }
-                        .line-wrap{
-                            max-width:72%;
-                        }
-                        .line-name{
-                            font-size:12px;
-                            color:#6B7280;
-                            margin:0 0 4px 10px;
-                            font-weight:600;
-                            line-height:1.2;
-                        }
-                        .line-bubble{
-                            position:relative;
-                            display:inline-block;
-                            padding:10px 14px 20px 14px;
-                            border-radius:18px;
-                            font-size:15px;
-                            line-height:1.5;
-                            word-break:break-word;
-                            white-space:pre-wrap;
-                            box-sizing:border-box;
-                            box-shadow:0 1px 2px rgba(0,0,0,0.06);
-                        }
-                        .line-row.me .line-bubble{
-                            background:#95EC69;
-                            color:#111827;
-                            border-bottom-right-radius:6px;
-                        }
-                        .line-row.other .line-bubble{
-                            background:#FFFFFF;
-                            color:#111827;
-                            border:1px solid #E5E7EB;
-                            border-bottom-left-radius:6px;
-                        }
-                        .line-time{
-                            position:absolute;
-                            right:10px;
-                            bottom:4px;
-                            font-size:10px;
-                            color:#6B7280;
-                            line-height:1;
-                            white-space:nowrap;
-                        }
-                        .line-attach{
-                            display:block;
-                            margin-top:6px;
-                            font-size:12px;
-                            color:#2563EB;
-                        }
-                        </style>
-                        """, unsafe_allow_html=True)
-
-                        chat_html_parts = ['<div class="line-chat-area">']
-
                         for _, msg in room_msgs.iterrows():
                             display_name = clean_plain_text(msg.get("display_name", ""))
                             message_user_id = str(msg.get("user_id", "")).strip()
@@ -2042,44 +1969,80 @@ def render_chat_room_page():
                             elif current_user_name and display_name:
                                 is_me = (current_user_name == display_name)
 
-                            row_class = "me" if is_me else "other"
+                            left_col, right_col = st.columns([1, 1])
 
-                            safe_name = html.escape(display_name)
-                            safe_text = html.escape(message_text).replace("\n", "<br>")
+                            time_text = created_at[-8:] if created_at and len(created_at) >= 8 else created_at
 
-                            safe_time = ""
-                            if created_at:
-                                safe_time = html.escape(created_at[-8:] if len(created_at) >= 8 else created_at)
-
-                            sender_html = ""
-                            if (not is_me) and safe_name:
-                                sender_html = f'<div class="line-name">{safe_name}</div>'
-
-                            attach_html = ""
+                            attach_text = ""
                             if has_attachment == "1":
                                 if linked_file_id:
-                                    attach_html = f'<span class="line-attach">📎 添付あり（倉庫ID: {html.escape(linked_file_id)}）</span>'
+                                    attach_text = f"📎 添付あり（倉庫ID: {linked_file_id}）"
                                 else:
-                                    attach_html = '<span class="line-attach">📎 添付あり</span>'
+                                    attach_text = "📎 添付あり"
 
-                            bubble_body = safe_text if safe_text else "　"
+                            if is_me:
+                                with right_col:
+                                    bubble_text = message_text if message_text else "　"
 
-                            bubble_html = f"""
-                            <div class="line-row {row_class}">
-                                <div class="line-wrap">
-                                    {sender_html}
-                                    <div class="line-bubble">
-                                        {bubble_body}
-                                        {attach_html}
-                                        <span class="line-time">{safe_time}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            """
-                            chat_html_parts.append(bubble_html)
+                                    st.markdown(
+                                        f"""
+                                        <div style="
+                                            background:#95EC69;
+                                            color:#111827;
+                                            padding:10px 14px;
+                                            border-radius:18px;
+                                            border-bottom-right-radius:6px;
+                                            margin:6px 0 2px auto;
+                                            width:fit-content;
+                                            max-width:100%;
+                                            word-break:break-word;
+                                            white-space:pre-wrap;
+                                        ">
+                                            {esc_text(bubble_text).replace(chr(10), "<br>")}
+                                        </div>
+                                        """,
+                                        unsafe_allow_html=True,
+                                    )
 
-                        chat_html_parts.append("</div>")
-                        st.markdown("".join(chat_html_parts), unsafe_allow_html=True)
+                                    if attach_text:
+                                        st.caption(attach_text)
+
+                                    if time_text:
+                                        st.caption(time_text)
+
+                            else:
+                                with left_col:
+                                    if display_name:
+                                        st.caption(display_name)
+
+                                    bubble_text = message_text if message_text else "　"
+
+                                    st.markdown(
+                                        f"""
+                                        <div style="
+                                            background:#FFFFFF;
+                                            color:#111827;
+                                            border:1px solid #DADADA;
+                                            padding:10px 14px;
+                                            border-radius:18px;
+                                            border-bottom-left-radius:6px;
+                                            margin:6px auto 2px 0;
+                                            width:fit-content;
+                                            max-width:100%;
+                                            word-break:break-word;
+                                            white-space:pre-wrap;
+                                        ">
+                                            {esc_text(bubble_text).replace(chr(10), "<br>")}
+                                        </div>
+                                        """,
+                                        unsafe_allow_html=True,
+                                    )
+
+                                    if attach_text:
+                                        st.caption(attach_text)
+
+                                    if time_text:
+                                        st.caption(time_text)
                         
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
