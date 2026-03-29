@@ -1959,7 +1959,10 @@ def render_chat_room_page():
                     st.divider()
                     st.markdown("### 投稿一覧")
 
-                    import html
+                    # ===============================
+                    # 投稿一覧（完全リセット版）
+                    # ===============================
+
                     import re
 
                     room_msgs = msgs_df.copy()
@@ -1968,78 +1971,71 @@ def render_chat_room_page():
                         (room_msgs["is_deleted"].astype(str) != "1")
                     ].copy()
 
+                    # 並び順
                     try:
                         room_msgs = room_msgs.sort_values(["created_at"], ascending=[True])
-                    except Exception:
+                    except:
                         pass
 
                     if room_msgs.empty:
                         st.info("まだ投稿がありません。")
+
                     else:
                         current_user_name = str(st.session_state.get("user", "")).strip()
                         current_user_id = str(st.session_state.get("user_id", "")).strip()
 
-                        # 🔥CSS（これ1回だけ）
+                        # ===== CSS（これだけ）=====
                         st.markdown("""
                         <style>
-                        .line-row {display:flex;margin:6px 0;}
-                        .line-row.me {justify-content:flex-end;}
-                        .line-row.other {justify-content:flex-start;}
+                        .row {display:flex;margin:6px 0;}
+                        .row.me {justify-content:flex-end;}
+                        .row.other {justify-content:flex-start;}
 
-                        .line-block {max-width:70%;}
-
-                        .line-name {
-                            font-size:12px;
-                            color:#666;
-                            margin:0 0 4px 6px;
-                            font-weight:bold;
-                        }
-
-                        .line-bubble {
+                        .bubble {
+                            max-width:70%;
                             padding:10px 14px 18px;
-                            border-radius:18px;
+                            border-radius:16px;
                             position:relative;
                             font-size:15px;
-                            line-height:1.5;
+                            line-height:1.4;
                             word-break:break-word;
                         }
 
-                        .line-bubble.me {
+                        .me .bubble {
                             background:#95EC69;
                             border-bottom-right-radius:6px;
                         }
 
-                        .line-bubble.other {
+                        .other .bubble {
                             background:#ffffff;
-                            border-bottom-left-radius:6px;
                             border:1px solid #ddd;
+                            border-bottom-left-radius:6px;
                         }
 
-                        .line-time {
+                        .name {
+                            font-size:12px;
+                            color:#666;
+                            margin-bottom:4px;
+                            font-weight:bold;
+                        }
+
+                        .time {
                             position:absolute;
                             right:8px;
                             bottom:4px;
                             font-size:10px;
                             color:#666;
                         }
-
-                        .line-attach {
-                            display:block;
-                            margin-top:6px;
-                            font-size:12px;
-                            color:#2563eb;
-                        }
                         </style>
                         """, unsafe_allow_html=True)
 
-                        # 🔥ここから表示
+                        # ===== 表示 =====
                         for _, msg in room_msgs.iterrows():
+
                             display_name = str(msg.get("display_name", "")).strip()
                             message_user_id = str(msg.get("user_id", "")).strip()
                             message_text = str(msg.get("message_text", "")).strip()
                             created_at = str(msg.get("created_at", "")).strip()
-                            has_attachment = str(msg.get("has_attachment", "")).strip()
-                            linked_file_id = str(msg.get("linked_file_id", "")).strip()
 
                             # 自分判定
                             is_me = False
@@ -2048,41 +2044,33 @@ def render_chat_room_page():
                             elif current_user_name and display_name:
                                 is_me = (current_user_name == display_name)
 
-                            row_class = "me" if is_me else "other"
+                            side = "me" if is_me else "other"
 
-                            # 🔥HTMLタグ削除（ここ重要）
-                            cleaned_text = re.sub(r"<[^>]+>", "", message_text)
-                            cleaned_text = html.unescape(cleaned_text).strip()
-
-                            # 🔥改行だけ反映（escapeしない）
-                            safe_text = cleaned_text.replace("\n", "<br>")
+                            # HTMLタグ削除（最低限だけ）
+                            text = re.sub(r"<[^>]+>", "", message_text)
+                            text = text.replace("\n", "<br>")
 
                             # 時刻だけ
-                            time_only = created_at[-8:] if len(created_at) >= 8 else created_at
+                            time = created_at[-8:] if len(created_at) >= 8 else created_at
 
-                            sender_html = ""
+                            # 名前（相手だけ）
+                            name_html = ""
                             if not is_me and display_name:
-                                sender_html = f'<div class="line-name">{display_name}</div>'
+                                name_html = f'<div class="name">{display_name}</div>'
 
-                            attach_html = ""
-                            if has_attachment == "1" and linked_file_id:
-                                attach_html = f'<span class="line-attach">📎 添付あり</span>'
-
-                            bubble_html = f"""
-                            <div class="line-row {row_class}">
-                                <div class="line-block">
-                                    {sender_html}
-                                    <div class="line-bubble {row_class}">
-                                        {safe_text}
-                                        {attach_html}
-                                        <span class="line-time">{time_only}</span>
+                            html_code = f"""
+                            <div class="row {side}">
+                                <div>
+                                    {name_html}
+                                    <div class="bubble">
+                                        {text}
+                                        <div class="time">{time}</div>
                                     </div>
                                 </div>
                             </div>
                             """
 
-                            # 🔥これ以外使うな
-                            st.markdown(bubble_html, unsafe_allow_html=True)
+                            st.markdown(html_code, unsafe_allow_html=True)
                         
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
