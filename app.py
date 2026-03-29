@@ -12315,23 +12315,6 @@ def render_bulk_documents_page():
     st.divider()
     st.markdown("### 会議出席者")
 
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.text_input("管理者", key="bulk_meeting_admin")
-        st.text_input("ケアマネ", key="bulk_meeting_caremanager")
-        st.text_input("サービス管理責任者", key="bulk_meeting_manager")
-
-    with col2:
-        st.text_input("支援員", key="bulk_meeting_staff")
-        st.text_input("看護師", key="bulk_meeting_nurse")
-        st.text_input("相談員", key="bulk_meeting_consultant")
-
-    with col3:
-        st.text_input("利用者", key="bulk_meeting_user")
-        st.text_input("親族", key="bulk_meeting_family")
-        st.text_input("キーパーソン", key="bulk_meeting_keyperson")
-        
     meeting_cols_1 = st.columns([2, 2, 2, 4])
 
     with meeting_cols_1[0]:
@@ -12349,6 +12332,22 @@ def render_bulk_documents_page():
         st.text_input("サ会議_開催情報", key="bulk_meeting_info", placeholder="開催場所・開催方法など")
     with meeting_cols_2[1]:
         st.text_area("サ会議_会議出席者", key="bulk_meeting_attendees", height=100, placeholder="出席者を入力")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.text_input("管理者", key="bulk_meeting_admin")
+        st.text_input("ケアマネ", key="bulk_meeting_caremanager")
+        st.text_input("サービス管理責任者", key="bulk_meeting_manager")
+
+    with col2:
+        st.text_input("支援員", key="bulk_meeting_staff")
+        st.text_input("看護師", key="bulk_meeting_nurse")
+        st.text_input("相談員", key="bulk_meeting_consultant")
+
+    with col3:
+        st.text_input("利用者", key="bulk_meeting_user")
+        st.text_input("親族", key="bulk_meeting_family")
+        st.text_input("キーパーソン", key="bulk_meeting_keyperson")
 
     st.divider()
     st.markdown("## 個別支援計画")
