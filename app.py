@@ -12407,7 +12407,16 @@ def render_bulk_documents_page():
         )
         st.write(f"サ会議作成者: {st.session_state.get('bulk_meeting_creator', '')}")
         st.write(f"サ会議開催情報: {st.session_state.get('bulk_meeting_info', '')}")
-        st.write(f"サ会議会議出席者: {st.session_state.get('bulk_meeting_attendees', '')}")
+        st.write("サ会議 会議出席者:")
+        st.write(f"管理者: {st.session_state.get('bulk_meeting_admin','')}")
+        st.write(f"ケアマネ: {st.session_state.get('bulk_meeting_caremanager','')}")
+        st.write(f"サービス管理責任者: {st.session_state.get('bulk_meeting_manager','')}")
+        st.write(f"支援員: {st.session_state.get('bulk_meeting_staff','')}")
+        st.write(f"看護師: {st.session_state.get('bulk_meeting_nurse','')}")
+        st.write(f"相談員: {st.session_state.get('bulk_meeting_consultant','')}")
+        st.write(f"利用者: {st.session_state.get('bulk_meeting_user','')}")
+        st.write(f"親族: {st.session_state.get('bulk_meeting_family','')}")
+        st.write(f"キーパーソン: {st.session_state.get('bulk_meeting_keyperson','')}")
 
         st.write(
             f"本計画日付: "
