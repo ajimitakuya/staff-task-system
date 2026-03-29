@@ -14,6 +14,12 @@ import google.generativeai as genai
 import tempfile
 from contextlib import contextmanager
 from openpyxl import Workbook
+from run_assistance import (
+    build_chrome_driver,
+    get_knowbe_login_credentials,
+    manual_login_wait,
+    fetch_support_record_text_for_month,
+)
 
 JST = timezone(timedelta(hours=9))
 def now_jst():
@@ -140,6 +146,41 @@ def generate_json_with_gemini(prompt: str):
 
     raise RuntimeError(f"Gemini JSON生成失敗: {last_error}")
 
+def build_home_eval_from_support_record_prompt(resident_name: str, year_val: str, month_val: str, support_record_text: str):
+    return f"""
+利用者名: {resident_name}
+対象年月: {year_val}年{month_val}月
+
+以下はKnowbeの支援記録ページ本文です。
+この内容だけを根拠に、在宅評価シート用の内容をJSONのみで作成してください。
+
+【支援記録本文】
+{support_record_text}
+
+【作成ルール】
+- 在宅評価シートの形式に合わせる
+- 目標は2〜3個
+- 月間評価は2〜3個
+- 週報は第1週〜第5週をすべて作る
+- 記録が少ない週は、無理に長くせず自然で簡潔にする
+- 「通所」は在宅利用の意味である可能性があるため、来所と断定しない
+- 事実にないことを勝手に足しすぎない
+- 出力はJSONのみ
+
+【出力形式】
+{{
+  "goals": ["目標1", "目標2", "目標3"],
+  "monthly_evaluations": ["月間評価1", "月間評価2", "月間評価3"],
+  "weekly_reports": {{
+    "1": "第1週の評価",
+    "2": "第2週の評価",
+    "3": "第3週の評価",
+    "4": "第4週の評価",
+    "5": "第5週の評価"
+  }}
+}}
+"""
+
 def build_bulk_plan_prompt(resident_name: str):
     return f"""
 利用者名: {resident_name}
@@ -202,6 +243,137 @@ def build_bulk_meeting_prompt(resident_name: str, plan_json: dict, meeting_info:
   "conclusion": "結論"
 }}
 """
+def build_bulk_plan_from_monitoring_prompt(resident_name: str, monitoring_json: dict):
+    return f"""
+利用者名: {resident_name}
+
+以下の直近モニタリング内容をもとに、就労継続支援B型の個別支援計画案をJSONのみで作成してください。
+
+参照元（直近モニタリング）:
+{json.dumps(monitoring_json, ensure_ascii=False)}
+
+出力ルール:
+- モニタリング内容から自然につながる個別支援計画案を作成する
+- 支援期間は空でもよい
+- 担当者は原則「全職員」でよい
+- 優先順位は 1,2,3 を入れる
+- 出力はJSONのみ
+
+出力形式:
+{{
+  "policy": "サービス等利用計画の総合的な方針",
+  "long_goal": "長期目標",
+  "short_goal": "短期目標",
+  "rows": [
+    {{
+      "target": "具体的到達目標1",
+      "role": "本人の役割1",
+      "support": "支援内容1",
+      "period": "支援期間1",
+      "person": "担当者1",
+      "priority": "1"
+    }},
+    {{
+      "target": "具体的到達目標2",
+      "role": "本人の役割2",
+      "support": "支援内容2",
+      "period": "支援期間2",
+      "person": "担当者2",
+      "priority": "2"
+    }},
+    {{
+      "target": "具体的到達目標3",
+      "role": "本人の役割3",
+      "support": "支援内容3",
+      "period": "支援期間3",
+      "person": "担当者3",
+      "priority": "3"
+    }}
+  ]
+}}
+"""
+
+
+def build_bulk_final_plan_prompt(resident_name: str, draft_plan_json: dict, meeting_json: dict):
+    return f"""
+利用者名: {resident_name}
+
+以下の個別支援計画案とサービス担当者会議記録をもとに、
+就労継続支援B型の個別支援計画（本計画）をJSONのみで作成してください。
+
+個別支援計画案:
+{json.dumps(draft_plan_json, ensure_ascii=False)}
+
+サービス担当者会議:
+{json.dumps(meeting_json, ensure_ascii=False)}
+
+出力ルール:
+- 会議の検討内容・結論を踏まえて、計画案を必要に応じて調整する
+- 計画案をベースにしつつ、本計画として自然な内容に整える
+- 支援期間は空でもよい
+- 担当者は原則「全職員」でよい
+- 優先順位は 1,2,3 を入れる
+- 出力はJSONのみ
+
+出力形式:
+{{
+  "policy": "サービス等利用計画の総合的な方針",
+  "long_goal": "長期目標",
+  "short_goal": "短期目標",
+  "rows": [
+    {{
+      "target": "具体的到達目標1",
+      "role": "本人の役割1",
+      "support": "支援内容1",
+      "period": "支援期間1",
+      "person": "担当者1",
+      "priority": "1"
+    }},
+    {{
+      "target": "具体的到達目標2",
+      "role": "本人の役割2",
+      "support": "支援内容2",
+      "period": "支援期間2",
+      "person": "担当者2",
+      "priority": "2"
+    }},
+    {{
+      "target": "具体的到達目標3",
+      "role": "本人の役割3",
+      "support": "支援内容3",
+      "period": "支援期間3",
+      "person": "担当者3",
+      "priority": "3"
+    }}
+  ]
+}}
+"""
+
+
+def apply_bulk_plan_overrides(plan_json, periods, persons):
+    result = json.loads(json.dumps(plan_json, ensure_ascii=False))
+
+    rows = result.get("rows", [])
+    while len(rows) < 3:
+        rows.append({})
+
+    for i in range(3):
+        if i < len(periods):
+            rows[i]["period"] = str(periods[i]).strip()
+
+        if i < len(persons):
+            person_val = str(persons[i]).strip()
+            rows[i]["person"] = person_val if person_val else "全職員"
+
+        if not str(rows[i].get("person", "")).strip():
+            rows[i]["person"] = "全職員"
+
+        if not str(rows[i].get("priority", "")).strip():
+            rows[i]["priority"] = str(i + 1)
+
+    result["rows"] = rows
+    return result
+
 def build_plan_cell_data_from_json(plan_json, resident_name, year_val, month_val, day_val, manager_val):
     rows = plan_json.get("rows", [])
     while len(rows) < 3:
@@ -239,6 +411,85 @@ def build_plan_cell_data_from_json(plan_json, resident_name, year_val, month_val
         "Q19": str(rows[2].get("priority", "")),
 
         "N21": manager_val,
+    }
+
+def build_home_eval_cell_data(
+    resident_name,
+    create_year,
+    create_month,
+    manager_name,
+    goals,
+    monthly_evaluations,
+    weekly_dates,
+    weekly_reports,
+    weekly_visits,
+):
+    goals = list(goals or [])
+    monthly_evaluations = list(monthly_evaluations or [])
+
+    while len(goals) < 3:
+        goals.append("")
+
+    while len(monthly_evaluations) < 3:
+        monthly_evaluations.append("")
+
+    return {
+        "B3": resident_name,
+        "J3": create_year,
+        "L3": create_month,
+
+        "B7": goals[0],
+        "B8": goals[1],
+        "B9": goals[2],
+
+        "H11": manager_name,
+
+        "B12": monthly_evaluations[0],
+        "B13": monthly_evaluations[1],
+        "B14": monthly_evaluations[2],
+
+        "A19": weekly_dates.get("1", ""),
+        "C19": weekly_reports.get("1", ""),
+        "J20": weekly_visits.get("1", ""),
+
+        "A21": weekly_dates.get("2", ""),
+        "C21": weekly_reports.get("2", ""),
+        "J22": weekly_visits.get("2", ""),
+
+        "A23": weekly_dates.get("3", ""),
+        "C23": weekly_reports.get("3", ""),
+        "J24": weekly_visits.get("3", ""),
+
+        "A25": weekly_dates.get("4", ""),
+        "C25": weekly_reports.get("4", ""),
+        "J26": weekly_visits.get("4", ""),
+
+        "A27": weekly_dates.get("5", ""),
+        "C27": weekly_reports.get("5", ""),
+        "J28": weekly_visits.get("5", ""),
+    }
+
+def build_home_eval_week_ranges(year_val, month_val):
+    try:
+        y = int(str(year_val).strip())
+        m = int(str(month_val).strip())
+    except Exception:
+        return {
+            "1": "",
+            "2": "",
+            "3": "",
+            "4": "",
+            "5": "",
+        }
+
+    last_day = py_calendar.monthrange(y, m)[1]
+
+    return {
+        "1": f"{m}/1〜{m}/7",
+        "2": f"{m}/8〜{m}/14",
+        "3": f"{m}/15〜{m}/21",
+        "4": f"{m}/22〜{m}/28",
+        "5": f"{m}/29〜{m}/{last_day}",
     }
 
 def apply_bulk_plan_overrides(plan_json, periods, persons):
@@ -287,7 +538,7 @@ def build_meeting_cell_data_from_json(
         "G5": meeting_day,
         "M5": meeting_info,
 
-        # 会議出席者（氏名欄）
+        # 会議出席者
         "E8": attendees.get("admin", ""),
         "J8": attendees.get("staff", ""),
         "O8": attendees.get("user", ""),
@@ -4463,7 +4714,7 @@ def build_plan_draft_generation_prompt(
 # 🤫 秘密モード Gemini 自動生成まわり
 # ==========================================
 
-TEST_ALLOW_EMPTY_REFERENCE = True
+TEST_ALLOW_EMPTY_REFERENCE = False
 # 動作確認が終わったら False にするか、
 # この1行ごとコメントアウトして本番運用するある。
 
@@ -5598,7 +5849,7 @@ document_page_options = [
     ("書類_個別支援計画", "🤫個別支援計画🤫" if st.session_state.get("secret_doc_mode", False) else "個別支援計画"),
     ("書類_モニタリング", "🤫モニタリング🤫" if st.session_state.get("secret_doc_mode", False) else "モニタリング"),
     ("書類_一括書類作成", "🤫一括書類作成🤫") if st.session_state.get("secret_doc_mode", False) else None,    
-    ("書類_在宅評価シート", "在宅評価シート"),
+    ("書類_在宅評価シート", "🤫在宅評価シート🤫" if st.session_state.get("secret_doc_mode", False) else "在宅評価シート"),
     ("書類_アセスメント", "アセスメント"),
     ("書類_基本シート", "基本シート"),
     ("書類_就労分野シート", "就労分野シート"),
@@ -12512,8 +12763,6 @@ def render_bulk_documents_page():
     st.title("🤫一括書類作成🤫")
     st.caption("個別支援計画案・サービス担当者会議・個別支援計画をまとめて作成するページです。")
 
-    st.info("このページはまだ入力画面だけの先行作成です。サイドバー表示と一括生成処理はこのあと追加します。")
-
     resident_options, resident_map = get_resident_option_map()
 
     if not resident_options:
@@ -12548,7 +12797,6 @@ def render_bulk_documents_page():
         st.text_input("計画案_サービス管理責任者", key="bulk_plan_draft_manager", placeholder="サービス管理責任者")
 
     st.markdown("#### 計画案_短期目標ごとの入力")
-
     for i in range(1, 4):
         row_cols = st.columns([3, 3])
         with row_cols[0]:
@@ -12565,9 +12813,7 @@ def render_bulk_documents_page():
             )
 
     st.divider()
-    st.markdown("### 会議出席者")
-
-    meeting_cols_1 = st.columns([2, 2, 2, 4])
+    st.markdown("## サービス担当者会議")
 
     st.markdown("### サ会議_作成年月日")
     meeting_create_cols = st.columns([2, 2, 2, 4])
@@ -12591,11 +12837,9 @@ def render_bulk_documents_page():
     with meeting_hold_cols[2]:
         st.text_input("サ会議_開催日", key="bulk_meeting_day", placeholder="29")
 
-    meeting_cols_2 = st.columns(1)
+    st.text_input("サ会議_開催情報", key="bulk_meeting_info")
 
-    with meeting_cols_2[0]:
-        st.text_input("サ会議_開催情報", key="bulk_meeting_info")
-
+    st.markdown("### 会議出席者")
     col1, col2, col3 = st.columns(3)
     with col1:
         st.text_input("管理者", key="bulk_meeting_admin")
@@ -12608,7 +12852,7 @@ def render_bulk_documents_page():
         st.text_input("相談員", key="bulk_meeting_consultant")
 
     with col3:
-        st.text_input("利用者", key="bulk_meeting_user")
+        st.text_input("利用者", key="bulk_meeting_user", value=resident_name)
         st.text_input("親族", key="bulk_meeting_family")
         st.text_input("キーパーソン", key="bulk_meeting_keyperson")
 
@@ -12626,7 +12870,6 @@ def render_bulk_documents_page():
         st.text_input("本計画_サービス管理責任者", key="bulk_plan_manager", placeholder="サービス管理責任者")
 
     st.markdown("#### 本計画_短期目標ごとの入力")
-
     for i in range(1, 4):
         row_cols = st.columns([3, 3])
         with row_cols[0]:
@@ -12646,6 +12889,7 @@ def render_bulk_documents_page():
     st.markdown("## 確認")
     with st.expander("入力内容確認"):
         st.write(f"利用者: {resident_name} ({resident_id})")
+
         st.write(
             f"計画案日付: "
             f"{st.session_state.get('bulk_plan_draft_year', '')}/"
@@ -12654,8 +12898,21 @@ def render_bulk_documents_page():
         )
         st.write(f"計画案サビ管: {st.session_state.get('bulk_plan_draft_manager', '')}")
 
+        for i in range(1, 4):
+            st.write(
+                f"計画案 {i}行目 / 期間: {st.session_state.get(f'bulk_plan_draft_period_{i}', '')} "
+                f"/ 担当者: {st.session_state.get(f'bulk_plan_draft_person_{i}', '')}"
+            )
+
         st.write(
-            f"サ会議日付: "
+            f"サ会議作成年月日: "
+            f"{st.session_state.get('bulk_meeting_create_year', '')}/"
+            f"{st.session_state.get('bulk_meeting_create_month', '')}/"
+            f"{st.session_state.get('bulk_meeting_create_day', '')}"
+        )
+
+        st.write(
+            f"サ会議開催年月日: "
             f"{st.session_state.get('bulk_meeting_year', '')}/"
             f"{st.session_state.get('bulk_meeting_month', '')}/"
             f"{st.session_state.get('bulk_meeting_day', '')}"
@@ -12686,26 +12943,46 @@ def render_bulk_documents_page():
         )
         st.write(f"本計画サビ管: {st.session_state.get('bulk_plan_manager', '')}")
 
+        for i in range(1, 4):
+            st.write(
+                f"本計画 {i}行目 / 期間: {st.session_state.get(f'bulk_plan_period_{i}', '')} "
+                f"/ 担当者: {st.session_state.get(f'bulk_plan_person_{i}', '')}"
+            )
+
     st.divider()
 
     bulk_generate_key = f"bulk_generate_all_{resident_id}"
 
     if st.button("🚀 3枚まとめて作成", key=bulk_generate_key):
-
-        # ========= 基本情報 =========
         resident_name = str(resident_name).strip()
 
-        # --- 計画案 ---
-        draft_year = st.session_state.get("bulk_plan_draft_year", "")
-        draft_month = st.session_state.get("bulk_plan_draft_month", "")
-        draft_day = st.session_state.get("bulk_plan_draft_day", "")
-        draft_manager = st.session_state.get("bulk_plan_draft_manager", "")
+        latest_monitoring_json = get_latest_saved_document_json(resident_id, "モニタリング")
+        if not latest_monitoring_json:
+            st.error("直近のモニタリングがありません。先にモニタリングを保存してください。")
+            return
 
-        # --- サ会議 ---
-        meeting_year = st.session_state.get("bulk_meeting_year", "")
-        meeting_month = st.session_state.get("bulk_meeting_month", "")
-        meeting_day = st.session_state.get("bulk_meeting_day", "")
-        meeting_creator = st.session_state.get("bulk_meeting_creator", "")
+        draft_periods = [
+            st.session_state.get("bulk_plan_draft_period_1", ""),
+            st.session_state.get("bulk_plan_draft_period_2", ""),
+            st.session_state.get("bulk_plan_draft_period_3", ""),
+        ]
+        draft_persons = [
+            st.session_state.get("bulk_plan_draft_person_1", "全職員"),
+            st.session_state.get("bulk_plan_draft_person_2", "全職員"),
+            st.session_state.get("bulk_plan_draft_person_3", "全職員"),
+        ]
+
+        final_periods = [
+            st.session_state.get("bulk_plan_period_1", ""),
+            st.session_state.get("bulk_plan_period_2", ""),
+            st.session_state.get("bulk_plan_period_3", ""),
+        ]
+        final_persons = [
+            st.session_state.get("bulk_plan_person_1", "全職員"),
+            st.session_state.get("bulk_plan_person_2", "全職員"),
+            st.session_state.get("bulk_plan_person_3", "全職員"),
+        ]
+
         meeting_info = st.session_state.get("bulk_meeting_info", "")
 
         attendees_dict = {
@@ -12732,17 +13009,17 @@ def render_bulk_documents_page():
 キーパーソン: {attendees_dict["keyperson"]}
 """.strip()
 
-        # --- 本計画 ---
-        plan_year = st.session_state.get("bulk_plan_year", "")
-        plan_month = st.session_state.get("bulk_plan_month", "")
-        plan_day = st.session_state.get("bulk_plan_day", "")
-        plan_manager = st.session_state.get("bulk_plan_manager", "")
-
-        st.info("Gemini生成中...")
-
         try:
             plan_draft_json = generate_json_with_gemini(
-                build_bulk_plan_prompt(resident_name)
+                build_bulk_plan_from_monitoring_prompt(
+                    resident_name=resident_name,
+                    monitoring_json=latest_monitoring_json,
+                )
+            )
+            plan_draft_json = apply_bulk_plan_overrides(
+                plan_draft_json,
+                draft_periods,
+                draft_persons,
             )
 
             meeting_json = generate_json_with_gemini(
@@ -12754,38 +13031,15 @@ def render_bulk_documents_page():
                 )
             )
 
-            # 本計画は現段階では計画案JSONを流用
-            draft_periods = [
-                st.session_state.get("bulk_plan_draft_period_1", ""),
-                st.session_state.get("bulk_plan_draft_period_2", ""),
-                st.session_state.get("bulk_plan_draft_period_3", ""),
-            ]
-            draft_persons = [
-                st.session_state.get("bulk_plan_draft_person_1", "全職員"),
-                st.session_state.get("bulk_plan_draft_person_2", "全職員"),
-                st.session_state.get("bulk_plan_draft_person_3", "全職員"),
-            ]
-
-            final_periods = [
-                st.session_state.get("bulk_plan_period_1", ""),
-                st.session_state.get("bulk_plan_period_2", ""),
-                st.session_state.get("bulk_plan_period_3", ""),
-            ]
-            final_persons = [
-                st.session_state.get("bulk_plan_person_1", "全職員"),
-                st.session_state.get("bulk_plan_person_2", "全職員"),
-                st.session_state.get("bulk_plan_person_3", "全職員"),
-            ]
-
-            plan_draft_json = apply_bulk_plan_overrides(
-                plan_draft_json,
-                draft_periods,
-                draft_persons,
+            plan_final_json = generate_json_with_gemini(
+                build_bulk_final_plan_prompt(
+                    resident_name=resident_name,
+                    draft_plan_json=plan_draft_json,
+                    meeting_json=meeting_json,
+                )
             )
-
-            # 本計画は計画案JSONをベースにしつつ、本計画用の入力値で上書き
             plan_final_json = apply_bulk_plan_overrides(
-                plan_draft_json,
+                plan_final_json,
                 final_periods,
                 final_persons,
             )
@@ -12799,7 +13053,6 @@ def render_bulk_documents_page():
         except Exception as e:
             st.error(f"一括生成エラー: {e}")
 
-    # ========= 生成結果表示 =========
     if st.session_state.get("bulk_plan_draft_json"):
         st.markdown("### 📄 計画案（生成結果）")
         st.text_area(
@@ -12827,7 +13080,6 @@ def render_bulk_documents_page():
             key="bulk_plan_final_json_view"
         )
 
-    # ========= ZIPダウンロード =========
     if (
         st.session_state.get("bulk_plan_draft_json")
         and st.session_state.get("bulk_meeting_json")
@@ -12843,12 +13095,14 @@ def render_bulk_documents_page():
             try:
                 zip_buffer = io.BytesIO()
 
-                # ここでも最新値を取り直す
                 draft_year = st.session_state.get("bulk_plan_draft_year", "")
                 draft_month = st.session_state.get("bulk_plan_draft_month", "")
                 draft_day = st.session_state.get("bulk_plan_draft_day", "")
                 draft_manager = st.session_state.get("bulk_plan_draft_manager", "")
 
+                create_year = st.session_state.get("bulk_meeting_create_year", "")
+                create_month = st.session_state.get("bulk_meeting_create_month", "")
+                create_day = st.session_state.get("bulk_meeting_create_day", "")
                 meeting_year = st.session_state.get("bulk_meeting_year", "")
                 meeting_month = st.session_state.get("bulk_meeting_month", "")
                 meeting_day = st.session_state.get("bulk_meeting_day", "")
@@ -12886,17 +13140,16 @@ def render_bulk_documents_page():
                     cell_data_meeting = build_meeting_cell_data_from_json(
                         st.session_state["bulk_meeting_json"],
                         resident_name,
-                        st.session_state.get("bulk_meeting_create_year", ""),
-                        st.session_state.get("bulk_meeting_create_month", ""),
-                        st.session_state.get("bulk_meeting_create_day", ""),
-                        st.session_state.get("bulk_meeting_year", ""),
-                        st.session_state.get("bulk_meeting_month", ""),
-                        st.session_state.get("bulk_meeting_day", ""),
+                        create_year,
+                        create_month,
+                        create_day,
+                        meeting_year,
+                        meeting_month,
+                        meeting_day,
                         meeting_info,
                         attendees_dict,
                         st.session_state.get("bulk_meeting_creator", ""),
                     )
-
                     file_meeting = create_excel_file("サービス担当者会議", cell_data_meeting)
                     zf.writestr(f"{resident_name}_サ会議.xlsx", file_meeting.getvalue())
 
@@ -12923,6 +13176,183 @@ def render_bulk_documents_page():
 
             except Exception as e:
                 st.error(f"ZIP作成エラー: {e}")
+
+def render_secret_home_eval_auto_page():
+    st.title("🤫在宅評価シート🤫")
+    st.caption("Knowbeの支援記録を読み込み、在宅評価シートを自動作成する裏ページです。")
+
+    resident_options, resident_map = get_resident_option_map()
+
+    if not resident_options:
+        st.warning("利用者情報がまだありません。")
+        return
+
+    st.markdown("## 基本情報")
+
+    selected_label = st.selectbox(
+        "利用者を選択",
+        resident_options,
+        key="secret_home_eval_resident_select"
+    )
+
+    selected_row = resident_map.get(selected_label, {})
+    resident_id = str(selected_row.get("resident_id", "")).strip()
+    resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    base_cols = st.columns([2, 2, 3])
+
+    with base_cols[0]:
+        create_year = st.text_input("作成年", key="secret_home_eval_year", placeholder="2026")
+    with base_cols[1]:
+        create_month = st.text_input("作成月", key="secret_home_eval_month", placeholder="3")
+    with base_cols[2]:
+        manager_name = st.text_input(
+            "月間評価のサビ管名",
+            key="secret_home_eval_manager_name",
+            placeholder="サービス管理責任者名"
+        )
+
+    st.markdown("## サビ管訪問")
+    visit_cols_1 = st.columns(2)
+    visit_cols_2 = st.columns(2)
+    visit_cols_3 = st.columns(1)
+
+    with visit_cols_1[0]:
+        visit_1 = st.text_input("第1週 サビ管訪問", key="secret_home_eval_visit_1")
+    with visit_cols_1[1]:
+        visit_2 = st.text_input("第2週 サビ管訪問", key="secret_home_eval_visit_2")
+    with visit_cols_2[0]:
+        visit_3 = st.text_input("第3週 サビ管訪問", key="secret_home_eval_visit_3")
+    with visit_cols_2[1]:
+        visit_4 = st.text_input("第4週 サビ管訪問", key="secret_home_eval_visit_4")
+    with visit_cols_3[0]:
+        visit_5 = st.text_input("第5週 サビ管訪問", key="secret_home_eval_visit_5")
+
+    weekly_dates = build_home_eval_week_ranges(create_year, create_month)
+
+    with st.expander("週の日付確認"):
+        st.write(f"第1週: {weekly_dates.get('1', '')}")
+        st.write(f"第2週: {weekly_dates.get('2', '')}")
+        st.write(f"第3週: {weekly_dates.get('3', '')}")
+        st.write(f"第4週: {weekly_dates.get('4', '')}")
+        st.write(f"第5週: {weekly_dates.get('5', '')}")
+
+    st.divider()
+
+    if st.button("🚀 Knowbeから在宅評価シートを自動作成", key="secret_home_eval_auto_generate"):
+        if not resident_name:
+            st.error("利用者を選択してください。")
+            return
+
+        if not str(create_year).strip() or not str(create_month).strip():
+            st.error("作成年と作成月を入力してください。")
+            return
+
+        if not str(manager_name).strip():
+            st.error("月間評価のサビ管名を入力してください。")
+            return
+
+        driver = None
+
+        try:
+            login_username, login_password = get_knowbe_login_credentials()
+            if not login_username or not login_password:
+                st.error("Knowbeログイン情報が取得できませんでした。")
+                return
+
+            with st.spinner("Knowbeへ接続して支援記録を取得中ある..."):
+                driver = build_chrome_driver()
+                driver.get("https://mgr.knowbe.jp/v2/")
+                time.sleep(1.0)
+
+                manual_login_wait(driver, login_username, login_password)
+
+                support_record_text = fetch_support_record_text_for_month(
+                    driver=driver,
+                    resident_name=resident_name,
+                    year=int(str(create_year).strip()),
+                    month=int(str(create_month).strip()),
+                )
+
+            st.session_state["secret_home_eval_support_record_text"] = support_record_text
+
+            with st.spinner("Geminiで在宅評価を生成中ある..."):
+                home_eval_json = generate_json_with_gemini(
+                    build_home_eval_from_support_record_prompt(
+                        resident_name=resident_name,
+                        year_val=create_year,
+                        month_val=create_month,
+                        support_record_text=support_record_text,
+                    )
+                )
+
+            st.session_state["secret_home_eval_json"] = home_eval_json
+
+            weekly_visits = {
+                "1": visit_1,
+                "2": visit_2,
+                "3": visit_3,
+                "4": visit_4,
+                "5": visit_5,
+            }
+
+            goals = home_eval_json.get("goals", [])
+            monthly_evaluations = home_eval_json.get("monthly_evaluations", [])
+            weekly_reports = home_eval_json.get("weekly_reports", {})
+
+            cell_data = build_home_eval_cell_data(
+                resident_name=resident_name,
+                create_year=create_year,
+                create_month=create_month,
+                manager_name=manager_name,
+                goals=goals,
+                monthly_evaluations=monthly_evaluations,
+                weekly_dates=weekly_dates,
+                weekly_reports=weekly_reports,
+                weekly_visits=weekly_visits,
+            )
+
+            st.session_state["secret_home_eval_cell_data"] = cell_data
+            st.session_state["secret_home_eval_file"] = create_excel_file("在宅評価シート", cell_data)
+
+            st.success("在宅評価シートの自動作成が完了したある🥳")
+
+        except Exception as e:
+            st.error(f"在宅評価シート自動作成エラー: {e}")
+
+        finally:
+            try:
+                if driver is not None:
+                    driver.quit()
+            except Exception:
+                pass
+
+    if st.session_state.get("secret_home_eval_support_record_text"):
+        with st.expander("取得した支援記録本文（確認用）"):
+            st.text_area(
+                "support_record_text",
+                st.session_state.get("secret_home_eval_support_record_text", ""),
+                height=300,
+                key="secret_home_eval_support_record_text_view"
+            )
+
+    if st.session_state.get("secret_home_eval_json"):
+        st.markdown("### 生成結果JSON")
+        st.text_area(
+            "home_eval_json",
+            json.dumps(st.session_state.get("secret_home_eval_json", {}), ensure_ascii=False, indent=2),
+            height=320,
+            key="secret_home_eval_json_view"
+        )
+
+    if st.session_state.get("secret_home_eval_file"):
+        st.download_button(
+            label="📥 在宅評価シートをダウンロード",
+            data=st.session_state["secret_home_eval_file"],
+            file_name=f"{resident_name}_在宅評価シート.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="secret_home_eval_download"
+        )
 
 # ==========================================
 # 利用者書類
@@ -13027,7 +13457,10 @@ elif page == "書類_モニタリング":
     else:
         render_monitoring_form_page("モニタリング")
 elif page == "書類_在宅評価シート":
-    render_home_evaluation_form_page("在宅評価シート")
+    if st.session_state.get("secret_doc_mode", False):
+        render_secret_home_eval_auto_page()
+    else:
+        render_home_evaluation_form_page("在宅評価シート")
 elif page == "書類_アセスメント":
     render_assessment_form_page("アセスメント")
 elif page == "書類_基本シート":

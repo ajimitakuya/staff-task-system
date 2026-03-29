@@ -677,6 +677,384 @@ def click_pencil_in_row(driver, row) -> bool:
         pass
     return False
 
+# =========================
+# 利用者ごと → 支援記録ページ取得
+# =========================
+def goto_record_user_page(driver):
+    """
+    左メニューの
+      記録 → 利用者ごと
+    へ移動する
+    """
+    log("[STEP] goto_record_user_page start")
+
+    # まず「記録」を押す
+    record_clicked = False
+    record_xpaths = [
+        "//p[normalize-space(.)='記録']",
+        "//span[normalize-space(.)='記録']",
+        "//div[normalize-space(.)='記録']",
+        "//*[contains(normalize-space(.), '記録')]",
+    ]
+
+    for xp in record_xpaths:
+        try:
+            elems = driver.find_elements(By.XPATH, xp)
+            for el in elems:
+                try:
+                    if not el.is_displayed():
+                        continue
+                except Exception:
+                    pass
+
+                if safe_click(driver, el):
+                    record_clicked = True
+                    time.sleep(1.0)
+                    break
+            if record_clicked:
+                break
+        except Exception:
+            pass
+
+    if not record_clicked:
+        dump_debug(driver, "goto_record_user_page_record_click_fail")
+        raise RuntimeError("[FATAL] 左メニューの『記録』を押せなかったある")
+
+    # 次に「利用者ごと」を押す
+    user_clicked = False
+    user_xpaths = [
+        "//p[normalize-space(.)='利用者ごと']",
+        "//span[normalize-space(.)='利用者ごと']",
+        "//div[normalize-space(.)='利用者ごと']",
+        "//*[contains(normalize-space(.), '利用者ごと')]",
+    ]
+
+    for xp in user_xpaths:
+        try:
+            elems = driver.find_elements(By.XPATH, xp)
+            for el in elems:
+                try:
+                    if not el.is_displayed():
+                        continue
+                except Exception:
+                    pass
+
+                if safe_click(driver, el):
+                    user_clicked = True
+                    time.sleep(1.5)
+                    break
+            if user_clicked:
+                break
+        except Exception:
+            pass
+
+    if not user_clicked:
+        dump_debug(driver, "goto_record_user_page_user_click_fail")
+        raise RuntimeError("[FATAL] 『利用者ごと』を押せなかったある")
+
+    log("[STEP] goto_record_user_page done")
+
+
+def normalize_name_loose(name: str) -> str:
+    """
+    氏名比較用
+    - 半角/全角スペース除去
+    - 氏名以降の余計な文字は無視しやすくするため、
+      比較時は「対象名が行テキストに含まれるか」で見る
+    """
+    s = "" if name is None else str(name)
+    return s.replace(" ", "").replace("　", "").strip()
+
+
+def find_user_row_in_record_page(driver, name: str):
+    """
+    利用者ごとページで、対象利用者の行を探す
+    - 姓名スペース無視
+    - 氏名以降の文字は気にしない
+    - 同姓同名がいたら最初に見つけた行で確定
+    """
+    target = normalize_name_loose(name)
+    log(f"[STEP] find_user_row_in_record_page target={target}")
+
+    rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
+    visible_texts = []
+
+    for idx, row in enumerate(rows, 1):
+        try:
+            txt = (row.text or "").replace("\n", " ")
+            txt_norm = normalize_name_loose(txt)
+            visible_texts.append(txt_norm)
+
+            if target and target in txt_norm:
+                log(f"[DEBUG] user row hit idx={idx} text={txt_norm}")
+                return row
+        except Exception:
+            continue
+
+    for i, txt in enumerate(visible_texts[:10], 1):
+        log(f"[DEBUG] visible user row {i}: {txt}")
+
+    return None
+
+
+def click_support_record_button_in_row(driver, row) -> bool:
+    """
+    利用者ごとページの右側『支援記録』ボタンを押す
+    """
+    # まず文字で狙う
+    xps = [
+        ".//span[normalize-space(.)='支援記録']",
+        ".//button[normalize-space(.)='支援記録']",
+        ".//*[contains(normalize-space(.), '支援記録')]",
+    ]
+
+    for xp in xps:
+        try:
+            elems = row.find_elements(By.XPATH, xp)
+        except Exception:
+            elems = []
+
+        for el in elems:
+            try:
+                if not el.is_displayed():
+                    continue
+            except Exception:
+                pass
+
+            # spanなら親buttonへ寄る
+            try:
+                btn = el.find_element(By.XPATH, "./ancestor::button[1]")
+                if safe_click(driver, btn):
+                    time.sleep(1.5)
+                    return True
+            except Exception:
+                pass
+
+            if safe_click(driver, el):
+                time.sleep(1.5)
+                return True
+
+    # 最後の保険：行内button総当たり
+    try:
+        btns = row.find_elements(By.TAG_NAME, "button")
+    except Exception:
+        btns = []
+
+    for b in btns:
+        try:
+            txt = (b.text or "").strip()
+            if "支援記録" in txt:
+                if safe_click(driver, b):
+                    time.sleep(1.5)
+                    return True
+        except Exception:
+            continue
+
+    return False
+
+
+def open_support_record_page_for_user(driver, resident_name: str):
+    """
+    利用者ごとページで対象利用者を見つけて『支援記録』を開く
+    """
+    log("[STEP] open_support_record_page_for_user start")
+
+    row = find_user_row_in_record_page(driver, resident_name)
+    if row is None:
+        dump_debug(driver, "support_record_user_not_found")
+        raise RuntimeError(f"[FATAL] 利用者ごとページで対象者が見つからないある: {resident_name}")
+
+    ok = click_support_record_button_in_row(driver, row)
+    if not ok:
+        dump_debug(driver, "support_record_button_not_found")
+        raise RuntimeError(f"[FATAL] 『支援記録』ボタンを押せなかったある: {resident_name}")
+
+    # ページ遷移待ち
+    time.sleep(2.0)
+    log("[STEP] open_support_record_page_for_user done")
+
+
+# =========================
+# 支援記録ページ 年月移動
+# =========================
+def parse_support_record_ym(text: str):
+    """
+    '2026年3月' → (2026, 3)
+    """
+    s = "" if text is None else str(text).strip()
+    m = re.search(r"(\d{4})\s*年\s*(\d{1,2})\s*月", s)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2))
+
+
+def get_support_record_current_ym(driver):
+    """
+    支援記録ページ中央の年月表示を読む
+    例: <span class="jss247">2026<span>年</span>3<span>月</span></span>
+    """
+    xpaths = [
+        "//span[contains(normalize-space(.), '年') and contains(normalize-space(.), '月')]",
+        "//*[contains(normalize-space(.), '年') and contains(normalize-space(.), '月')]",
+    ]
+
+    for xp in xpaths:
+        try:
+            elems = driver.find_elements(By.XPATH, xp)
+        except Exception:
+            elems = []
+
+        for el in elems:
+            try:
+                if not el.is_displayed():
+                    continue
+            except Exception:
+                pass
+
+            try:
+                txt = (el.text or "").strip()
+                ym = parse_support_record_ym(txt)
+                if ym:
+                    log(f"[DEBUG] current support ym text={txt}")
+                    return ym
+            except Exception:
+                continue
+
+    return None
+
+
+def _month_index(y: int, m: int) -> int:
+    return y * 12 + (m - 1)
+
+
+def get_support_record_month_nav_buttons(driver):
+    """
+    支援記録ページの左右ボタンを取る
+    - left / right class を優先
+    """
+    left_btn = None
+    right_btn = None
+
+    try:
+        btns = driver.find_elements(By.XPATH, "//button")
+    except Exception:
+        btns = []
+
+    for b in btns:
+        try:
+            cls = (b.get_attribute("class") or "").strip().lower()
+        except Exception:
+            cls = ""
+
+        if "left" in cls and left_btn is None:
+            left_btn = b
+        if "right" in cls and right_btn is None:
+            right_btn = b
+
+    return left_btn, right_btn
+
+
+def wait_support_record_month_changed(driver, old_ym, timeout=10):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        cur = get_support_record_current_ym(driver)
+        if cur and cur != old_ym:
+            time.sleep(1.0)
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def goto_support_record_month(driver, target_year: int, target_month: int):
+    """
+    支援記録ページで左右ボタンだけを使って対象年月へ移動する
+    """
+    log(f"[STEP] goto_support_record_month target={target_year}-{target_month:02d}")
+
+    for _ in range(24):  # 念のため2年分まで
+        cur = get_support_record_current_ym(driver)
+        if not cur:
+            dump_debug(driver, "support_record_current_ym_not_found")
+            raise RuntimeError("[FATAL] 支援記録ページの年月表示を読めなかったある")
+
+        cy, cm = cur
+        if (cy, cm) == (target_year, target_month):
+            log("[STEP] goto_support_record_month already matched")
+            return
+
+        left_btn, right_btn = get_support_record_month_nav_buttons(driver)
+        if left_btn is None or right_btn is None:
+            dump_debug(driver, "support_record_nav_buttons_not_found")
+            raise RuntimeError("[FATAL] 支援記録ページの左右月移動ボタンが見つからないある")
+
+        cur_idx = _month_index(cy, cm)
+        tgt_idx = _month_index(target_year, target_month)
+
+        old_ym = (cy, cm)
+
+        if tgt_idx < cur_idx:
+            log(f"[DEBUG] move left from {old_ym} to target")
+            if not safe_click(driver, left_btn):
+                dump_debug(driver, "support_record_left_click_fail")
+                raise RuntimeError("[FATAL] 左ボタンを押せなかったある")
+        else:
+            log(f"[DEBUG] move right from {old_ym} to target")
+            if not safe_click(driver, right_btn):
+                dump_debug(driver, "support_record_right_click_fail")
+                raise RuntimeError("[FATAL] 右ボタンを押せなかったある")
+
+        changed = wait_support_record_month_changed(driver, old_ym, timeout=10)
+        if not changed:
+            dump_debug(driver, "support_record_month_not_changed")
+            raise RuntimeError("[FATAL] 月移動後に年月表示が変わらなかったある")
+
+    dump_debug(driver, "support_record_month_loop_over")
+    raise RuntimeError("[FATAL] 対象年月へ移動できなかったある")
+
+
+# =========================
+# 支援記録本文の取得
+# =========================
+def get_support_record_page_text(driver) -> str:
+    """
+    支援記録ページ本文を丸ごと取得する
+    Ctrl+Aの代わりに document.body.innerText を取る
+    """
+    log("[STEP] get_support_record_page_text start")
+
+    text = ""
+    try:
+        text = driver.execute_script("return document.body ? document.body.innerText : '';")
+    except Exception:
+        text = ""
+
+    text = "" if text is None else str(text).strip()
+
+    if not text:
+        dump_debug(driver, "support_record_text_empty")
+        raise RuntimeError("[FATAL] 支援記録ページ本文を取得できなかったある")
+
+    log(f"[DEBUG] support record text length={len(text)}")
+    return text
+
+
+def fetch_support_record_text_for_month(driver, resident_name: str, year: int, month: int) -> str:
+    """
+    ログイン後に呼ぶ想定
+    1. 記録 → 利用者ごと
+    2. 対象利用者の支援記録を開く
+    3. 対象年月へ移動
+    4. 本文取得
+    """
+    log("[STEP] fetch_support_record_text_for_month start")
+
+    goto_record_user_page(driver)
+    open_support_record_page_for_user(driver, resident_name)
+    goto_support_record_month(driver, year, month)
+    text = get_support_record_page_text(driver)
+
+    log("[STEP] fetch_support_record_text_for_month done")
+    return text
 
 # =========================
 # 入力：強制クリア＆JS注入
