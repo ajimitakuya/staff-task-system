@@ -108,6 +108,165 @@ def generate_with_gemini(prompt: str):
 
     raise RuntimeError(f"Gemini生成失敗: {last_error}")
 
+def generate_json_with_gemini(prompt: str):
+    api_key = get_gemini_api_key_from_app()
+    if not api_key:
+        raise RuntimeError("APIキーありません")
+
+    genai.configure(api_key=api_key)
+
+    model_candidates = [
+        "gemini-2.5-flash",
+        "gemini-1.0-pro",
+    ]
+
+    last_error = None
+
+    for model_name in model_candidates:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            text = str(getattr(response, "text", "")).strip()
+
+            if not text:
+                continue
+
+            text = text.replace("```json", "").replace("```", "").strip()
+            return json.loads(text)
+
+        except Exception as e:
+            last_error = e
+            continue
+
+    raise RuntimeError(f"Gemini JSON生成失敗: {last_error}")
+
+def build_bulk_plan_prompt(resident_name: str):
+    return f"""
+利用者名: {resident_name}
+
+就労継続支援B型の個別支援計画をJSONのみで作成してください。
+
+出力形式:
+{{
+  "policy": "サービス等利用計画の総合的な方針",
+  "long_goal": "長期目標",
+  "short_goal": "短期目標",
+  "rows": [
+    {{
+      "target": "具体的到達目標1",
+      "role": "本人の役割1",
+      "support": "支援内容1",
+      "period": "支援期間1",
+      "person": "担当者1",
+      "priority": "1"
+    }},
+    {{
+      "target": "具体的到達目標2",
+      "role": "本人の役割2",
+      "support": "支援内容2",
+      "period": "支援期間2",
+      "person": "担当者2",
+      "priority": "2"
+    }},
+    {{
+      "target": "具体的到達目標3",
+      "role": "本人の役割3",
+      "support": "支援内容3",
+      "period": "支援期間3",
+      "person": "担当者3",
+      "priority": "3"
+    }}
+  ]
+}}
+"""
+def build_bulk_meeting_prompt(resident_name: str, plan_json: dict, meeting_info: str, attendees_text: str):
+    return f"""
+利用者名: {resident_name}
+
+以下の個別支援計画案をもとに、サービス担当者会議記録をJSONのみで作成してください。
+
+計画案:
+{json.dumps(plan_json, ensure_ascii=False)}
+
+開催情報:
+{meeting_info}
+
+出席者:
+{attendees_text}
+
+出力形式:
+{{
+  "agenda": "議題",
+  "discussion": "検討内容",
+  "issues_left": "残された課題",
+  "conclusion": "結論"
+}}
+"""
+def build_plan_cell_data_from_json(plan_json, resident_name, year_val, month_val, day_val, manager_val):
+    rows = plan_json.get("rows", [])
+    while len(rows) < 3:
+        rows.append({})
+
+    return {
+        "E5": resident_name,
+        "M5": year_val,
+        "O5": month_val,
+        "Q5": day_val,
+
+        "B8": str(plan_json.get("policy", "")),
+        "B10": str(plan_json.get("long_goal", "")),
+        "B12": str(plan_json.get("short_goal", "")),
+
+        "C17": str(rows[0].get("target", "")),
+        "G17": str(rows[0].get("role", "")),
+        "J17": str(rows[0].get("support", "")),
+        "M17": str(rows[0].get("period", "")),
+        "O17": str(rows[0].get("person", "")),
+        "Q17": str(rows[0].get("priority", "")),
+
+        "C18": str(rows[1].get("target", "")),
+        "G18": str(rows[1].get("role", "")),
+        "J18": str(rows[1].get("support", "")),
+        "M18": str(rows[1].get("period", "")),
+        "O18": str(rows[1].get("person", "")),
+        "Q18": str(rows[1].get("priority", "")),
+
+        "C19": str(rows[2].get("target", "")),
+        "G19": str(rows[2].get("role", "")),
+        "J19": str(rows[2].get("support", "")),
+        "M19": str(rows[2].get("period", "")),
+        "O19": str(rows[2].get("person", "")),
+        "Q19": str(rows[2].get("priority", "")),
+
+        "N21": manager_val,
+    }
+
+def build_meeting_cell_data_from_json(meeting_json, resident_name, create_year, create_month, create_day, meeting_info, attendees):
+    return {
+        "M3": create_year,
+        "O3": create_month,
+        "Q3": create_day,
+        "C4": resident_name,
+        "M4": meeting_info,
+
+        "C11": attendees.get("admin", ""),
+        "J11": attendees.get("staff", ""),
+        "O11": attendees.get("user", ""),
+
+        "C12": attendees.get("caremanager", ""),
+        "J12": attendees.get("nurse", ""),
+        "O12": attendees.get("family", ""),
+
+        "C13": attendees.get("manager", ""),
+        "J13": attendees.get("consultant", ""),
+        "O13": attendees.get("keyperson", ""),
+
+        "C15": meeting_json.get("agenda", ""),
+        "C16": meeting_json.get("discussion", ""),
+        "C17": meeting_json.get("issues_left", ""),
+        "C18": meeting_json.get("conclusion", ""),
+    }
+
 def get_sheet_name_candidates(file):
     if file in COMMON_SHEETS:
         return [file]
@@ -12359,17 +12518,44 @@ def render_bulk_documents_page():
 
     with meeting_cols_2[0]:
         st.text_input("サ会議_開催情報", key="bulk_meeting_info")
+        attendees_dict = {
+            "admin": st.session_state.get("bulk_meeting_admin", ""),
+            "caremanager": st.session_state.get("bulk_meeting_caremanager", ""),
+            "manager": st.session_state.get("bulk_meeting_manager", ""),
+            "staff": st.session_state.get("bulk_meeting_staff", ""),
+            "nurse": st.session_state.get("bulk_meeting_nurse", ""),
+            "consultant": st.session_state.get("bulk_meeting_consultant", ""),
+            "user": st.session_state.get("bulk_meeting_user", ""),
+            "family": st.session_state.get("bulk_meeting_family", ""),
+            "keyperson": st.session_state.get("bulk_meeting_keyperson", ""),
+        }
+
         attendees_text = f"""
-        管理者: {st.session_state.get("bulk_meeting_admin", "")}
-        ケアマネ: {st.session_state.get("bulk_meeting_caremanager", "")}
-        サービス管理責任者: {st.session_state.get("bulk_meeting_manager", "")}
-        支援員: {st.session_state.get("bulk_meeting_staff", "")}
-        看護師: {st.session_state.get("bulk_meeting_nurse", "")}
-        相談員: {st.session_state.get("bulk_meeting_consultant", "")}
-        利用者: {st.session_state.get("bulk_meeting_user", "")}
-        親族: {st.session_state.get("bulk_meeting_family", "")}
-        キーパーソン: {st.session_state.get("bulk_meeting_keyperson", "")}
+        管理者: {attendees_dict["admin"]}
+        ケアマネ: {attendees_dict["caremanager"]}
+        サービス管理責任者: {attendees_dict["manager"]}
+        支援員: {attendees_dict["staff"]}
+        看護師: {attendees_dict["nurse"]}
+        相談員: {attendees_dict["consultant"]}
+        利用者: {attendees_dict["user"]}
+        親族: {attendees_dict["family"]}
+        キーパーソン: {attendees_dict["keyperson"]}
         """
+
+        plan_draft_json = generate_json_with_gemini(
+            build_bulk_plan_prompt(resident_name)
+        )
+
+        meeting_json = generate_json_with_gemini(
+            build_bulk_meeting_prompt(
+                resident_name=resident_name,
+                plan_json=plan_draft_json,
+                meeting_info=meeting_info,
+                attendees_text=attendees_text,
+            )
+        )
+
+        plan_final_json = plan_draft_json
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -12438,6 +12624,64 @@ def render_bulk_documents_page():
             f"{st.session_state.get('bulk_plan_day', '')}"
         )
         st.write(f"本計画サビ管: {st.session_state.get('bulk_plan_manager', '')}")
+
+        import io
+        import zipfile
+
+        st.divider()
+        st.markdown("### 📦 一括ダウンロード")
+
+        if st.button("📥 3枚まとめてダウンロード", key="bulk_download_zip"):
+            try:
+                zip_buffer = io.BytesIO()
+
+                with zipfile.ZipFile(zip_buffer, "w") as zf:
+                    cell_data_plan = build_plan_cell_data_from_json(
+                        plan_draft_json,
+                        resident_name,
+                        draft_year,
+                        draft_month,
+                        draft_day,
+                        draft_manager,
+                    )
+                    file_plan = create_excel_file("個別支援計画案", cell_data_plan)
+                    zf.writestr(f"{resident_name}_計画案.xlsx", file_plan.getvalue())
+
+                    cell_data_meeting = build_meeting_cell_data_from_json(
+                        meeting_json,
+                        resident_name,
+                        meeting_year,
+                        meeting_month,
+                        meeting_day,
+                        meeting_info,
+                        attendees_dict,
+                    )
+                    file_meeting = create_excel_file("サービス担当者会議", cell_data_meeting)
+                    zf.writestr(f"{resident_name}_サ会議.xlsx", file_meeting.getvalue())
+
+                    cell_data_final = build_plan_cell_data_from_json(
+                        plan_final_json,
+                        resident_name,
+                        plan_year,
+                        plan_month,
+                        plan_day,
+                        plan_manager,
+                    )
+                    file_final = create_excel_file("個別支援計画", cell_data_final)
+                    zf.writestr(f"{resident_name}_本計画.xlsx", file_final.getvalue())
+
+                zip_buffer.seek(0)
+
+                st.download_button(
+                    label="📦 ZIPダウンロード",
+                    data=zip_buffer,
+                    file_name=f"{resident_name}_書類一式.zip",
+                    mime="application/zip",
+                    key="bulk_zip_download_button"
+                )
+
+            except Exception as e:
+                st.error(f"ZIP作成エラー: {e}")
 
     st.divider()
 
