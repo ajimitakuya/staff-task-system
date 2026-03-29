@@ -12313,7 +12313,25 @@ def render_bulk_documents_page():
         st.text_input("計画案_サービス管理責任者", key="bulk_plan_draft_manager", placeholder="サービス管理責任者")
 
     st.divider()
-    st.markdown("## サービス担当者会議")
+    st.markdown("### 会議出席者")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.text_input("管理者", key="bulk_meeting_admin")
+        st.text_input("ケアマネ", key="bulk_meeting_caremanager")
+        st.text_input("サービス管理責任者", key="bulk_meeting_manager")
+
+    with col2:
+        st.text_input("支援員", key="bulk_meeting_staff")
+        st.text_input("看護師", key="bulk_meeting_nurse")
+        st.text_input("相談員", key="bulk_meeting_consultant")
+
+    with col3:
+        st.text_input("利用者", key="bulk_meeting_user")
+        st.text_input("親族", key="bulk_meeting_family")
+        st.text_input("キーパーソン", key="bulk_meeting_keyperson")
+        
     meeting_cols_1 = st.columns([2, 2, 2, 4])
 
     with meeting_cols_1[0]:
