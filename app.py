@@ -1960,8 +1960,7 @@ def render_chat_room_page():
         current_user_id = str(st.session_state.get("user_id", "")).strip()
 
         # 投稿一覧の背景だけ軽く付ける
-        st.markdown(
-            """
+
         for _, msg in room_msgs.iterrows():
             display_name = clean_plain_text(msg.get("display_name", ""))
             message_user_id = str(msg.get("user_id", "")).strip()
