@@ -12342,12 +12342,21 @@ def render_bulk_documents_page():
     with meeting_cols_1[3]:
         st.text_input("サ会議_作成者", key="bulk_meeting_creator", placeholder="作成者名")
 
-    meeting_cols_2 = st.columns([4, 6])
+    meeting_cols_2 = st.columns(1)
 
     with meeting_cols_2[0]:
-        st.text_input("サ会議_開催情報", key="bulk_meeting_info", placeholder="開催場所・開催方法など")
-    with meeting_cols_2[1]:
-        st.text_area("サ会議_会議出席者", key="bulk_meeting_attendees", height=100, placeholder="出席者を入力")
+        st.text_input("サ会議_開催情報", key="bulk_meeting_info")
+        attendees_text = f"""
+        管理者: {st.session_state.get("bulk_meeting_admin", "")}
+        ケアマネ: {st.session_state.get("bulk_meeting_caremanager", "")}
+        サービス管理責任者: {st.session_state.get("bulk_meeting_manager", "")}
+        支援員: {st.session_state.get("bulk_meeting_staff", "")}
+        看護師: {st.session_state.get("bulk_meeting_nurse", "")}
+        相談員: {st.session_state.get("bulk_meeting_consultant", "")}
+        利用者: {st.session_state.get("bulk_meeting_user", "")}
+        親族: {st.session_state.get("bulk_meeting_family", "")}
+        キーパーソン: {st.session_state.get("bulk_meeting_keyperson", "")}
+        """
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -12467,7 +12476,8 @@ def render_bulk_documents_page():
             {plan_draft_text}
 
             開催情報: {meeting_info}
-            出席者: {meeting_attendees}
+            出席者:
+            {attendees_text}
             """
 
             meeting_text = generate_with_gemini(prompt_meeting)
