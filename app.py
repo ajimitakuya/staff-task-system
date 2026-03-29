@@ -1682,6 +1682,7 @@ def render_chat_room_page():
     import re
     import pandas as pd
     import streamlit as st
+    import streamlit.components.v1 as components
 
     st.title("💬 チャットルーム")
     st.caption("ルーム一覧・新規作成・投稿ができます。")
@@ -1948,7 +1949,34 @@ def render_chat_room_page():
                 ].copy()
 
             try:
-                room_msgs = room_msgs.sort_values(["created_at"], ascending=[True])
+                room_msgs = room_msgs.copy()
+
+                room_msgs["created_at_dt"] = pd.to_datetime(
+                    room_msgs["created_at"].astype(str).str.strip(),
+                    errors="coerce"
+                )
+
+                if "message_id" in room_msgs.columns:
+                    room_msgs["message_id_num"] = (
+                        room_msgs["message_id"]
+                        .astype(str)
+                        .str.replace("M", "", regex=False)
+                        .str.strip()
+                    )
+                    room_msgs["message_id_num"] = pd.to_numeric(
+                        room_msgs["message_id_num"],
+                        errors="coerce"
+                    )
+
+                    room_msgs = room_msgs.sort_values(
+                        ["created_at_dt", "message_id_num"],
+                        ascending=[True, True]
+                    )
+                else:
+                    room_msgs = room_msgs.sort_values(
+                        ["created_at_dt"],
+                        ascending=[True]
+                    )
             except Exception:
                 pass
 
@@ -1956,116 +1984,166 @@ def render_chat_room_page():
             st.info("まだ投稿がありません。")
             return
 
-        current_user_name = str(st.session_state.get("user", "")).strip()
-        current_user_id = str(st.session_state.get("user_id", "")).strip()
+        with st.container(height=420, border=True):
+            current_user_name = str(st.session_state.get("user", "")).strip()
+            current_user_id = str(st.session_state.get("user_id", "")).strip()
 
- 
-        for _, msg in room_msgs.iterrows():
-            display_name = clean_plain_text(msg.get("display_name", ""))
-            message_user_id = str(msg.get("user_id", "")).strip()
-            message_text = clean_plain_text(msg.get("message_text", ""))
-            created_at = str(msg.get("created_at", "")).strip()
-            has_attachment = str(msg.get("has_attachment", "")).strip()
-            linked_file_id = clean_plain_text(msg.get("linked_file_id", ""))
-
-            is_me = False
-            if current_user_id and message_user_id:
-                is_me = (current_user_id == message_user_id)
-            elif current_user_name and display_name:
-                is_me = (current_user_name == display_name)
-
-            time_text = created_at[-8:] if created_at and len(created_at) >= 8 else created_at
-
-            attach_text = ""
-            if has_attachment == "1":
-                attach_text = (
-                    f"📎 添付あり（倉庫ID: {linked_file_id}）"
-                    if linked_file_id
-                    else "📎 添付あり"
-                )
-
-            left_msg_col, spacer_col, right_msg_col = st.columns([5, 1, 5])
-
-            bubble_text = message_text if message_text else "　"
-            bubble_html = esc_text(bubble_text).replace("\n", "<br>")
-
-            if is_me:
-                with right_msg_col:
-                    st.markdown(
-                        f"""
-                            <div style="
-                            background:#95EC69;
-                            color:#111827;
-                            padding:10px 14px;
-                            border-radius:18px;
-                            border-bottom-right-radius:6px;
-                            margin:6px 0 2px auto;
-                            width:fit-content;
-                            max-width:100%;
-                            word-break:break-word;
-                            word-break:break-word;
-                            overflow-wrap:break-word;
-                        ">
-                            {bubble_html}
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    if attach_text:
-                        st.caption(attach_text)
-                    if time_text:
-                        st.markdown(
-                            f"""<div style="
-                                font-size:11px;
-                                color:#777;
-                                text-align:right;
-                                margin-top:2px;
-                            ">
-                                {time_text}
-                            </div>""",
-                            unsafe_allow_html=True
-                        )
-
+            warehouse_df = get_warehouse_files_df()
+            if warehouse_df is None:
+                warehouse_df = pd.DataFrame()
             else:
-                with left_msg_col:
-                    if display_name:
-                        st.caption(display_name)
+                warehouse_df = warehouse_df.copy()
+                if "is_deleted" in warehouse_df.columns:
+                    warehouse_df = warehouse_df[
+                        warehouse_df["is_deleted"].astype(str).str.strip() != "1"
+                    ].copy()
 
-                    st.markdown(
-                        f"""
-                            <div style="
-                            background:#FFFFFF;
-                            color:#111827;
-                            border:1px solid #DADADA;
-                            padding:10px 14px;
-                            border-radius:18px;
-                            border-bottom-left-radius:6px;
-                            margin:6px auto 2px 0;
-                            width:fit-content;
-                            max-width:100%;
-                            word-break:break-word;
-                            word-break:break-word;
-                            overflow-wrap:break-word;
-                        ">
-                            {bubble_html}
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    if attach_text:
-                        st.caption(attach_text)
-                    if time_text:
+            for _, msg in room_msgs.iterrows():
+                display_name = clean_plain_text(msg.get("display_name", ""))
+                message_user_id = str(msg.get("user_id", "")).strip()
+                message_text = clean_plain_text(msg.get("message_text", ""))
+                created_at = str(msg.get("created_at", "")).strip()
+                has_attachment = str(msg.get("has_attachment", "")).strip()
+                linked_file_id = clean_plain_text(msg.get("linked_file_id", ""))
+
+                attached_row = None
+                attached_file_bytes = None
+                attached_file_name = ""
+                attached_file_mime = ""
+
+                if linked_file_id and not warehouse_df.empty:
+                    hit_file = warehouse_df[
+                        warehouse_df["file_id"].astype(str).str.strip() == linked_file_id
+                    ].copy()
+
+                    if not hit_file.empty:
+                        attached_row = hit_file.iloc[0]
+                        attached_file_bytes, attached_file_name, attached_file_mime = get_warehouse_download_data(attached_row)
+
+                is_me = False
+                if current_user_id and message_user_id:
+                    is_me = (current_user_id == message_user_id)
+                elif current_user_name and display_name:
+                    is_me = (current_user_name == display_name)
+
+                time_text = created_at[-8:] if created_at and len(created_at) >= 8 else created_at
+
+                left_msg_col, spacer_col, right_msg_col = st.columns([5, 1, 5])
+
+                if message_text:
+                    bubble_text = message_text
+                elif has_attachment == "1":
+                    bubble_text = "📎 添付ファイル"
+                else:
+                    bubble_text = "　"
+
+                bubble_html = esc_text(bubble_text).replace("\n", "<br>")
+
+                if is_me:
+                    with right_msg_col:
                         st.markdown(
                             f"""<div style="
-                                font-size:11px;
-                                color:#777;
-                                text-align:left;
-                                margin-top:2px;
+                                background:#95EC69;
+                                color:#111827;
+                                padding:10px 14px;
+                                border-radius:18px;
+                                border-bottom-right-radius:6px;
+                                margin:6px 0 2px auto;
+                                display:inline-block;
+                                max-width:70%;
+                                word-break:break-word;
+                                overflow-wrap:break-word;
                             ">
-                                {time_text}
-                            </div>""",
-                            unsafe_allow_html=True
+                                {bubble_html}
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
                         )
+
+                        if attached_file_bytes is not None and attached_file_name:
+                            st.download_button(
+                                label=f"📎 {attached_file_name}",
+                                data=attached_file_bytes,
+                                file_name=attached_file_name,
+                                mime=attached_file_mime,
+                                key=f"chat_download_me_{msg.get('message_id', '')}",
+                                use_container_width=False,
+                            )
+
+                        if time_text:
+                            st.markdown(
+                                f"""<div style="
+                                    font-size:11px;
+                                    color:#777;
+                                    text-align:right;
+                                    margin-top:2px;
+                                ">
+                                    {time_text}
+                                </div>""",
+                                unsafe_allow_html=True
+                            )
+
+                else:
+                    with left_msg_col:
+                        if display_name:
+                            st.caption(display_name)
+
+                        st.markdown(
+                            f"""<div style="
+                                background:#FFFFFF;
+                                color:#111827;
+                                border:1px solid #DADADA;
+                                padding:10px 14px;
+                                border-radius:18px;
+                                border-bottom-left-radius:6px;
+                                margin:6px auto 2px 0;
+                                display:inline-block;
+                                max-width:70%;
+                                word-break:break-word;
+                                overflow-wrap:break-word;
+                            ">
+                                {bubble_html}
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                        if attached_file_bytes is not None and attached_file_name:
+                            st.download_button(
+                                label=f"📎 {attached_file_name}",
+                                data=attached_file_bytes,
+                                file_name=attached_file_name,
+                                mime=attached_file_mime,
+                                key=f"chat_download_other_{msg.get('message_id', '')}",
+                                use_container_width=False,
+                            )
+
+                        if time_text:
+                            st.markdown(
+                                f"""<div style="
+                                    font-size:11px;
+                                    color:#777;
+                                    text-align:left;
+                                    margin-top:2px;
+                                ">
+                                    {time_text}
+                                </div>""",
+                                unsafe_allow_html=True
+                            )
+
+            st.markdown('<div id="chat-bottom-anchor"></div>', unsafe_allow_html=True)
+
+            components.html(
+                """
+                <script>
+                const anchor = window.parent.document.getElementById("chat-bottom-anchor");
+                if (anchor) {
+                    anchor.scrollIntoView({ behavior: "auto", block: "end" });
+                }
+                </script>
+                """,
+                height=0,
+            )
                         
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
