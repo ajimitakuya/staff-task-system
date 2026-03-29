@@ -1984,7 +1984,7 @@ def render_chat_room_page():
             st.info("まだ投稿がありません。")
             return
 
-        with st.container(height=420, border=True):
+        with st.container(height=800, border=True):
             current_user_name = str(st.session_state.get("user", "")).strip()
             current_user_id = str(st.session_state.get("user_id", "")).strip()
 
