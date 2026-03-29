@@ -2003,7 +2003,8 @@ def render_chat_room_page():
                             width:fit-content;
                             max-width:100%;
                             word-break:break-word;
-                            white-space:pre-wrap;
+                            word-break:break-word;
+                            overflow-wrap:break-word;
                         ">
                             {bubble_html}
                         </div>
@@ -2033,7 +2034,8 @@ def render_chat_room_page():
                             width:fit-content;
                             max-width:100%;
                             word-break:break-word;
-                            white-space:pre-wrap;
+                            word-break:break-word;
+                            overflow-wrap:break-word;
                         ">
                             {bubble_html}
                         </div>
