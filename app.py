@@ -2049,13 +2049,22 @@ def render_chat_room_page():
 
                 is_file_only = False
 
-                if message_text:
-                    bubble_text = message_text
+                normalized_message_text = str(message_text).strip()
+
+                looks_like_broken_html = normalized_message_text in [
+                    "</div>",
+                    "<div>",
+                    "<br>",
+                    "</span>",
+                    "<span>",
+                ]
+
+                if normalized_message_text and not (has_attachment == "1" and looks_like_broken_html):
+                    bubble_text = normalized_message_text
                 elif has_attachment == "1":
                     bubble_text = "ファイル送信"
                     is_file_only = True
                 else:
-                    bubble_text = "　"
 
                 bubble_html = esc_text(bubble_text).replace("\n", "<br>")
 
