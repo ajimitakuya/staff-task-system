@@ -2061,10 +2061,19 @@ def render_chat_room_page():
 
                 if is_me:
                     with right_msg_col:
+                        my_bg_color = "#95EC69"
+                        my_text_color = "#111827"
+                        my_font_weight = "normal"
+
+                        if is_file_only:
+                            my_bg_color = "#FFE4E6"
+                            my_text_color = "#BE123C"
+                            my_font_weight = "bold"
+
                         st.markdown(
                             f"""<div style="
-                                background:#95EC69;
-                                color:#111827;
+                                background:{my_bg_color};
+                                color:{my_text_color};
                                 padding:10px 14px;
                                 border-radius:18px;
                                 border-bottom-right-radius:6px;
@@ -2073,6 +2082,7 @@ def render_chat_room_page():
                                 max-width:70%;
                                 word-break:break-word;
                                 overflow-wrap:break-word;
+                                font-weight:{my_font_weight};
                             ">
                                 {bubble_html}
                             </div>
@@ -2108,11 +2118,22 @@ def render_chat_room_page():
                         if display_name:
                             st.caption(display_name)
 
+                        other_bg_color = "#FFFFFF"
+                        other_text_color = "#111827"
+                        other_font_weight = "normal"
+                        other_border = "1px solid #DADADA"
+
+                        if is_file_only:
+                            other_bg_color = "#FFF1F2"
+                            other_text_color = "#BE123C"
+                            other_font_weight = "bold"
+                            other_border = "1px solid #F9A8D4"
+
                         st.markdown(
                             f"""<div style="
-                                background:#FFFFFF;
-                                color:#111827;
-                                border:1px solid #DADADA;
+                                background:{other_bg_color};
+                                color:{other_text_color};
+                                border:{other_border};
                                 padding:10px 14px;
                                 border-radius:18px;
                                 border-bottom-left-radius:6px;
@@ -2121,6 +2142,7 @@ def render_chat_room_page():
                                 max-width:70%;
                                 word-break:break-word;
                                 overflow-wrap:break-word;
+                                font-weight:{other_font_weight};
                             ">
                                 {bubble_html}
                             </div>
