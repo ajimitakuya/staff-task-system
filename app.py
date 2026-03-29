@@ -1814,77 +1814,37 @@ def render_chat_room_page():
                 desc = clean_plain_text(row.get("description", ""))
 
                 if room_type == "public":
-                    room_type_label = "公開ルーム"
-                    card_bg = "#EAF7EE"
-                    line_color = "#2ECC71"
-                    dot_color = "#2ECC71"
+                    room_type_label = "🟢 公開ルーム"
                 else:
-                    room_type_label = "制限ルーム"
-                    card_bg = "#FCEEF5"
-                    line_color = "#F3A6C8"
-                    dot_color = "#F3A6C8"
-
-                safe_room_name = html.escape(room_name) if room_name else "名称なし"
-                safe_desc = html.escape(desc) if desc else "説明なし"
-                safe_room_id = html.escape(room_id)
+                    room_type_label = "🩷 制限ルーム"
 
                 is_selected = str(st.session_state.get("selected_room_id", "")).strip() == room_id
-                border_style = "2px solid #111827" if is_selected else "1px solid #E5E7EB"
-                selected_bg = "#E5E7EB" if is_selected else card_bg
 
-                card_html = f"""
-                <div style="
-                    background:{selected_bg};
-                    border-left:8px solid {line_color};
-                    border:{border_style};
-                    border-radius:14px;
-                    padding:16px 18px;
-                    margin-bottom:10px;
-                    box-shadow:0 1px 3px rgba(0,0,0,0.05);
-                ">
-                    <div style="font-size:24px;font-weight:700;color:#1F2937;line-height:1.2;">
-                        {safe_room_name}
-                    </div>
-
-                    <div style="margin-top:10px;font-size:15px;color:#374151;">
-                        <span style="
-                            display:inline-block;
-                            width:12px;
-                            height:12px;
-                            border-radius:999px;
-                            background:{dot_color};
-                            margin-right:8px;
-                            vertical-align:middle;
-                        "></span>
-                        {room_type_label}
-                    </div>
-
-                    <div style="margin-top:10px;font-size:14px;color:#4B5563;">
-                        説明: {safe_desc}
-                    </div>
-
-                    <div style="margin-top:6px;font-size:14px;color:#4B5563;">
-                        ID: {safe_room_id}
-                    </div>
-                </div>
-                """
-                st.markdown(card_html, unsafe_allow_html=True)
-
-                if st.button(
-                    "詳細を見る",
-                    key=f"select_room_{room_id}",
-                    width="stretch",
-                    type="primary",
-                ):
-                    if room_type == "limited":
-                        st.session_state.pending_room_id = room_id
-                        st.session_state.pending_room_type = room_type
+                with st.container(border=True):
+                    title = room_name if room_name else "名称なし"
+                    if is_selected:
+                        st.markdown(f"### {title} ✓")
                     else:
-                        st.session_state.selected_room_id = room_id
-                        st.session_state.pending_room_id = ""
-                        st.session_state.pending_room_type = ""
-                    st.rerun()
+                        st.markdown(f"### {title}")
 
+                    st.caption(room_type_label)
+                    st.write(desc if desc else "説明なし")
+                    st.caption(f"ID: {room_id}")
+
+                    if st.button(
+                        "詳細を見る",
+                        key=f"select_room_{room_id}",
+                        width="stretch",
+                        type="primary" if is_selected else "secondary",
+                    ):
+                        if room_type == "limited":
+                            st.session_state.pending_room_id = room_id
+                            st.session_state.pending_room_type = room_type
+                        else:
+                            st.session_state.selected_room_id = room_id
+                            st.session_state.pending_room_id = ""
+                            st.session_state.pending_room_type = ""
+                        st.rerun()
         if st.session_state.get("pending_room_id"):
             st.divider()
             st.markdown("### パスワード入力")
