@@ -1905,14 +1905,22 @@ def render_chat_room_page():
 
         st.divider()
 
+        text_key = f"chat_post_text_{selected_room_id}"
+        uploader_nonce_key = f"chat_attach_nonce_{selected_room_id}"
+
+        if uploader_nonce_key not in st.session_state:
+            st.session_state[uploader_nonce_key] = 0
+
+        uploader_key = f"chat_attach_{selected_room_id}_{st.session_state[uploader_nonce_key]}"
+
         post_text = st.text_area(
             "メッセージ",
-            key="chat_post_text",
+            key=text_key,
             height=100,
         )
         attached_file = st.file_uploader(
             "添付ファイル（あれば倉庫へ自動保存）",
-            key=f"chat_attach_{selected_room_id}",
+            key=uploader_key,
         )
 
         if st.button(
@@ -1931,6 +1939,11 @@ def render_chat_room_page():
                     post_text_clean,
                     attached_file=attached_file,
                 )
+
+                # 送信後に入力を全部クリア
+                st.session_state[text_key] = ""
+                st.session_state[uploader_nonce_key] += 1
+
                 st.success("投稿しました！")
                 st.rerun()
 
