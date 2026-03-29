@@ -1678,11 +1678,21 @@ def render_contact_page():
             st.rerun()
 
 def render_chat_room_page():
+    import html
+    import re
+    import pandas as pd
+    import streamlit as st
+
     st.title("💬 チャットルーム")
     st.caption("ルーム一覧・新規作成・投稿ができます。")
 
     rooms_df = get_chat_rooms_df()
     msgs_df = get_chat_messages_df()
+
+    if rooms_df is None:
+        rooms_df = pd.DataFrame()
+    if msgs_df is None:
+        msgs_df = pd.DataFrame()
 
     if "selected_room_id" not in st.session_state:
         st.session_state.selected_room_id = ""
@@ -1699,7 +1709,7 @@ def render_chat_room_page():
         if st.button(
             "← 休憩室へ戻る",
             key="back_break_room",
-            use_container_width=True,
+            width="stretch",
             type="secondary",
         ):
             st.session_state.current_page = "休憩室"
@@ -1709,7 +1719,7 @@ def render_chat_room_page():
         if st.button(
             "選択中ルームを解除",
             key="clear_selected_room",
-            use_container_width=True,
+            width="stretch",
             type="secondary",
         ):
             st.session_state.selected_room_id = ""
@@ -1725,18 +1735,18 @@ def render_chat_room_page():
             "公開設定",
             ["public", "limited"],
             format_func=lambda x: "公開ルーム" if x == "public" else "制限ルーム",
-            key="new_room_type"
+            key="new_room_type",
         )
         room_password = st.text_input(
             "ルームパスワード（制限ルーム用）",
-            key="new_room_password"
+            key="new_room_password",
         )
         room_description = st.text_area("説明", key="new_room_description", height=80)
 
         if st.button(
             "ルームを作成",
             key="create_new_room_button",
-            use_container_width=True,
+            width="stretch",
             type="secondary",
         ):
             if not room_name.strip():
@@ -1763,17 +1773,25 @@ def render_chat_room_page():
     with left_col:
         st.markdown("### ルーム一覧")
 
-        if rooms_df is None or rooms_df.empty:
+        if rooms_df.empty:
             st.info("まだルームがありません。")
         else:
             work = rooms_df.copy()
-            work = work[work["status"].astype(str).str.strip().str.lower() == "active"].copy()
 
-            work["room_type"] = work["room_type"].fillna("").astype(str).str.strip().str.lower()
-            work = work[work["room_type"].isin(["public", "limited"])].copy()
+            if "status" in work.columns:
+                work = work[
+                    work["status"].astype(str).str.strip().str.lower() == "active"
+                ].copy()
+
+            if "room_type" in work.columns:
+                work["room_type"] = (
+                    work["room_type"].fillna("").astype(str).str.strip().str.lower()
+                )
+                work = work[work["room_type"].isin(["public", "limited"])].copy()
 
             try:
-                work = work.sort_values(["created_at"], ascending=[False])
+                if "created_at" in work.columns:
+                    work = work.sort_values(["created_at"], ascending=[False])
             except Exception:
                 pass
 
@@ -1785,44 +1803,65 @@ def render_chat_room_page():
 
                 if room_type == "public":
                     room_type_label = "公開ルーム"
-                    bg_color = "#EAF7EE"
+                    card_bg = "#EAF7EE"
                     line_color = "#2ECC71"
                     dot_color = "#2ECC71"
                 else:
                     room_type_label = "制限ルーム"
-                    bg_color = "#FCEEF5"
+                    card_bg = "#FCEEF5"
                     line_color = "#F3A6C8"
                     dot_color = "#F3A6C8"
 
-                safe_desc = desc if desc else "説明なし"
+                safe_room_name = html.escape(room_name)
+                safe_desc = html.escape(desc) if desc else "説明なし"
+                safe_room_id = html.escape(room_id)
+
                 is_selected = str(st.session_state.get("selected_room_id", "")).strip() == room_id
                 border_style = "2px solid #111827" if is_selected else "1px solid #E5E7EB"
-                bg_color = "#E5E7EB" if is_selected else bg_color
+                selected_bg = "#E5E7EB" if is_selected else card_bg
 
                 card_html = f"""
-<div style="background:{bg_color};border-left:8px solid {line_color};border:{border_style};border-radius:14px;padding:16px 18px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-<div style="font-size:24px;font-weight:700;color:#1F2937;line-height:1.2;">{room_name}</div>
+                <div style="
+                    background:{selected_bg};
+                    border-left:8px solid {line_color};
+                    border:{border_style};
+                    border-radius:14px;
+                    padding:16px 18px;
+                    margin-bottom:10px;
+                    box-shadow:0 1px 3px rgba(0,0,0,0.05);
+                ">
+                    <div style="font-size:24px;font-weight:700;color:#1F2937;line-height:1.2;">
+                        {safe_room_name}
+                    </div>
 
-<div style="margin-top:10px;font-size:15px;color:#374151;">
-<span style="display:inline-block;width:12px;height:12px;border-radius:999px;background:{dot_color};margin-right:8px;vertical-align:middle;"></span>
-{room_type_label}
-</div>
+                    <div style="margin-top:10px;font-size:15px;color:#374151;">
+                        <span style="
+                            display:inline-block;
+                            width:12px;
+                            height:12px;
+                            border-radius:999px;
+                            background:{dot_color};
+                            margin-right:8px;
+                            vertical-align:middle;
+                        "></span>
+                        {room_type_label}
+                    </div>
 
-<div style="margin-top:10px;font-size:14px;color:#4B5563;">
-説明: {safe_desc}
-</div>
+                    <div style="margin-top:10px;font-size:14px;color:#4B5563;">
+                        説明: {safe_desc}
+                    </div>
 
-<div style="margin-top:6px;font-size:14px;color:#4B5563;">
-ID: {room_id}
-</div>
-</div>
-"""
+                    <div style="margin-top:6px;font-size:14px;color:#4B5563;">
+                        ID: {safe_room_id}
+                    </div>
+                </div>
+                """
                 st.markdown(card_html, unsafe_allow_html=True)
 
                 if st.button(
                     "詳細を見る",
                     key=f"select_room_{room_id}",
-                    use_container_width=True,
+                    width="stretch",
                     type="primary",
                 ):
                     if room_type == "limited":
@@ -1842,24 +1881,30 @@ ID: {room_id}
             if st.button(
                 "入室する",
                 key="enter_limited_room",
-                use_container_width=True,
+                width="stretch",
                 type="secondary",
             ):
                 room_id = st.session_state.get("pending_room_id", "")
-                target = rooms_df[rooms_df["room_id"].astype(str) == str(room_id)].copy()
 
-                if target.empty:
-                    st.error("ルームが見つからありません。")
+                if rooms_df.empty:
+                    st.error("ルームが見つかりません。")
                 else:
-                    real_pw = str(target.iloc[0].get("room_password", "")).strip()
-                    if str(pw).strip() == real_pw:
-                        st.session_state.selected_room_id = room_id
-                        st.session_state.pending_room_id = ""
-                        st.session_state.pending_room_type = ""
-                        st.success("入室できました。")
-                        st.rerun()
+                    target = rooms_df[
+                        rooms_df["room_id"].astype(str) == str(room_id)
+                    ].copy()
+
+                    if target.empty:
+                        st.error("ルームが見つかりません。")
                     else:
-                        st.error("パスワードが違います。")
+                        real_pw = str(target.iloc[0].get("room_password", "")).strip()
+                        if str(pw).strip() == real_pw:
+                            st.session_state.selected_room_id = room_id
+                            st.session_state.pending_room_id = ""
+                            st.session_state.pending_room_type = ""
+                            st.success("入室できました。")
+                            st.rerun()
+                        else:
+                            st.error("パスワードが違います。")
 
     with right_col:
         selected_room_id = str(st.session_state.get("selected_room_id", "")).strip()
@@ -1867,119 +1912,220 @@ ID: {room_id}
         if not selected_room_id:
             st.info("左からルームを選んでください。")
         else:
-            room_row = rooms_df[rooms_df["room_id"].astype(str) == selected_room_id].copy()
-
-            if room_row.empty:
-                st.warning("選択中ルームが見つからありません。")
+            if rooms_df.empty:
+                st.warning("選択中ルームが見つかりません。")
             else:
-                room_name = str(room_row.iloc[0].get("room_name", "")).strip()
-                room_type = str(room_row.iloc[0].get("room_type", "")).strip()
-                room_desc = str(room_row.iloc[0].get("description", "")).strip()
-
-                st.markdown(f"## {room_name}")
-                st.caption(f"公開設定: {room_type}")
-                if room_desc:
-                    st.write(room_desc)
-
-                st.divider()
-
-                post_text = st.text_area("メッセージ", key="chat_post_text", height=100)
-                attached_file = st.file_uploader(
-                    "添付ファイル（あれば倉庫へ自動保存）",
-                    key=f"chat_attach_{selected_room_id}"
-                )
-
-                if st.button(
-                    "投稿する",
-                    key="chat_post_button",
-                    use_container_width=True,
-                    type="secondary",
-                ):
-                    if not post_text.strip() and attached_file is None:
-                        st.error("メッセージか添付のどちらかを入れてください。")
-                    else:
-                        create_chat_message(selected_room_id, post_text, attached_file=attached_file)
-                        st.success("投稿しました！")
-                        st.rerun()
-
-                st.divider()
-                st.markdown("### 投稿一覧")
-
-                room_msgs = msgs_df.copy()
-                room_msgs = room_msgs[
-                    (room_msgs["room_id"].astype(str) == selected_room_id) &
-                    (room_msgs["is_deleted"].astype(str) != "1")
+                room_row = rooms_df[
+                    rooms_df["room_id"].astype(str) == selected_room_id
                 ].copy()
 
-                try:
-                    room_msgs = room_msgs.sort_values(["created_at"], ascending=[True])
-                except Exception:
-                    pass
-
-                if room_msgs.empty:
-                    st.info("まだ投稿がありません。")
+                if room_row.empty:
+                    st.warning("選択中ルームが見つかりません。")
                 else:
-                    import html
+                    room_name = str(room_row.iloc[0].get("room_name", "")).strip()
+                    room_type = str(room_row.iloc[0].get("room_type", "")).strip()
+                    room_desc = str(room_row.iloc[0].get("description", "")).strip()
 
-                    current_user_name = str(st.session_state.get("user", "")).strip()
-                    current_user_id = str(st.session_state.get("user_id", "")).strip()
+                    st.markdown(f"## {html.escape(room_name)}")
+                    st.caption(f"公開設定: {html.escape(room_type)}")
+                    if room_desc:
+                        st.write(room_desc)
 
-                    for _, msg in room_msgs.iterrows():
-                        display_name = str(msg.get("display_name", "")).strip()
-                        message_user_id = str(msg.get("user_id", "")).strip()
-                        message_text = str(msg.get("message_text", "")).strip()
-                        created_at = str(msg.get("created_at", "")).strip()
-                        has_attachment = str(msg.get("has_attachment", "")).strip()
-                        linked_file_id = str(msg.get("linked_file_id", "")).strip()
+                    st.divider()
 
-                        # 自分の投稿か判定
-                        is_me = False
-                        if current_user_id and message_user_id:
-                            is_me = (current_user_id == message_user_id)
-                        elif current_user_name and display_name:
-                            is_me = (current_user_name == display_name)
+                    post_text = st.text_area("メッセージ", key="chat_post_text", height=100)
+                    attached_file = st.file_uploader(
+                        "添付ファイル（あれば倉庫へ自動保存）",
+                        key=f"chat_attach_{selected_room_id}",
+                    )
 
-                        justify = "flex-end" if is_me else "flex-start"
-                        bubble_bg = "#CFEFFF" if is_me else "#E5E7EB"
-                        text_color = "#111827"
-                        meta_color = "#6B7280"
-                        border_radius = "18px 18px 4px 18px" if is_me else "18px 18px 18px 4px"
+                    if st.button(
+                        "投稿する",
+                        key="chat_post_button",
+                        width="stretch",
+                        type="secondary",
+                    ):
+                        if not post_text.strip() and attached_file is None:
+                            st.error("メッセージか添付のどちらかを入れてください。")
+                        else:
+                            create_chat_message(
+                                selected_room_id,
+                                post_text,
+                                attached_file=attached_file,
+                            )
+                            st.success("投稿しました！")
+                            st.rerun()
 
-                        safe_name = html.escape(display_name)
-                        safe_text = html.escape(message_text).replace("\n", "<br>")
-                        safe_time = html.escape(created_at)
+                    st.divider()
+                    st.markdown("### 投稿一覧")
 
-                        # 相手だけ名前表示
-                        sender_html = ""
-                        if not is_me and safe_name:
-                            sender_html = f"""
-<span style="display:block;margin-bottom:4px;font-size:12px;color:{meta_color};font-weight:600;">
-{safe_name}
-</span>
-"""
+                    room_msgs = msgs_df.copy()
 
-                        attach_html = ""
-                        if has_attachment == "1" and linked_file_id:
-                            safe_file_id = html.escape(linked_file_id)
-                            attach_html = f"""
-<span style="display:block;margin-top:6px;font-size:12px;color:#2563eb;">
-📎 添付あり（倉庫ID: {safe_file_id}）
-</span>
-"""
+                    if not room_msgs.empty:
+                        if "room_id" in room_msgs.columns:
+                            room_msgs = room_msgs[
+                                room_msgs["room_id"].astype(str) == selected_room_id
+                            ].copy()
 
-                        bubble_html = f"""
-<div style="display:flex;justify-content:{justify};margin-bottom:12px;">
-  <div style="max-width:72%;background:{bubble_bg};color:{text_color};padding:10px 14px;border-radius:{border_radius};box-shadow:0 1px 2px rgba(0,0,0,0.08);">
-    {sender_html}
-    <span style="display:block;font-size:16px;line-height:1.5;word-break:break-word;">{safe_text}</span>
-    {attach_html}
-    <span style="display:block;margin-top:6px;font-size:11px;color:{meta_color};text-align:right;">
-      {safe_time}
-    </span>
-  </div>
-</div>
-"""
-                        st.markdown(bubble_html, unsafe_allow_html=True)
+                        if "is_deleted" in room_msgs.columns:
+                            room_msgs = room_msgs[
+                                room_msgs["is_deleted"].astype(str) != "1"
+                            ].copy()
+
+                        try:
+                            if "created_at" in room_msgs.columns:
+                                room_msgs = room_msgs.sort_values(
+                                    ["created_at"], ascending=[True]
+                                )
+                        except Exception:
+                            pass
+
+                    if room_msgs.empty:
+                        st.info("まだ投稿がありません。")
+                    else:
+                        current_user_name = str(st.session_state.get("user", "")).strip()
+                        current_user_id = str(st.session_state.get("user_id", "")).strip()
+
+                        # LINE風CSS
+                        st.markdown("""
+                        <style>
+                        .line-chat-wrap {
+                            width: 100%;
+                        }
+                        .line-row {
+                            display: flex;
+                            width: 100%;
+                            margin: 6px 0 10px 0;
+                        }
+                        .line-row.me {
+                            justify-content: flex-end;
+                        }
+                        .line-row.other {
+                            justify-content: flex-start;
+                        }
+                        .line-block {
+                            max-width: 72%;
+                            display: flex;
+                            flex-direction: column;
+                        }
+                        .line-name {
+                            font-size: 12px;
+                            color: #6B7280;
+                            margin: 0 0 4px 8px;
+                            font-weight: 600;
+                        }
+                        .line-bubble {
+                            position: relative;
+                            display: inline-block;
+                            padding: 10px 14px 20px 14px;
+                            border-radius: 18px;
+                            font-size: 15px;
+                            line-height: 1.5;
+                            word-break: break-word;
+                            white-space: pre-wrap;
+                            box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+                        }
+                        .line-bubble.me {
+                            background: #95EC69;
+                            color: #111827;
+                            border-bottom-right-radius: 6px;
+                        }
+                        .line-bubble.other {
+                            background: #FFFFFF;
+                            color: #111827;
+                            border-bottom-left-radius: 6px;
+                        }
+                        .line-bubble.me::after {
+                            content: "";
+                            position: absolute;
+                            right: -8px;
+                            bottom: 0;
+                            width: 0;
+                            height: 0;
+                            border-left: 10px solid #95EC69;
+                            border-top: 10px solid transparent;
+                        }
+                        .line-bubble.other::after {
+                            content: "";
+                            position: absolute;
+                            left: -8px;
+                            bottom: 0;
+                            width: 0;
+                            height: 0;
+                            border-right: 10px solid #FFFFFF;
+                            border-top: 10px solid transparent;
+                        }
+                        .line-time {
+                            position: absolute;
+                            right: 10px;
+                            bottom: 5px;
+                            font-size: 10px;
+                            color: #6B7280;
+                            line-height: 1;
+                        }
+                        .line-attach {
+                            display: block;
+                            margin-top: 6px;
+                            font-size: 12px;
+                            color: #2563EB;
+                        }
+                        </style>
+                        """, unsafe_allow_html=True)
+
+                        st.markdown('<div class="line-chat-wrap">', unsafe_allow_html=True)
+
+                        for _, msg in room_msgs.iterrows():
+                            display_name = str(msg.get("display_name", "")).strip()
+                            message_user_id = str(msg.get("user_id", "")).strip()
+                            message_text = str(msg.get("message_text", "")).strip()
+                            created_at = str(msg.get("created_at", "")).strip()
+                            has_attachment = str(msg.get("has_attachment", "")).strip()
+                            linked_file_id = str(msg.get("linked_file_id", "")).strip()
+
+                            # 自分の投稿か判定
+                            is_me = False
+                            if current_user_id and message_user_id:
+                                is_me = (current_user_id == message_user_id)
+                            elif current_user_name and display_name:
+                                is_me = (current_user_name == display_name)
+
+                            row_class = "me" if is_me else "other"
+
+                            # HTMLタグ除去
+                            cleaned_text = re.sub(r"<[^>]+>", "", message_text)
+                            cleaned_text = html.unescape(cleaned_text).strip()
+
+                            # 時刻を短く
+                            time_only = created_at[-8:] if len(created_at) >= 8 else created_at
+
+                            safe_name = html.escape(display_name)
+                            safe_text = html.escape(cleaned_text)
+                            safe_time = html.escape(time_only)
+
+                            sender_html = ""
+                            if not is_me and safe_name:
+                                sender_html = f'<div class="line-name">{safe_name}</div>'
+
+                            attach_html = ""
+                            if has_attachment == "1" and linked_file_id:
+                                safe_file_id = html.escape(linked_file_id)
+                                attach_html = f'<span class="line-attach">📎 添付あり（倉庫ID: {safe_file_id}）</span>'
+
+                            bubble_html = f"""
+                            <div class="line-row {row_class}">
+                                <div class="line-block">
+                                    {sender_html}
+                                    <div class="line-bubble {row_class}">
+                                        {safe_text}
+                                        {attach_html}
+                                        <span class="line-time">{safe_time}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            """
+                            st.markdown(bubble_html, unsafe_allow_html=True)
+
+                        st.markdown("</div>", unsafe_allow_html=True)
                         
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
