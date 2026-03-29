@@ -5717,7 +5717,7 @@ def render_plan_form_page(doc_title: str):
         "Q5": day_val,
 
         # 総合方針・目標
-        "B7": policy_val,
+        "B8": policy_val,
         "B10": long_goal_val,
         "B12": short_goal_val,
 
