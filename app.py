@@ -459,6 +459,19 @@ def get_chat_rooms_df_cached():
 def get_chat_rooms_df():
     return get_chat_rooms_df_cached().copy()
 
+def render_excel_download_block(doc_title, file_name, template_name, cell_data):
+    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
+        st.session_state[f"{doc_title}_excel_file"] = create_excel_file(template_name, cell_data)
+
+    if st.session_state.get(f"{doc_title}_excel_file"):
+        st.download_button(
+            label="📥 ダウンロード",
+            data=st.session_state[f"{doc_title}_excel_file"],
+            file_name=file_name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"{doc_title}_download_excel"
+        )
+
 @st.cache_data(ttl=60)
 def get_warehouse_files_df_cached():
     df = load_db("warehouse_files")
@@ -5696,61 +5709,58 @@ def render_plan_form_page(doc_title: str):
     st.divider()
     st.markdown("### Excel出力")
 
-    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
+    cell_data = {
+        # 基本情報
+        "E5": resident_name,
+        "M5": year_val,
+        "O5": month_val,
+        "Q5": day_val,
 
-        cell_data = {
-            # 基本情報
-            "E5": resident_name,
-            "M5": year_val,
-            "O5": month_val,
-            "Q5": day_val,
+        # 総合方針・目標
+        "B7": policy_val,
+        "B10": long_goal_val,
+        "B12": short_goal_val,
 
-            # 総合方針・目標
-            "B7": policy_val,
-            "B10": long_goal_val,
-            "B12": short_goal_val,
+        # ===== 1行目 =====
+        "C17": row_data[0]["target"],
+        "G17": row_data[0]["role"],
+        "J17": row_data[0]["support"],
+        "M17": row_data[0]["period"],
+        "O17": row_data[0]["person"],
+        "Q17": row_data[0]["priority"],
 
-            # ===== 1行目 =====
-            "C17": row_data[0]["target"],
-            "G17": row_data[0]["role"],
-            "J17": row_data[0]["support"],
-            "M17": row_data[0]["period"],
-            "O17": row_data[0]["person"],
-            "Q17": row_data[0]["priority"],
+        # ===== 2行目 =====
+        "C18": row_data[1]["target"],
+        "G18": row_data[1]["role"],
+        "J18": row_data[1]["support"],
+        "M18": row_data[1]["period"],
+        "O18": row_data[1]["person"],
+        "Q18": row_data[1]["priority"],
 
-            # ===== 2行目 =====
-            "C18": row_data[1]["target"],
-            "G18": row_data[1]["role"],
-            "J18": row_data[1]["support"],
-            "M18": row_data[1]["period"],
-            "O18": row_data[1]["person"],
-            "Q18": row_data[1]["priority"],
+        # ===== 3行目 =====
+        "C19": row_data[2]["target"],
+        "G19": row_data[2]["role"],
+        "J19": row_data[2]["support"],
+        "M19": row_data[2]["period"],
+        "O19": row_data[2]["person"],
+        "Q19": row_data[2]["priority"],
 
-            # ===== 3行目 =====
-            "C19": row_data[2]["target"],
-            "G19": row_data[2]["role"],
-            "J19": row_data[2]["support"],
-            "M19": row_data[2]["period"],
-            "O19": row_data[2]["person"],
-            "Q19": row_data[2]["priority"],
+        # 同意・担当者
+        "B21": agree_year_val,
+        "E21": agree_month_val,
+        "H21": agree_day_val,
+        "N21": manager_val
+    }
 
-            # 同意・担当者
-            "B21": agree_year_val,
-            "E21": agree_month_val,
-            "H21": agree_day_val,
-            "N21": manager_val
-        }
+    template_name = doc_title
+    file_name = f"{doc_title}_{year_val}.{month_val}.{day_val}.xlsx"
 
-        template_name = doc_title
-        file = create_excel_file(template_name, cell_data)
-
-        st.download_button(
-            label="ダウンロード",
-            data=file,
-            file_name=f"{doc_title}_{year_val}.{month_val}.{day_val}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key=f"{doc_title}_download_excel"
-        )
+    render_excel_download_block(
+        doc_title=doc_title,
+        file_name=file_name,
+        template_name=template_name,
+        cell_data=cell_data
+    )
 
 def render_meeting_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
@@ -5962,9 +5972,7 @@ def render_meeting_form_page(doc_title: str):
     st.divider()
     st.markdown("### Excel出力")
 
-    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
-
-        cell_data = {
+    cell_data = {
             "M3": create_year,
             "O3": create_month,
             "Q3": create_day,
@@ -5987,17 +5995,17 @@ def render_meeting_form_page(doc_title: str):
             "C12": discussion,
             "C13": issues_left,
             "C14": conclusion,
-        }
+    }
 
-        file = create_excel_file("サービス担当者会議", cell_data)
+    template_name = doc_title
+    file_name = f"{doc_title}.xlsx"
 
-        st.download_button(
-            label="ダウンロード",
-            data=file,
-            file_name=f"サービス担当者会議_{create_year}.{create_month}.{create_day}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key=f"{doc_title}_download_excel"
-        )
+    render_excel_download_block(
+        doc_title=doc_title,
+        file_name=file_name,
+        template_name=template_name,
+        cell_data=cell_data
+    )
 
 
 def render_monitoring_form_page(doc_title: str):
@@ -6118,9 +6126,7 @@ def render_monitoring_form_page(doc_title: str):
     st.divider()
     st.markdown("### Excel出力")
 
-    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
-
-        cell_data = {
+    cell_data = {
             "C5": resident_name,
             "E5": year_val,
             "G5": month_val,
@@ -6137,17 +6143,17 @@ def render_monitoring_form_page(doc_title: str):
             "C10": row_data[2]["status"],
             "D10": row_data[2]["detail"],
             "E10": row_data[2]["future"],
-        }
+    }
 
-        file = create_excel_file("モニタリング", cell_data)
+    template_name = doc_title
+    file_name = f"{doc_title}_{year_val}.{month_val}.{day_val}.xlsx"
 
-        st.download_button(
-            label="ダウンロード",
-            data=file,
-            file_name=f"モニタリング_{year_val}.{month_val}.{day_val}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key=f"{doc_title}_download_excel"
-        )
+    render_excel_download_block(
+        doc_title=doc_title,
+        file_name=file_name,
+        template_name=template_name,
+        cell_data=cell_data
+    )
 
 def get_saturday_dates_for_month(year: int, month: int):
     cal = py_calendar.monthcalendar(year, month)
@@ -6346,9 +6352,7 @@ def render_home_evaluation_form_page(doc_title: str):
     st.divider()
     st.markdown("### Excel出力")
 
-    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
-
-        cell_data = {
+    cell_data = {
             "B3": resident_name,
             "J3": year_val,
             "L3": month_val,
@@ -6382,17 +6386,17 @@ def render_home_evaluation_form_page(doc_title: str):
             "A27": week_rows[4]["sat_date"],
             "C27": week_rows[4]["weekly_report"],
             "J28": week_rows[4]["visit_manager"],
-        }
+    }
 
-        file = create_excel_file("在宅評価シート", cell_data)
+    template_name = doc_title
+    file_name = f"{doc_title}_{year_val}.{month_val}.xlsx"
 
-        st.download_button(
-            label="ダウンロード",
-            data=file,
-            file_name=f"在宅評価シート_{year_val}.{month_val}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key=f"{doc_title}_download_excel"
-        )
+    render_excel_download_block(
+        doc_title=doc_title,
+        file_name=file_name,
+        template_name=template_name,
+        cell_data=cell_data
+    )
 
 # ==========================================
 # 書類_アセスメント（フェイスシート・試作UI）
@@ -7002,19 +7006,17 @@ def render_assessment_form_page(doc_title: str):
     st.divider()
     st.markdown("### Excel出力")
 
-    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
+    guardian_value = "なし" if guardian_status == "なし" else f"あり：{guardian_name}" if guardian_name.strip() else "あり"
+    pension_value = "なし" if pension_status == "なし" else f"あり：{pension_detail}" if pension_detail.strip() else "あり"
+    allowance_value = "なし" if allowance_status == "なし" else f"あり：{allowance_detail}" if allowance_detail.strip() else "あり"
 
-        guardian_value = "なし" if guardian_status == "なし" else f"あり：{guardian_name}" if guardian_name.strip() else "あり"
-        pension_value = "なし" if pension_status == "なし" else f"あり：{pension_detail}" if pension_detail.strip() else "あり"
-        allowance_value = "なし" if allowance_status == "なし" else f"あり：{allowance_detail}" if allowance_detail.strip() else "あり"
+    housing_transport_value = housing_transport_other.strip() if housing_transport == "その他" and housing_transport_other.strip() else housing_transport
+    housing_status_value = housing_use_status_other.strip() if housing_use_status == "その他" and housing_use_status_other.strip() else housing_use_status
 
-        housing_transport_value = housing_transport_other.strip() if housing_transport == "その他" and housing_transport_other.strip() else housing_transport
-        housing_status_value = housing_use_status_other.strip() if housing_use_status == "その他" and housing_use_status_other.strip() else housing_use_status
+    available_transport_value = available_transport_other.strip() if available_transport == "その他" and available_transport_other.strip() else available_transport
+    available_status_value = available_use_status_other.strip() if available_use_status == "その他" and available_use_status_other.strip() else available_use_status
 
-        available_transport_value = available_transport_other.strip() if available_transport == "その他" and available_transport_other.strip() else available_transport
-        available_status_value = available_use_status_other.strip() if available_use_status == "その他" and available_use_status_other.strip() else available_use_status
-
-        cell_data = {
+    cell_data = {
             "P1": interviewer_name,
             "Y1": hear_year,
             "AD1": hear_month,
@@ -7132,17 +7134,17 @@ def render_assessment_form_page(doc_title: str):
             "M100": wish_user,
             "M103": wish_family,
             "M107": future_direction,
-        }
+    }
 
-        file = create_excel_file("アセスメント", cell_data)
+    template_name = doc_title
+    file_name = f"{doc_title}.xlsx"
 
-        st.download_button(
-            label="ダウンロード",
-            data=file,
-            file_name=f"アセスメント_{full_name if full_name else resident_name}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key=f"{doc_title}_download_excel"
-        )
+    render_excel_download_block(
+        doc_title=doc_title,
+        file_name=file_name,
+        template_name=template_name,
+        cell_data=cell_data
+    )
 
     resident_id = str(selected_row.get("resident_id", "")).strip()
 
@@ -7678,8 +7680,7 @@ def render_basic_sheet_form_page(doc_title: str):
     st.divider()
     st.markdown("### Excel出力")
 
-    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
-        cell_data = {
+    cell_data = {
             "P1": interviewer_name,
             "AB1": hear_year,
             "AG1": hear_month,
@@ -7690,17 +7691,17 @@ def render_basic_sheet_form_page(doc_title: str):
             "A63": other,
             "I74": opinion,
             "I80": direction,
-        }
+    }
 
-        file = create_excel_file("基本シート", cell_data)
+    template_name = doc_title
+    file_name = f"{doc_title}.xlsx"
 
-        st.download_button(
-            label="ダウンロード",
-            data=file,
-            file_name=f"基本シート_{resident_name}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key=f"{doc_title}_download_excel"
-        )
+    render_excel_download_block(
+        doc_title=doc_title,
+        file_name=file_name,
+        template_name=template_name,
+        cell_data=cell_data
+    )
 
 def render_work_field_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
@@ -8112,8 +8113,7 @@ def render_work_sheet_form_page(doc_title: str):
     st.divider()
     st.markdown("### Excel出力")
 
-    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
-        cell_data = {
+    cell_data = {
             "P1": interviewer_name,
             "Y1": hear_year,
             "AD1": hear_month,
@@ -8184,17 +8184,17 @@ def render_work_sheet_form_page(doc_title: str):
             "J112": suitable_work,
             "J116": opinion,
             "J121": direction,
-        }
+    }
 
-        file = create_excel_file("就労分野シート", cell_data)
+    template_name = doc_title
+    file_name = f"{doc_title}.xlsx"
 
-        st.download_button(
-            label="ダウンロード",
-            data=file,
-            file_name=f"就労分野シート_{resident_name}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key=f"{doc_title}_download_excel"
-        )
+    render_excel_download_block(
+        doc_title=doc_title,
+        file_name=file_name,
+        template_name=template_name,
+        cell_data=cell_data
+    )
 
 @st.cache_data(ttl=60)
 def get_staff_examples_df_cached():
