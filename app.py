@@ -79,6 +79,22 @@ COMPANY_SCOPED_SHEETS = {
     "assistant_plans",
 }
 
+def generate_with_gemini(prompt):
+    try:
+        import google.generativeai as genai
+
+        genai.configure(api_key=st.secrets.get("GEMINI_API_KEY"))
+
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        response = model.generate_content(prompt)
+
+        return response.text
+
+    except Exception as e:
+        st.error(f"Geminiエラー: {e}")
+        return "生成に失敗しました"
+
 def get_sheet_name_candidates(file):
     if file in COMMON_SHEETS:
         return [file]
@@ -12393,7 +12409,110 @@ def render_bulk_documents_page():
         st.write(f"本計画サビ管: {st.session_state.get('bulk_plan_manager', '')}")
 
     st.divider()
-    st.button("一括作成（まだ未接続）", key="bulk_docs_generate_dummy", disabled=True)
+
+    if st.button("🚀 3枚まとめて作成", key="bulk_generate_all"):
+
+        # ========= 基本情報 =========
+        resident_name = str(resident_name).strip()
+
+        # --- 計画案 ---
+        draft_year = st.session_state.get("bulk_plan_draft_year", "")
+        draft_month = st.session_state.get("bulk_plan_draft_month", "")
+        draft_day = st.session_state.get("bulk_plan_draft_day", "")
+        draft_manager = st.session_state.get("bulk_plan_draft_manager", "")
+
+        # --- サ会議 ---
+        meeting_year = st.session_state.get("bulk_meeting_year", "")
+        meeting_month = st.session_state.get("bulk_meeting_month", "")
+        meeting_day = st.session_state.get("bulk_meeting_day", "")
+        meeting_creator = st.session_state.get("bulk_meeting_creator", "")
+        meeting_info = st.session_state.get("bulk_meeting_info", "")
+        meeting_attendees = st.session_state.get("bulk_meeting_attendees", "")
+
+        # --- 本計画 ---
+        plan_year = st.session_state.get("bulk_plan_year", "")
+        plan_month = st.session_state.get("bulk_plan_month", "")
+        plan_day = st.session_state.get("bulk_plan_day", "")
+        plan_manager = st.session_state.get("bulk_plan_manager", "")
+
+        st.info("Gemini生成中...")
+
+        # =========================
+        # ① 計画案生成（元：モニタリング）
+        # =========================
+        try:
+            monitoring_text = "（テスト用：モニタリングなしでも生成）"
+
+            prompt_plan = f"""
+            利用者名: {resident_name}
+            以下を元に個別支援計画案を作成してください。
+
+            {monitoring_text}
+            """
+
+            plan_draft_text = generate_with_gemini(prompt_plan)
+
+        except Exception as e:
+            st.error(f"計画案生成エラー: {e}")
+            return
+
+        # =========================
+        # ② サ会議生成（元：計画案）
+        # =========================
+        try:
+            prompt_meeting = f"""
+            利用者名: {resident_name}
+            以下の計画案を元にサービス担当者会議記録を作成してください。
+
+            {plan_draft_text}
+
+            開催情報: {meeting_info}
+            出席者: {meeting_attendees}
+            """
+
+            meeting_text = generate_with_gemini(prompt_meeting)
+
+        except Exception as e:
+            st.error(f"サ会議生成エラー: {e}")
+            return
+
+        # =========================
+        # ③ 本計画生成（元：サ会議）
+        # =========================
+        try:
+            prompt_plan_final = f"""
+            利用者名: {resident_name}
+            以下の会議記録を元に個別支援計画を作成してください。
+
+            {meeting_text}
+            """
+
+            plan_final_text = generate_with_gemini(prompt_plan_final)
+
+        except Exception as e:
+            st.error(f"本計画生成エラー: {e}")
+            return
+
+        # =========================
+        # ④ セッションへ格納
+        # =========================
+        st.session_state["bulk_plan_draft_result"] = plan_draft_text
+        st.session_state["bulk_meeting_result"] = meeting_text
+        st.session_state["bulk_plan_result"] = plan_final_text
+
+        st.success("3枚すべて生成完了ある🥳")
+
+        if st.session_state.get("bulk_plan_draft_result"):
+            st.markdown("### 📄 計画案（生成結果）")
+            st.text_area("計画案", st.session_state["bulk_plan_draft_result"], height=200)
+
+        if st.session_state.get("bulk_meeting_result"):
+            st.markdown("### 📄 サ会議（生成結果）")
+            st.text_area("サ会議", st.session_state["bulk_meeting_result"], height=200)
+
+        if st.session_state.get("bulk_plan_result"):
+            st.markdown("### 📄 本計画（生成結果）")
+            st.text_area("本計画", st.session_state["bulk_plan_result"], height=200)
 
 # ==========================================
 # 利用者書類
