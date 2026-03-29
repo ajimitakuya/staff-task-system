@@ -1031,14 +1031,81 @@ def goto_support_record_month(driver, target_year: int, target_month: int):
 # =========================
 def get_support_record_page_text(driver) -> str:
     """
-    支援記録ページ本文を丸ごと取得する
-    Ctrl+Aの代わりに document.body.innerText を取る
+    支援記録ページ本文を取得する
+    - body全体ではなく、中央本文の readonly textarea 群を優先取得
+    - aria-hidden=true は除外
+    - サイドバーやメニュー文字を拾わない
     """
     log("[STEP] get_support_record_page_text start")
 
+    time.sleep(1.0)
+
+    script = r"""
+    function isVisible(el) {
+        if (!el) return false;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+    }
+
+    function norm(s) {
+        return (s || "").replace(/\r/g, "").trim();
+    }
+
+    const texts = [];
+    const seen = new Set();
+
+    // ① まずは readonly textarea を最優先で拾う
+    const areas = Array.from(document.querySelectorAll("textarea[readonly]"))
+        .filter(el => isVisible(el))
+        .filter(el => (el.getAttribute("aria-hidden") || "").toLowerCase() !== "true");
+
+    for (const ta of areas) {
+        const v = norm(ta.value || ta.innerText || ta.textContent || "");
+        if (!v) continue;
+
+        if (!seen.has(v)) {
+            seen.add(v);
+            texts.push(v);
+        }
+    }
+
+    // ② textareaが拾えなかった時だけ保険で中央エリアの文字を拾う
+    if (texts.length === 0) {
+        const all = Array.from(document.querySelectorAll("body *"))
+            .filter(el => isVisible(el));
+
+        for (const el of all) {
+            const tag = (el.tagName || "").toLowerCase();
+
+            // サイドバーやボタン類は除外
+            if (["button", "svg", "path"].includes(tag)) continue;
+
+            const rect = el.getBoundingClientRect();
+
+            // 左サイドバー除外（だいたい150pxより右）
+            if (rect.left < 150) continue;
+
+            const t = norm(el.innerText || el.textContent || "");
+            if (!t) continue;
+
+            // 長すぎる重複ブロックは除外
+            if (t.length < 20) continue;
+
+            if (!seen.has(t)) {
+                seen.add(t);
+                texts.push(t);
+            }
+        }
+    }
+
+    return texts.join("\n\n====================\n\n");
+    """
+
     text = ""
     try:
-        text = driver.execute_script("return document.body ? document.body.innerText : '';")
+        text = driver.execute_script(script)
     except Exception:
         text = ""
 
