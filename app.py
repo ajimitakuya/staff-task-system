@@ -1992,7 +1992,8 @@ def render_chat_room_page():
             if is_me:
                 with right_msg_col:
                     st.markdown(
-                        f"""<div style="
+                        f"""
+                            <div style="
                             background:#95EC69;
                             color:#111827;
                             padding:10px 14px;
@@ -2020,7 +2021,8 @@ def render_chat_room_page():
                         st.caption(display_name)
 
                     st.markdown(
-                        f"""<div style="
+                        f"""
+                            <div style="
                             background:#FFFFFF;
                             color:#111827;
                             border:1px solid #DADADA;
