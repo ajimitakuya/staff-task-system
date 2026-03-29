@@ -768,31 +768,51 @@ def normalize_name_loose(name: str) -> str:
 
 def find_user_row_in_record_page(driver, name: str):
     """
-    利用者ごとページで、対象利用者の行を探す
-    - 姓名スペース無視
-    - 氏名以降の文字は気にしない
-    - 同姓同名がいたら最初に見つけた行で確定
+    利用者ごとページで、対象利用者の表示ブロックを探す
+    - 名前のspanを直接探す
+    - スペース無視
+    - 氏名以降の文字は無視
     """
     target = normalize_name_loose(name)
     log(f"[STEP] find_user_row_in_record_page target={target}")
 
-    rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
+    try:
+        spans = driver.find_elements(By.XPATH, "//span[contains(@class, 'jss509')]")
+    except Exception:
+        spans = []
+
     visible_texts = []
 
-    for idx, row in enumerate(rows, 1):
+    for idx, sp in enumerate(spans, 1):
         try:
-            txt = (row.text or "").replace("\n", " ")
+            txt = (sp.text or "").replace("\n", " ")
             txt_norm = normalize_name_loose(txt)
             visible_texts.append(txt_norm)
 
+            log(f"[DEBUG] visible user span {idx}: {txt_norm}")
+
             if target and target in txt_norm:
-                log(f"[DEBUG] user row hit idx={idx} text={txt_norm}")
-                return row
+                # 親方向へ登って、その人1件分のブロックを取る
+                cur = sp
+                for _ in range(8):
+                    try:
+                        cur = cur.find_element(By.XPATH, "..")
+                    except Exception:
+                        break
+
+                    try:
+                        block_text = normalize_name_loose((cur.text or "").replace("\n", " "))
+                        if "支援記録" in block_text:
+                            log(f"[DEBUG] matched user block idx={idx}: {block_text}")
+                            return cur
+                    except Exception:
+                        pass
+
+                # 最後の保険：spanそのものを返す
+                return sp
+
         except Exception:
             continue
-
-    for i, txt in enumerate(visible_texts[:10], 1):
-        log(f"[DEBUG] visible user row {i}: {txt}")
 
     return None
 
@@ -801,54 +821,48 @@ def click_support_record_button_in_row(driver, row) -> bool:
     """
     利用者ごとページの右側『支援記録』ボタンを押す
     """
-    # まず文字で狙う
-    xps = [
-        ".//span[normalize-space(.)='支援記録']",
-        ".//button[normalize-space(.)='支援記録']",
-        ".//*[contains(normalize-space(.), '支援記録')]",
-    ]
+    search_roots = [row]
 
-    for xp in xps:
+    # spanだけ返ってきたときのため、親にも広げる
+    cur = row
+    for _ in range(6):
         try:
-            elems = row.find_elements(By.XPATH, xp)
+            cur = cur.find_element(By.XPATH, "..")
+            search_roots.append(cur)
         except Exception:
-            elems = []
+            break
 
-        for el in elems:
+    for root in search_roots:
+        xps = [
+            ".//button[normalize-space(.)='支援記録']",
+            ".//span[normalize-space(.)='支援記録']",
+            ".//*[contains(normalize-space(.), '支援記録')]",
+        ]
+
+        for xp in xps:
             try:
-                if not el.is_displayed():
-                    continue
+                elems = root.find_elements(By.XPATH, xp)
             except Exception:
-                pass
+                elems = []
 
-            # spanなら親buttonへ寄る
-            try:
-                btn = el.find_element(By.XPATH, "./ancestor::button[1]")
-                if safe_click(driver, btn):
+            for el in elems:
+                try:
+                    if not el.is_displayed():
+                        continue
+                except Exception:
+                    pass
+
+                try:
+                    btn = el.find_element(By.XPATH, "./ancestor::button[1]")
+                    if safe_click(driver, btn):
+                        time.sleep(1.5)
+                        return True
+                except Exception:
+                    pass
+
+                if safe_click(driver, el):
                     time.sleep(1.5)
                     return True
-            except Exception:
-                pass
-
-            if safe_click(driver, el):
-                time.sleep(1.5)
-                return True
-
-    # 最後の保険：行内button総当たり
-    try:
-        btns = row.find_elements(By.TAG_NAME, "button")
-    except Exception:
-        btns = []
-
-    for b in btns:
-        try:
-            txt = (b.text or "").strip()
-            if "支援記録" in txt:
-                if safe_click(driver, b):
-                    time.sleep(1.5)
-                    return True
-        except Exception:
-            continue
 
     return False
 
