@@ -1934,6 +1934,23 @@ def render_chat_room_page():
                 st.success("投稿しました！")
                 st.rerun()
 
+        st.markdown(
+            """
+            <div style="
+                background:#FAFAFB;
+                border:1px solid #E5E7EB;
+                border-radius:12px;
+                padding:6px 10px;
+                margin-bottom:8px;
+                font-size:12px;
+                color:#6B7280;
+            ">
+                この枠の中をスクロールしてチャット履歴を確認します
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
         st.divider()
         st.markdown("### 投稿一覧")
 
