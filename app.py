@@ -1997,54 +1997,67 @@ def render_chat_room_page():
 
                         st.markdown("""
                         <style>
-                        .mii-chat-row{
-                            display:flex;
+                        .line-chat-area{
                             width:100%;
-                            margin:8px 0;
-                        }
-                        .mii-chat-row.me{
-                            justify-content:flex-end;
-                        }
-                        .mii-chat-row.other{
-                            justify-content:flex-start;
-                        }
-                        .mii-chat-wrap{
-                            max-width:70%;
-                        }
-                        .mii-chat-name{
-                            font-size:12px;
-                            color:#666666;
-                            margin:0 0 4px 8px;
-                            font-weight:600;
-                        }
-                        .mii-chat-bubble{
-                            position:relative;
-                            padding:10px 14px 18px 14px;
+                            background:#EEF3F7;
                             border-radius:18px;
-                            font-size:15px;
-                            line-height:1.45;
-                            word-break:break-word;
+                            padding:16px 12px;
                             box-sizing:border-box;
                         }
-                        .mii-chat-row.me .mii-chat-bubble{
+                        .line-row{
+                            display:flex;
+                            width:100%;
+                            margin:10px 0;
+                        }
+                        .line-row.me{
+                            justify-content:flex-end;
+                        }
+                        .line-row.other{
+                            justify-content:flex-start;
+                        }
+                        .line-wrap{
+                            max-width:72%;
+                        }
+                        .line-name{
+                            font-size:12px;
+                            color:#6B7280;
+                            margin:0 0 4px 10px;
+                            font-weight:600;
+                            line-height:1.2;
+                        }
+                        .line-bubble{
+                            position:relative;
+                            display:inline-block;
+                            padding:10px 14px 20px 14px;
+                            border-radius:18px;
+                            font-size:15px;
+                            line-height:1.5;
+                            word-break:break-word;
+                            white-space:pre-wrap;
+                            box-sizing:border-box;
+                            box-shadow:0 1px 2px rgba(0,0,0,0.06);
+                        }
+                        .line-row.me .line-bubble{
                             background:#95EC69;
                             color:#111827;
                             border-bottom-right-radius:6px;
                         }
-                        .mii-chat-row.other .mii-chat-bubble{
+                        .line-row.other .line-bubble{
                             background:#FFFFFF;
                             color:#111827;
-                            border:1px solid #DADADA;
+                            border:1px solid #E5E7EB;
                             border-bottom-left-radius:6px;
                         }
-                        .mii-chat-time{
+                        .line-time{
                             position:absolute;
-                            right:8px;
+                            right:10px;
                             bottom:4px;
                             font-size:10px;
-                            color:#666666;
+                            color:#6B7280;
+                            line-height:1;
+                            white-space:nowrap;
                         }
-                        .mii-chat-attach{
+                        .line-attach{
                             display:block;
                             margin-top:6px;
                             font-size:12px;
@@ -2052,6 +2065,8 @@ def render_chat_room_page():
                         }
                         </style>
                         """, unsafe_allow_html=True)
+
+                        chat_html_parts = ['<div class="line-chat-area">']
 
                         for _, msg in room_msgs.iterrows():
                             display_name = clean_plain_text(msg.get("display_name", ""))
@@ -2071,31 +2086,40 @@ def render_chat_room_page():
 
                             safe_name = html.escape(display_name)
                             safe_text = html.escape(message_text).replace("\n", "<br>")
-                            safe_time = html.escape(created_at[-8:] if len(created_at) >= 8 else created_at)
+
+                            safe_time = ""
+                            if created_at:
+                                safe_time = html.escape(created_at[-8:] if len(created_at) >= 8 else created_at)
 
                             sender_html = ""
-                            if not is_me and safe_name:
-                                sender_html = f'<div class="mii-chat-name">{safe_name}</div>'
+                            if (not is_me) and safe_name:
+                                sender_html = f'<div class="line-name">{safe_name}</div>'
 
                             attach_html = ""
                             if has_attachment == "1":
-                                attach_html = '<span class="mii-chat-attach">📎 添付あり</span>'
                                 if linked_file_id:
-                                    attach_html = f'<span class="mii-chat-attach">📎 添付あり（倉庫ID: {html.escape(linked_file_id)}）</span>'
+                                    attach_html = f'<span class="line-attach">📎 添付あり（倉庫ID: {html.escape(linked_file_id)}）</span>'
+                                else:
+                                    attach_html = '<span class="line-attach">📎 添付あり</span>'
+
+                            bubble_body = safe_text if safe_text else "　"
 
                             bubble_html = f"""
-                            <div class="mii-chat-row {row_class}">
-                                <div class="mii-chat-wrap">
+                            <div class="line-row {row_class}">
+                                <div class="line-wrap">
                                     {sender_html}
-                                    <div class="mii-chat-bubble">
-                                        {safe_text}
+                                    <div class="line-bubble">
+                                        {bubble_body}
                                         {attach_html}
-                                        <div class="mii-chat-time">{safe_time}</div>
+                                        <span class="line-time">{safe_time}</span>
                                     </div>
                                 </div>
                             </div>
                             """
-                            st.markdown(bubble_html, unsafe_allow_html=True)
+                            chat_html_parts.append(bubble_html)
+
+                        chat_html_parts.append("</div>")
+                        st.markdown("".join(chat_html_parts), unsafe_allow_html=True)
                         
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
