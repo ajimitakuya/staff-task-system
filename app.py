@@ -241,30 +241,45 @@ def build_plan_cell_data_from_json(plan_json, resident_name, year_val, month_val
         "N21": manager_val,
     }
 
-def build_meeting_cell_data_from_json(meeting_json, resident_name, create_year, create_month, create_day, meeting_info, attendees):
+def build_meeting_cell_data_from_json(
+    meeting_json,
+    resident_name,
+    create_year,
+    create_month,
+    create_day,
+    meeting_info,
+    attendees,
+    meeting_creator,
+):
     return {
-        "M3": create_year,
-        "O3": create_month,
-        "Q3": create_day,
+        # 作成年月日
+        "N3": create_year,
+        "P3": create_month,
+        "R3": create_day,
+
+        # 利用者名・作成者・開催場所
         "C4": resident_name,
-        "M4": meeting_info,
+        "M4": meeting_creator,
+        "M5": meeting_info,
 
-        "C11": attendees.get("admin", ""),
-        "J11": attendees.get("staff", ""),
-        "O11": attendees.get("user", ""),
+        # 会議出席者（氏名欄）
+        "F8": attendees.get("admin", ""),
+        "L8": attendees.get("staff", ""),
+        "Q8": attendees.get("user", ""),
 
-        "C12": attendees.get("caremanager", ""),
-        "J12": attendees.get("nurse", ""),
-        "O12": attendees.get("family", ""),
+        "F9": attendees.get("caremanager", ""),
+        "L9": attendees.get("nurse", ""),
+        "Q9": attendees.get("family", ""),
 
-        "C13": attendees.get("manager", ""),
-        "J13": attendees.get("consultant", ""),
-        "O13": attendees.get("keyperson", ""),
+        "F10": attendees.get("manager", ""),
+        "L10": attendees.get("consultant", ""),
+        "Q10": attendees.get("keyperson", ""),
 
-        "C15": meeting_json.get("agenda", ""),
-        "C16": meeting_json.get("discussion", ""),
-        "C17": meeting_json.get("issues_left", ""),
-        "C18": meeting_json.get("conclusion", ""),
+        # 会議内容
+        "C11": meeting_json.get("agenda", ""),
+        "C12": meeting_json.get("discussion", ""),
+        "C13": meeting_json.get("issues_left", ""),
+        "C14": meeting_json.get("conclusion", ""),
     }
 
 def get_sheet_name_candidates(file):
@@ -12771,7 +12786,9 @@ def render_bulk_documents_page():
                         meeting_day,
                         meeting_info,
                         attendees_dict,
+                        st.session_state.get("bulk_meeting_creator", ""),
                     )
+                    
                     file_meeting = create_excel_file("サービス担当者会議", cell_data_meeting)
                     zf.writestr(f"{resident_name}_サ会議.xlsx", file_meeting.getvalue())
 
