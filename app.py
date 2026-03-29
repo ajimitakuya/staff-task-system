@@ -1768,6 +1768,18 @@ def render_chat_room_page():
 
     st.divider()
 
+    import html
+    import re
+
+    def clean_plain_text(value):
+        text = "" if value is None else str(value)
+        text = re.sub(r"<[^>]*>", "", text)
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        return text.strip()
+
+    def esc_text(value):
+        return html.escape(clean_plain_text(value))
+
     left_col, right_col = st.columns([1, 2])
 
     with left_col:
@@ -1797,9 +1809,9 @@ def render_chat_room_page():
 
             for _, row in work.iterrows():
                 room_id = str(row.get("room_id", "")).strip()
-                room_name = str(row.get("room_name", "")).strip()
+                room_name = clean_plain_text(row.get("room_name", ""))
                 room_type = str(row.get("room_type", "")).strip().lower()
-                desc = str(row.get("description", "")).strip()
+                desc = clean_plain_text(row.get("description", ""))
 
                 if room_type == "public":
                     room_type_label = "公開ルーム"
@@ -1812,7 +1824,7 @@ def render_chat_room_page():
                     line_color = "#F3A6C8"
                     dot_color = "#F3A6C8"
 
-                safe_room_name = html.escape(room_name)
+                safe_room_name = html.escape(room_name) if room_name else "名称なし"
                 safe_desc = html.escape(desc) if desc else "説明なし"
                 safe_room_id = html.escape(room_id)
 
@@ -1884,13 +1896,13 @@ def render_chat_room_page():
                 width="stretch",
                 type="secondary",
             ):
-                room_id = st.session_state.get("pending_room_id", "")
+                pending_room_id = str(st.session_state.get("pending_room_id", "")).strip()
 
                 if rooms_df.empty:
                     st.error("ルームが見つかりません。")
                 else:
                     target = rooms_df[
-                        rooms_df["room_id"].astype(str) == str(room_id)
+                        rooms_df["room_id"].astype(str).str.strip() == pending_room_id
                     ].copy()
 
                     if target.empty:
@@ -1898,7 +1910,7 @@ def render_chat_room_page():
                     else:
                         real_pw = str(target.iloc[0].get("room_password", "")).strip()
                         if str(pw).strip() == real_pw:
-                            st.session_state.selected_room_id = room_id
+                            st.session_state.selected_room_id = pending_room_id
                             st.session_state.pending_room_id = ""
                             st.session_state.pending_room_type = ""
                             st.success("入室できました。")
@@ -1916,18 +1928,18 @@ def render_chat_room_page():
                 st.warning("選択中ルームが見つかりません。")
             else:
                 room_row = rooms_df[
-                    rooms_df["room_id"].astype(str) == selected_room_id
+                    rooms_df["room_id"].astype(str).str.strip() == selected_room_id
                 ].copy()
 
                 if room_row.empty:
                     st.warning("選択中ルームが見つかりません。")
                 else:
-                    room_name = str(room_row.iloc[0].get("room_name", "")).strip()
-                    room_type = str(room_row.iloc[0].get("room_type", "")).strip()
-                    room_desc = str(room_row.iloc[0].get("description", "")).strip()
+                    room_name = clean_plain_text(room_row.iloc[0].get("room_name", ""))
+                    room_type = clean_plain_text(room_row.iloc[0].get("room_type", ""))
+                    room_desc = clean_plain_text(room_row.iloc[0].get("description", ""))
 
-                    st.markdown(f"## {html.escape(room_name)}")
-                    st.caption(f"公開設定: {html.escape(room_type)}")
+                    st.markdown(f"## {room_name if room_name else '名称なし'}")
+                    st.caption(f"公開設定: {room_type if room_type else '-'}")
                     if room_desc:
                         st.write(room_desc)
 
@@ -1945,12 +1957,14 @@ def render_chat_room_page():
                         width="stretch",
                         type="secondary",
                     ):
-                        if not post_text.strip() and attached_file is None:
+                        post_text_clean = clean_plain_text(post_text)
+
+                        if not post_text_clean and attached_file is None:
                             st.error("メッセージか添付のどちらかを入れてください。")
                         else:
                             create_chat_message(
                                 selected_room_id,
-                                post_text,
+                                post_text_clean,
                                 attached_file=attached_file,
                             )
                             st.success("投稿しました！")
@@ -1959,118 +1973,129 @@ def render_chat_room_page():
                     st.divider()
                     st.markdown("### 投稿一覧")
 
-                    # ===============================
-                    # 投稿一覧（完全リセット版）
-                    # ===============================
-
-                    import re
-
                     room_msgs = msgs_df.copy()
-                    room_msgs = room_msgs[
-                        (room_msgs["room_id"].astype(str) == selected_room_id) &
-                        (room_msgs["is_deleted"].astype(str) != "1")
-                    ].copy()
+                    if not room_msgs.empty:
+                        room_msgs = room_msgs[
+                            room_msgs["room_id"].astype(str).str.strip() == selected_room_id
+                        ].copy()
 
-                    # 並び順
-                    try:
-                        room_msgs = room_msgs.sort_values(["created_at"], ascending=[True])
-                    except:
-                        pass
+                        if "is_deleted" in room_msgs.columns:
+                            room_msgs = room_msgs[
+                                room_msgs["is_deleted"].astype(str).str.strip() != "1"
+                            ].copy()
+
+                        try:
+                            room_msgs = room_msgs.sort_values(["created_at"], ascending=[True])
+                        except Exception:
+                            pass
 
                     if room_msgs.empty:
                         st.info("まだ投稿がありません。")
-
                     else:
                         current_user_name = str(st.session_state.get("user", "")).strip()
                         current_user_id = str(st.session_state.get("user_id", "")).strip()
 
-                        # ===== CSS（これだけ）=====
                         st.markdown("""
                         <style>
-                        .row {display:flex;margin:6px 0;}
-                        .row.me {justify-content:flex-end;}
-                        .row.other {justify-content:flex-start;}
-
-                        .bubble {
-                            max-width:70%;
-                            padding:10px 14px 18px;
-                            border-radius:16px;
-                            position:relative;
-                            font-size:15px;
-                            line-height:1.4;
-                            word-break:break-word;
+                        .mii-chat-row{
+                            display:flex;
+                            width:100%;
+                            margin:8px 0;
                         }
-
-                        .me .bubble {
+                        .mii-chat-row.me{
+                            justify-content:flex-end;
+                        }
+                        .mii-chat-row.other{
+                            justify-content:flex-start;
+                        }
+                        .mii-chat-wrap{
+                            max-width:70%;
+                        }
+                        .mii-chat-name{
+                            font-size:12px;
+                            color:#666666;
+                            margin:0 0 4px 8px;
+                            font-weight:600;
+                        }
+                        .mii-chat-bubble{
+                            position:relative;
+                            padding:10px 14px 18px 14px;
+                            border-radius:18px;
+                            font-size:15px;
+                            line-height:1.45;
+                            word-break:break-word;
+                            box-sizing:border-box;
+                        }
+                        .mii-chat-row.me .mii-chat-bubble{
                             background:#95EC69;
+                            color:#111827;
                             border-bottom-right-radius:6px;
                         }
-
-                        .other .bubble {
-                            background:#ffffff;
-                            border:1px solid #ddd;
+                        .mii-chat-row.other .mii-chat-bubble{
+                            background:#FFFFFF;
+                            color:#111827;
+                            border:1px solid #DADADA;
                             border-bottom-left-radius:6px;
                         }
-
-                        .name {
-                            font-size:12px;
-                            color:#666;
-                            margin-bottom:4px;
-                            font-weight:bold;
-                        }
-
-                        .time {
+                        .mii-chat-time{
                             position:absolute;
                             right:8px;
                             bottom:4px;
                             font-size:10px;
-                            color:#666;
+                            color:#666666;
+                        }
+                        .mii-chat-attach{
+                            display:block;
+                            margin-top:6px;
+                            font-size:12px;
+                            color:#2563EB;
                         }
                         </style>
                         """, unsafe_allow_html=True)
 
-                        # ===== 表示 =====
                         for _, msg in room_msgs.iterrows():
-
-                            display_name = str(msg.get("display_name", "")).strip()
+                            display_name = clean_plain_text(msg.get("display_name", ""))
                             message_user_id = str(msg.get("user_id", "")).strip()
-                            message_text = str(msg.get("message_text", "")).strip()
+                            message_text = clean_plain_text(msg.get("message_text", ""))
                             created_at = str(msg.get("created_at", "")).strip()
+                            has_attachment = str(msg.get("has_attachment", "")).strip()
+                            linked_file_id = clean_plain_text(msg.get("linked_file_id", ""))
 
-                            # 自分判定
                             is_me = False
                             if current_user_id and message_user_id:
                                 is_me = (current_user_id == message_user_id)
                             elif current_user_name and display_name:
                                 is_me = (current_user_name == display_name)
 
-                            side = "me" if is_me else "other"
+                            row_class = "me" if is_me else "other"
 
-                            # HTMLタグ削除（最低限だけ）
-                            text = re.sub(r"<[^>]+>", "", message_text)
-                            text = text.replace("\n", "<br>")
+                            safe_name = html.escape(display_name)
+                            safe_text = html.escape(message_text).replace("\n", "<br>")
+                            safe_time = html.escape(created_at[-8:] if len(created_at) >= 8 else created_at)
 
-                            # 時刻だけ
-                            time = created_at[-8:] if len(created_at) >= 8 else created_at
+                            sender_html = ""
+                            if not is_me and safe_name:
+                                sender_html = f'<div class="mii-chat-name">{safe_name}</div>'
 
-                            # 名前（相手だけ）
-                            name_html = ""
-                            if not is_me and display_name:
-                                name_html = f'<div class="name">{display_name}</div>'
+                            attach_html = ""
+                            if has_attachment == "1":
+                                attach_html = '<span class="mii-chat-attach">📎 添付あり</span>'
+                                if linked_file_id:
+                                    attach_html = f'<span class="mii-chat-attach">📎 添付あり（倉庫ID: {html.escape(linked_file_id)}）</span>'
 
-                            html_code = f"""
-                            <div class="row {side}">
-                                <div>
-                                    {name_html}
-                                    <div class="bubble">
-                                        {text}
-                                        <div class="time">{time}</div>
+                            bubble_html = f"""
+                            <div class="mii-chat-row {row_class}">
+                                <div class="mii-chat-wrap">
+                                    {sender_html}
+                                    <div class="mii-chat-bubble">
+                                        {safe_text}
+                                        {attach_html}
+                                        <div class="mii-chat-time">{safe_time}</div>
                                     </div>
                                 </div>
                             </div>
                             """
-
-                            st.markdown(html_code, unsafe_allow_html=True)
+                            st.markdown(bubble_html, unsafe_allow_html=True)
                         
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
