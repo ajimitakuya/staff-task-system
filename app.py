@@ -2066,7 +2066,7 @@ def render_chat_room_page():
                     is_file_only = True
                 else:
 
-                bubble_html = esc_text(bubble_text).replace("\n", "<br>")
+                    bubble_html = esc_text(bubble_text).replace("\n", "<br>")
 
                 if is_me:
                     with right_msg_col:
