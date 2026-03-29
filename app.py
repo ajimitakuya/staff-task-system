@@ -12518,44 +12518,6 @@ def render_bulk_documents_page():
 
     with meeting_cols_2[0]:
         st.text_input("サ会議_開催情報", key="bulk_meeting_info")
-        attendees_dict = {
-            "admin": st.session_state.get("bulk_meeting_admin", ""),
-            "caremanager": st.session_state.get("bulk_meeting_caremanager", ""),
-            "manager": st.session_state.get("bulk_meeting_manager", ""),
-            "staff": st.session_state.get("bulk_meeting_staff", ""),
-            "nurse": st.session_state.get("bulk_meeting_nurse", ""),
-            "consultant": st.session_state.get("bulk_meeting_consultant", ""),
-            "user": st.session_state.get("bulk_meeting_user", ""),
-            "family": st.session_state.get("bulk_meeting_family", ""),
-            "keyperson": st.session_state.get("bulk_meeting_keyperson", ""),
-        }
-
-        attendees_text = f"""
-        管理者: {attendees_dict["admin"]}
-        ケアマネ: {attendees_dict["caremanager"]}
-        サービス管理責任者: {attendees_dict["manager"]}
-        支援員: {attendees_dict["staff"]}
-        看護師: {attendees_dict["nurse"]}
-        相談員: {attendees_dict["consultant"]}
-        利用者: {attendees_dict["user"]}
-        親族: {attendees_dict["family"]}
-        キーパーソン: {attendees_dict["keyperson"]}
-        """
-
-        plan_draft_json = generate_json_with_gemini(
-            build_bulk_plan_prompt(resident_name)
-        )
-
-        meeting_json = generate_json_with_gemini(
-            build_bulk_meeting_prompt(
-                resident_name=resident_name,
-                plan_json=plan_draft_json,
-                meeting_info=meeting_info,
-                attendees_text=attendees_text,
-            )
-        )
-
-        plan_final_json = plan_draft_json
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -12606,16 +12568,21 @@ def render_bulk_documents_page():
         )
         st.write(f"サ会議作成者: {st.session_state.get('bulk_meeting_creator', '')}")
         st.write(f"サ会議開催情報: {st.session_state.get('bulk_meeting_info', '')}")
-        st.write("サ会議 会議出席者:")
-        st.write(f"管理者: {st.session_state.get('bulk_meeting_admin','')}")
-        st.write(f"ケアマネ: {st.session_state.get('bulk_meeting_caremanager','')}")
-        st.write(f"サービス管理責任者: {st.session_state.get('bulk_meeting_manager','')}")
-        st.write(f"支援員: {st.session_state.get('bulk_meeting_staff','')}")
-        st.write(f"看護師: {st.session_state.get('bulk_meeting_nurse','')}")
-        st.write(f"相談員: {st.session_state.get('bulk_meeting_consultant','')}")
-        st.write(f"利用者: {st.session_state.get('bulk_meeting_user','')}")
-        st.write(f"親族: {st.session_state.get('bulk_meeting_family','')}")
-        st.write(f"キーパーソン: {st.session_state.get('bulk_meeting_keyperson','')}")
+
+        st.markdown("#### 👥 会議出席者")
+        cc1, cc2, cc3 = st.columns(3)
+        with cc1:
+            st.write(f"管理者: {st.session_state.get('bulk_meeting_admin', '')}")
+            st.write(f"ケアマネ: {st.session_state.get('bulk_meeting_caremanager', '')}")
+            st.write(f"サービス管理責任者: {st.session_state.get('bulk_meeting_manager', '')}")
+        with cc2:
+            st.write(f"支援員: {st.session_state.get('bulk_meeting_staff', '')}")
+            st.write(f"看護師: {st.session_state.get('bulk_meeting_nurse', '')}")
+            st.write(f"相談員: {st.session_state.get('bulk_meeting_consultant', '')}")
+        with cc3:
+            st.write(f"利用者: {st.session_state.get('bulk_meeting_user', '')}")
+            st.write(f"親族: {st.session_state.get('bulk_meeting_family', '')}")
+            st.write(f"キーパーソン: {st.session_state.get('bulk_meeting_keyperson', '')}")
 
         st.write(
             f"本計画日付: "
@@ -12625,6 +12592,118 @@ def render_bulk_documents_page():
         )
         st.write(f"本計画サビ管: {st.session_state.get('bulk_plan_manager', '')}")
 
+    st.divider()
+
+    if st.button("🚀 3枚まとめて作成", key="bulk_generate_all"):
+
+        # ========= 基本情報 =========
+        resident_name = str(resident_name).strip()
+
+        # --- 計画案 ---
+        draft_year = st.session_state.get("bulk_plan_draft_year", "")
+        draft_month = st.session_state.get("bulk_plan_draft_month", "")
+        draft_day = st.session_state.get("bulk_plan_draft_day", "")
+        draft_manager = st.session_state.get("bulk_plan_draft_manager", "")
+
+        # --- サ会議 ---
+        meeting_year = st.session_state.get("bulk_meeting_year", "")
+        meeting_month = st.session_state.get("bulk_meeting_month", "")
+        meeting_day = st.session_state.get("bulk_meeting_day", "")
+        meeting_creator = st.session_state.get("bulk_meeting_creator", "")
+        meeting_info = st.session_state.get("bulk_meeting_info", "")
+
+        attendees_dict = {
+            "admin": st.session_state.get("bulk_meeting_admin", ""),
+            "caremanager": st.session_state.get("bulk_meeting_caremanager", ""),
+            "manager": st.session_state.get("bulk_meeting_manager", ""),
+            "staff": st.session_state.get("bulk_meeting_staff", ""),
+            "nurse": st.session_state.get("bulk_meeting_nurse", ""),
+            "consultant": st.session_state.get("bulk_meeting_consultant", ""),
+            "user": st.session_state.get("bulk_meeting_user", ""),
+            "family": st.session_state.get("bulk_meeting_family", ""),
+            "keyperson": st.session_state.get("bulk_meeting_keyperson", ""),
+        }
+
+        attendees_text = f"""
+管理者: {attendees_dict["admin"]}
+ケアマネ: {attendees_dict["caremanager"]}
+サービス管理責任者: {attendees_dict["manager"]}
+支援員: {attendees_dict["staff"]}
+看護師: {attendees_dict["nurse"]}
+相談員: {attendees_dict["consultant"]}
+利用者: {attendees_dict["user"]}
+親族: {attendees_dict["family"]}
+キーパーソン: {attendees_dict["keyperson"]}
+""".strip()
+
+        # --- 本計画 ---
+        plan_year = st.session_state.get("bulk_plan_year", "")
+        plan_month = st.session_state.get("bulk_plan_month", "")
+        plan_day = st.session_state.get("bulk_plan_day", "")
+        plan_manager = st.session_state.get("bulk_plan_manager", "")
+
+        st.info("Gemini生成中...")
+
+        try:
+            plan_draft_json = generate_json_with_gemini(
+                build_bulk_plan_prompt(resident_name)
+            )
+
+            meeting_json = generate_json_with_gemini(
+                build_bulk_meeting_prompt(
+                    resident_name=resident_name,
+                    plan_json=plan_draft_json,
+                    meeting_info=meeting_info,
+                    attendees_text=attendees_text,
+                )
+            )
+
+            # 本計画は現段階では計画案JSONを流用
+            plan_final_json = plan_draft_json
+
+            st.session_state["bulk_plan_draft_json"] = plan_draft_json
+            st.session_state["bulk_meeting_json"] = meeting_json
+            st.session_state["bulk_plan_final_json"] = plan_final_json
+
+            st.success("3枚すべて生成完了ある🥳")
+
+        except Exception as e:
+            st.error(f"一括生成エラー: {e}")
+
+    # ========= 生成結果表示 =========
+    if st.session_state.get("bulk_plan_draft_json"):
+        st.markdown("### 📄 計画案（生成結果）")
+        st.text_area(
+            "計画案",
+            json.dumps(st.session_state["bulk_plan_draft_json"], ensure_ascii=False, indent=2),
+            height=220,
+            key="bulk_plan_draft_json_view"
+        )
+
+    if st.session_state.get("bulk_meeting_json"):
+        st.markdown("### 📄 サ会議（生成結果）")
+        st.text_area(
+            "サ会議",
+            json.dumps(st.session_state["bulk_meeting_json"], ensure_ascii=False, indent=2),
+            height=220,
+            key="bulk_meeting_json_view"
+        )
+
+    if st.session_state.get("bulk_plan_final_json"):
+        st.markdown("### 📄 本計画（生成結果）")
+        st.text_area(
+            "本計画",
+            json.dumps(st.session_state["bulk_plan_final_json"], ensure_ascii=False, indent=2),
+            height=220,
+            key="bulk_plan_final_json_view"
+        )
+
+    # ========= ZIPダウンロード =========
+    if (
+        st.session_state.get("bulk_plan_draft_json")
+        and st.session_state.get("bulk_meeting_json")
+        and st.session_state.get("bulk_plan_final_json")
+    ):
         import io
         import zipfile
 
@@ -12635,9 +12714,37 @@ def render_bulk_documents_page():
             try:
                 zip_buffer = io.BytesIO()
 
+                # ここでも最新値を取り直す
+                draft_year = st.session_state.get("bulk_plan_draft_year", "")
+                draft_month = st.session_state.get("bulk_plan_draft_month", "")
+                draft_day = st.session_state.get("bulk_plan_draft_day", "")
+                draft_manager = st.session_state.get("bulk_plan_draft_manager", "")
+
+                meeting_year = st.session_state.get("bulk_meeting_year", "")
+                meeting_month = st.session_state.get("bulk_meeting_month", "")
+                meeting_day = st.session_state.get("bulk_meeting_day", "")
+                meeting_info = st.session_state.get("bulk_meeting_info", "")
+
+                attendees_dict = {
+                    "admin": st.session_state.get("bulk_meeting_admin", ""),
+                    "caremanager": st.session_state.get("bulk_meeting_caremanager", ""),
+                    "manager": st.session_state.get("bulk_meeting_manager", ""),
+                    "staff": st.session_state.get("bulk_meeting_staff", ""),
+                    "nurse": st.session_state.get("bulk_meeting_nurse", ""),
+                    "consultant": st.session_state.get("bulk_meeting_consultant", ""),
+                    "user": st.session_state.get("bulk_meeting_user", ""),
+                    "family": st.session_state.get("bulk_meeting_family", ""),
+                    "keyperson": st.session_state.get("bulk_meeting_keyperson", ""),
+                }
+
+                plan_year = st.session_state.get("bulk_plan_year", "")
+                plan_month = st.session_state.get("bulk_plan_month", "")
+                plan_day = st.session_state.get("bulk_plan_day", "")
+                plan_manager = st.session_state.get("bulk_plan_manager", "")
+
                 with zipfile.ZipFile(zip_buffer, "w") as zf:
                     cell_data_plan = build_plan_cell_data_from_json(
-                        plan_draft_json,
+                        st.session_state["bulk_plan_draft_json"],
                         resident_name,
                         draft_year,
                         draft_month,
@@ -12648,7 +12755,7 @@ def render_bulk_documents_page():
                     zf.writestr(f"{resident_name}_計画案.xlsx", file_plan.getvalue())
 
                     cell_data_meeting = build_meeting_cell_data_from_json(
-                        meeting_json,
+                        st.session_state["bulk_meeting_json"],
                         resident_name,
                         meeting_year,
                         meeting_month,
@@ -12660,7 +12767,7 @@ def render_bulk_documents_page():
                     zf.writestr(f"{resident_name}_サ会議.xlsx", file_meeting.getvalue())
 
                     cell_data_final = build_plan_cell_data_from_json(
-                        plan_final_json,
+                        st.session_state["bulk_plan_final_json"],
                         resident_name,
                         plan_year,
                         plan_month,
