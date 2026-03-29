@@ -5368,11 +5368,14 @@ document_page_options = [
     ("書類_サービス担当者会議", "🤫サービス担当者会議🤫" if st.session_state.get("secret_doc_mode", False) else "サービス担当者会議"),
     ("書類_個別支援計画", "🤫個別支援計画🤫" if st.session_state.get("secret_doc_mode", False) else "個別支援計画"),
     ("書類_モニタリング", "🤫モニタリング🤫" if st.session_state.get("secret_doc_mode", False) else "モニタリング"),
+    ("🤐一括書類作成🤫", "🤐一括書類作成🤫") if st.session_state.get("secret_doc_mode", False) else None,    
     ("書類_在宅評価シート", "在宅評価シート"),
     ("書類_アセスメント", "アセスメント"),
     ("書類_基本シート", "基本シート"),
     ("書類_就労分野シート", "就労分野シート"),
 ]
+document_page_options = [x for x in document_page_options if x is not None] 
+
 
 def process_secret_command():
     cmd = str(st.session_state.get("secret_bee_cmd", "")).strip()
@@ -12269,6 +12272,111 @@ elif page == "⓪ 検索":
                 st.write(f"相談員: {consultant} / ケースワーカー: {caseworker}")
                 st.write(f"病院: {hospital} / 看護: {nurse} / 介護: {care}")
 
+def render_bulk_documents_page():
+    st.title("🤐一括書類作成🤫")
+    st.caption("個別支援計画案・サービス担当者会議・個別支援計画をまとめて作成するページです。")
+
+    st.info("このページはまだ入力画面だけの先行作成です。サイドバー表示と一括生成処理はこのあと追加します。")
+
+    resident_options, resident_map = get_resident_option_map()
+
+    if not resident_options:
+        st.warning("利用者情報がまだありません。")
+        return
+
+    st.markdown("## 利用者選択")
+    selected_label = st.selectbox(
+        "利用者を選択",
+        resident_options,
+        key="bulk_docs_resident_select"
+    )
+
+    selected_row = resident_map.get(selected_label, {})
+    resident_id = str(selected_row.get("resident_id", "")).strip()
+    resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    st.write(f"利用者ID: {resident_id}")
+    st.write(f"利用者名: {resident_name}")
+
+    st.divider()
+    st.markdown("## 個別支援計画案")
+    plan_draft_cols = st.columns([2, 2, 2, 4])
+
+    with plan_draft_cols[0]:
+        st.text_input("計画案_年", key="bulk_plan_draft_year", placeholder="2026")
+    with plan_draft_cols[1]:
+        st.text_input("計画案_月", key="bulk_plan_draft_month", placeholder="3")
+    with plan_draft_cols[2]:
+        st.text_input("計画案_日", key="bulk_plan_draft_day", placeholder="29")
+    with plan_draft_cols[3]:
+        st.text_input("計画案_サービス管理責任者", key="bulk_plan_draft_manager", placeholder="サービス管理責任者")
+
+    st.divider()
+    st.markdown("## サービス担当者会議")
+    meeting_cols_1 = st.columns([2, 2, 2, 4])
+
+    with meeting_cols_1[0]:
+        st.text_input("サ会議_開催年", key="bulk_meeting_year", placeholder="2026")
+    with meeting_cols_1[1]:
+        st.text_input("サ会議_開催月", key="bulk_meeting_month", placeholder="3")
+    with meeting_cols_1[2]:
+        st.text_input("サ会議_開催日", key="bulk_meeting_day", placeholder="29")
+    with meeting_cols_1[3]:
+        st.text_input("サ会議_作成者", key="bulk_meeting_creator", placeholder="作成者名")
+
+    meeting_cols_2 = st.columns([4, 6])
+
+    with meeting_cols_2[0]:
+        st.text_input("サ会議_開催情報", key="bulk_meeting_info", placeholder="開催場所・開催方法など")
+    with meeting_cols_2[1]:
+        st.text_area("サ会議_会議出席者", key="bulk_meeting_attendees", height=100, placeholder="出席者を入力")
+
+    st.divider()
+    st.markdown("## 個別支援計画")
+    plan_cols = st.columns([2, 2, 2, 4])
+
+    with plan_cols[0]:
+        st.text_input("本計画_年", key="bulk_plan_year", placeholder="2026")
+    with plan_cols[1]:
+        st.text_input("本計画_月", key="bulk_plan_month", placeholder="3")
+    with plan_cols[2]:
+        st.text_input("本計画_日", key="bulk_plan_day", placeholder="29")
+    with plan_cols[3]:
+        st.text_input("本計画_サービス管理責任者", key="bulk_plan_manager", placeholder="サービス管理責任者")
+
+    st.divider()
+    st.markdown("## 確認")
+    with st.expander("入力内容確認"):
+        st.write(f"利用者: {resident_name} ({resident_id})")
+        st.write(
+            f"計画案日付: "
+            f"{st.session_state.get('bulk_plan_draft_year', '')}/"
+            f"{st.session_state.get('bulk_plan_draft_month', '')}/"
+            f"{st.session_state.get('bulk_plan_draft_day', '')}"
+        )
+        st.write(f"計画案サビ管: {st.session_state.get('bulk_plan_draft_manager', '')}")
+
+        st.write(
+            f"サ会議日付: "
+            f"{st.session_state.get('bulk_meeting_year', '')}/"
+            f"{st.session_state.get('bulk_meeting_month', '')}/"
+            f"{st.session_state.get('bulk_meeting_day', '')}"
+        )
+        st.write(f"サ会議作成者: {st.session_state.get('bulk_meeting_creator', '')}")
+        st.write(f"サ会議開催情報: {st.session_state.get('bulk_meeting_info', '')}")
+        st.write(f"サ会議会議出席者: {st.session_state.get('bulk_meeting_attendees', '')}")
+
+        st.write(
+            f"本計画日付: "
+            f"{st.session_state.get('bulk_plan_year', '')}/"
+            f"{st.session_state.get('bulk_plan_month', '')}/"
+            f"{st.session_state.get('bulk_plan_day', '')}"
+        )
+        st.write(f"本計画サビ管: {st.session_state.get('bulk_plan_manager', '')}")
+
+    st.divider()
+    st.button("一括作成（まだ未接続）", key="bulk_docs_generate_dummy", disabled=True)
+
 # ==========================================
 # 利用者書類
 # ==========================================
@@ -12404,3 +12512,5 @@ elif page == "Knowbe情報登録":
     render_company_knowbe_settings_page()
 elif page == "お問い合わせ":
     render_contact_page()
+elif page == "🤐一括書類作成🤫":
+    render_bulk_documents_page()
