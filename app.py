@@ -5699,11 +5699,43 @@ def render_plan_form_page(doc_title: str):
     if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
 
         cell_data = {
-            "C4": resident_name,
-            "M3": year_val,
-            "O3": month_val,
-            "Q3": day_val,
-            "M4": manager_val
+            # 基本情報
+            "E5": resident_name,
+            "M5": year_val,
+            "O5": month_val,
+            "Q5": day_val,
+
+            # 総合方針・目標
+            "B7": policy_val,
+            "B10": long_goal_val,
+            "B12": short_goal_val,
+
+            # ===== 1行目 =====
+            "C17": row_data[0]["target"],
+            "H17": row_data[0]["role"],
+            "M17": row_data[0]["support"],
+            "T17": row_data[0]["period"],
+            "W17": row_data[0]["person"],
+            "Z17": row_data[0]["priority"],
+
+            # ===== 2行目 =====
+            "C18": row_data[1]["target"],
+            "H18": row_data[1]["role"],
+            "M18": row_data[1]["support"],
+            "T18": row_data[1]["period"],
+            "W18": row_data[1]["person"],
+            "Z18": row_data[1]["priority"],
+
+            # ===== 3行目 =====
+            "C19": row_data[2]["target"],
+            "H19": row_data[2]["role"],
+            "M19": row_data[2]["support"],
+            "T19": row_data[2]["period"],
+            "W19": row_data[2]["person"],
+            "Z19": row_data[2]["priority"],
+
+            # 同意・担当者
+            "N21": manager_val
         }
 
         template_name = doc_title
