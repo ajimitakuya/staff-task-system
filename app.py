@@ -1959,8 +1959,7 @@ def render_chat_room_page():
         current_user_name = str(st.session_state.get("user", "")).strip()
         current_user_id = str(st.session_state.get("user_id", "")).strip()
 
-        # 投稿一覧の背景だけ軽く付ける
-
+ 
         for _, msg in room_msgs.iterrows():
             display_name = clean_plain_text(msg.get("display_name", ""))
             message_user_id = str(msg.get("user_id", "")).strip()
@@ -1993,8 +1992,7 @@ def render_chat_room_page():
             if is_me:
                 with right_msg_col:
                     st.markdown(
-                        f"""
-                        <div style="
+                        f"""<div style="
                             background:#95EC69;
                             color:#111827;
                             padding:10px 14px;
@@ -2022,8 +2020,7 @@ def render_chat_room_page():
                         st.caption(display_name)
 
                     st.markdown(
-                        f"""
-                        <div style="
+                        f"""<div style="
                             background:#FFFFFF;
                             color:#111827;
                             border:1px solid #DADADA;
