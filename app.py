@@ -263,17 +263,17 @@ def build_meeting_cell_data_from_json(
         "M5": meeting_info,
 
         # 会議出席者（氏名欄）
-        "F8": attendees.get("admin", ""),
-        "L8": attendees.get("staff", ""),
-        "Q8": attendees.get("user", ""),
+        "E8": attendees.get("admin", ""),
+        "J8": attendees.get("staff", ""),
+        "O8": attendees.get("user", ""),
 
-        "F9": attendees.get("caremanager", ""),
-        "L9": attendees.get("nurse", ""),
-        "Q9": attendees.get("family", ""),
+        "F8": attendees.get("caremanager", ""),
+        "J9": attendees.get("nurse", ""),
+        "O9": attendees.get("family", ""),
 
-        "F10": attendees.get("manager", ""),
-        "L10": attendees.get("consultant", ""),
-        "Q10": attendees.get("keyperson", ""),
+        "E10": attendees.get("manager", ""),
+        "J10": attendees.get("consultant", ""),
+        "O10": attendees.get("keyperson", ""),
 
         # 会議内容
         "C11": meeting_json.get("agenda", ""),
@@ -12788,7 +12788,7 @@ def render_bulk_documents_page():
                         attendees_dict,
                         st.session_state.get("bulk_meeting_creator", ""),
                     )
-                    
+
                     file_meeting = create_excel_file("サービス担当者会議", cell_data_meeting)
                     zf.writestr(f"{resident_name}_サ会議.xlsx", file_meeting.getvalue())
 
