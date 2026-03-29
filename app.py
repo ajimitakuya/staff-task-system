@@ -4197,6 +4197,354 @@ def build_plan_draft_generation_prompt(
 '''
     return prompt
 
+# ==========================================
+# 🤫 秘密モード Gemini 自動生成まわり
+# ==========================================
+
+TEST_ALLOW_EMPTY_REFERENCE = True
+# 動作確認が終わったら False にするか、
+# この1行ごとコメントアウトして本番運用するある。
+
+
+def get_reference_doc_type_for_gemini(doc_title: str):
+    return {
+        "個別支援計画案": "モニタリング",
+        "サービス担当者会議": "個別支援計画案",
+        "個別支援計画": "サービス担当者会議",
+        "モニタリング": "個別支援計画",
+    }.get(str(doc_title).strip(), "")
+
+
+def get_reference_json_for_gemini(resident_id, doc_title):
+    ref_doc_type = get_reference_doc_type_for_gemini(doc_title)
+    if not ref_doc_type:
+        return None, None
+
+    source_json = get_latest_saved_document_json(resident_id, ref_doc_type)
+
+    if source_json:
+        return ref_doc_type, source_json
+
+    if TEST_ALLOW_EMPTY_REFERENCE:
+        return f"{ref_doc_type}(参照なしテスト)", {}
+
+    return ref_doc_type, None
+
+
+def get_resident_option_map():
+    master_df = get_resident_master_df()
+
+    if master_df is None or master_df.empty:
+        return [], {}
+
+    master_df = master_df.fillna("").copy()
+
+    resident_options = []
+    resident_map = {}
+
+    for _, row in master_df.iterrows():
+        rid = str(row.get("resident_id", "")).strip()
+        rname = str(row.get("resident_name", "")).strip()
+        status = str(row.get("status", "")).strip()
+
+        if not rname:
+            continue
+
+        label = f"{rname}"
+        if rid:
+            label += f" ({rid})"
+        if status:
+            label += f" / {status}"
+
+        resident_options.append(label)
+        resident_map[label] = row.to_dict()
+
+    return resident_options, resident_map
+
+
+def normalize_goal_rows(goal_rows, size=3):
+    rows = goal_rows if isinstance(goal_rows, list) else []
+
+    normalized = []
+    for i in range(size):
+        row = rows[i] if i < len(rows) and isinstance(rows[i], dict) else {}
+        normalized.append({
+            "target": safe_text(row.get("target", "")),
+            "role": safe_text(row.get("role", "")),
+            "support": safe_text(row.get("support", "")),
+            "period": safe_text(row.get("period", "")),
+            "person": safe_text(row.get("person", "")),
+            "priority": safe_text(row.get("priority", "")),
+        })
+
+    return normalized
+
+
+def build_meeting_generation_prompt(
+    resident_name,
+    source_label,
+    source_data,
+    new_policy="",
+):
+    source_data = source_data or {}
+
+    prompt = f'''
+就労継続支援B型のサービス担当者会議記録を作成する。
+
+【利用者名】
+{safe_text(resident_name)}
+
+【参照元の種類】
+{safe_text(source_label)}
+
+【参照元データ】
+サービス等利用計画の総合的な方針:
+{safe_text(source_data.get("policy", ""))}
+
+長期目標:
+{safe_text(source_data.get("long_goal", ""))}
+
+短期目標:
+{safe_text(source_data.get("short_goal", ""))}
+
+具体的到達目標1:
+{safe_text(source_data.get("target_1", ""))}
+本人の役割1:
+{safe_text(source_data.get("role_1", ""))}
+支援内容1:
+{safe_text(source_data.get("support_1", ""))}
+
+具体的到達目標2:
+{safe_text(source_data.get("target_2", ""))}
+本人の役割2:
+{safe_text(source_data.get("role_2", ""))}
+支援内容2:
+{safe_text(source_data.get("support_2", ""))}
+
+具体的到達目標3:
+{safe_text(source_data.get("target_3", ""))}
+本人の役割3:
+{safe_text(source_data.get("role_3", ""))}
+支援内容3:
+{safe_text(source_data.get("support_3", ""))}
+
+【新しい方針・補足】
+{safe_text(new_policy)}
+
+【作成する項目】
+- 議題
+- 検討内容
+- 残された課題
+- 結論
+
+【ルール】
+- 就労継続支援B型のサービス担当者会議として自然な内容
+- 利用者の状況や支援方針がつながる内容にする
+- 議題は簡潔に
+- 検討内容はやや詳しく
+- 出力はJSONのみ
+- 文章は日本語
+- 余計な説明文は不要
+
+【出力形式】
+{{
+  "agenda": "議題",
+  "discussion": "検討内容",
+  "issues_left": "残された課題",
+  "conclusion": "結論"
+}}
+'''
+    return prompt
+
+
+def build_monitoring_generation_prompt(
+    resident_name,
+    source_label,
+    source_data,
+    new_policy="",
+):
+    source_data = source_data or {}
+
+    prompt = f'''
+就労継続支援B型のモニタリング記録を作成する。
+
+【利用者名】
+{safe_text(resident_name)}
+
+【参照元の種類】
+{safe_text(source_label)}
+
+【参照元データ】
+サービス等利用計画の総合的な方針:
+{safe_text(source_data.get("policy", ""))}
+
+長期目標:
+{safe_text(source_data.get("long_goal", ""))}
+
+短期目標:
+{safe_text(source_data.get("short_goal", ""))}
+
+具体的到達目標1:
+{safe_text(source_data.get("target_1", ""))}
+本人の役割1:
+{safe_text(source_data.get("role_1", ""))}
+支援内容1:
+{safe_text(source_data.get("support_1", ""))}
+支援期間1:
+{safe_text(source_data.get("period_1", ""))}
+担当者1:
+{safe_text(source_data.get("person_1", ""))}
+優先順位1:
+{safe_text(source_data.get("priority_1", ""))}
+
+具体的到達目標2:
+{safe_text(source_data.get("target_2", ""))}
+本人の役割2:
+{safe_text(source_data.get("role_2", ""))}
+支援内容2:
+{safe_text(source_data.get("support_2", ""))}
+支援期間2:
+{safe_text(source_data.get("period_2", ""))}
+担当者2:
+{safe_text(source_data.get("person_2", ""))}
+優先順位2:
+{safe_text(source_data.get("priority_2", ""))}
+
+具体的到達目標3:
+{safe_text(source_data.get("target_3", ""))}
+本人の役割3:
+{safe_text(source_data.get("role_3", ""))}
+支援内容3:
+{safe_text(source_data.get("support_3", ""))}
+支援期間3:
+{safe_text(source_data.get("period_3", ""))}
+担当者3:
+{safe_text(source_data.get("person_3", ""))}
+優先順位3:
+{safe_text(source_data.get("priority_3", ""))}
+
+【新しい方針・補足】
+{safe_text(new_policy)}
+
+【作成する項目】
+- 具体的達成目標番号1〜3の達成状況の評価
+- 具体的達成目標番号1〜3の達成できている点と未達成点（要因も）
+- 具体的達成目標番号1〜3の今後の対応（支援内容・方法の変更・継続・終了）
+
+【ルール】
+- 評価は「達成」「継続」「一部達成」「終了」のいずれか
+- モニタリングとして自然な内容にする
+- 出力はJSONのみ
+- 文章は日本語
+- 余計な説明文は不要
+
+【出力形式】
+{{
+  "rows": [
+    {{
+      "status": "継続",
+      "detail": "達成できている点と未達成点（要因も）1",
+      "future": "今後の対応1"
+    }},
+    {{
+      "status": "継続",
+      "detail": "達成できている点と未達成点（要因も）2",
+      "future": "今後の対応2"
+    }},
+    {{
+      "status": "継続",
+      "detail": "達成できている点と未達成点（要因も）3",
+      "future": "今後の対応3"
+    }}
+  ]
+}}
+'''
+    return prompt
+
+
+def apply_generated_data_to_form(doc_title: str, generated: dict):
+    generated = generated or {}
+
+    if doc_title in ["個別支援計画案", "個別支援計画"]:
+        st.session_state[f"{doc_title}_policy"] = safe_text(generated.get("policy", ""))
+        st.session_state[f"{doc_title}_long_goal"] = safe_text(generated.get("long_goal", ""))
+        st.session_state[f"{doc_title}_short_goal"] = safe_text(generated.get("short_goal", ""))
+
+        rows = normalize_goal_rows(generated.get("goal_rows", []), size=3)
+
+        for i, row in enumerate(rows, start=1):
+            st.session_state[f"{doc_title}_target_{i}"] = row["target"]
+            st.session_state[f"{doc_title}_role_{i}"] = row["role"]
+            st.session_state[f"{doc_title}_support_{i}"] = row["support"]
+            st.session_state[f"{doc_title}_period_{i}"] = row["period"]
+            st.session_state[f"{doc_title}_person_{i}"] = row["person"]
+            st.session_state[f"{doc_title}_priority_{i}"] = row["priority"]
+
+    elif doc_title == "サービス担当者会議":
+        st.session_state[f"{doc_title}_agenda"] = safe_text(generated.get("agenda", ""))
+        st.session_state[f"{doc_title}_discussion"] = safe_text(generated.get("discussion", ""))
+        st.session_state[f"{doc_title}_issues_left"] = safe_text(generated.get("issues_left", ""))
+        st.session_state[f"{doc_title}_conclusion"] = safe_text(generated.get("conclusion", ""))
+
+    elif doc_title == "モニタリング":
+        rows = generated.get("rows", [])
+        if not isinstance(rows, list):
+            rows = []
+
+        normalized = []
+        for i in range(3):
+            row = rows[i] if i < len(rows) and isinstance(rows[i], dict) else {}
+            status_val = safe_text(row.get("status", ""))
+            if status_val not in ["", "達成", "継続", "一部達成", "終了"]:
+                status_val = "継続"
+
+            normalized.append({
+                "status": status_val,
+                "detail": safe_text(row.get("detail", "")),
+                "future": safe_text(row.get("future", "")),
+            })
+
+        for i, row in enumerate(normalized, start=1):
+            st.session_state[f"{doc_title}_status_{i}"] = row["status"]
+            st.session_state[f"{doc_title}_detail_{i}"] = row["detail"]
+            st.session_state[f"{doc_title}_future_{i}"] = row["future"]
+
+
+def run_secret_gemini_generation(doc_title: str, resident_id, resident_name, new_policy_text=""):
+    source_label, source_data = get_reference_json_for_gemini(resident_id, doc_title)
+
+    if source_data is None:
+        raise RuntimeError(f"直近の{source_label}がありません。")
+
+    if doc_title in ["個別支援計画案", "個別支援計画"]:
+        prompt = build_plan_draft_generation_prompt(
+            resident_name=resident_name,
+            source_label=source_label,
+            source_data=source_data,
+            new_policy=new_policy_text,
+            new_long_goal="",
+            new_short_goal="",
+            new_goal_rows_policy="",
+        )
+    elif doc_title == "サービス担当者会議":
+        prompt = build_meeting_generation_prompt(
+            resident_name=resident_name,
+            source_label=source_label,
+            source_data=source_data,
+            new_policy=new_policy_text,
+        )
+    elif doc_title == "モニタリング":
+        prompt = build_monitoring_generation_prompt(
+            resident_name=resident_name,
+            source_label=source_label,
+            source_data=source_data,
+            new_policy=new_policy_text,
+        )
+    else:
+        raise RuntimeError("この書類はGemini自動生成対象ではありません。")
+
+    return call_gemini_json(prompt)
+
 def get_next_numeric_id(df, col_name="id", start=1):
     if df is None or df.empty or col_name not in df.columns:
         return start
@@ -11869,13 +12217,68 @@ elif page == "⓪ 検索":
 # 利用者書類
 # ==========================================
 def render_secret_generation_panel(doc_title: str):
-    st.info("🤫 秘密モード。ここに後で『新しい方針欄』『過去のデータから作成』『Gemini自動入力』を追加していってください。")
+    st.markdown("## 🤫 Gemini自動作成")
+    st.caption("直近の前段書類を参照して、入力欄へ自動反映します。")
+
+    resident_options, resident_map = get_resident_option_map()
+
+    if not resident_options:
+        st.warning("利用者情報がまだ登録されていません。")
+        return
+
+    selected_label = st.session_state.get(f"{doc_title}_resident_select", "")
+    selected_row = resident_map.get(selected_label, {})
+
+    resident_id = str(selected_row.get("resident_id", "")).strip()
+    resident_name = str(selected_row.get("resident_name", "")).strip()
+
+    ref_doc_type = get_reference_doc_type_for_gemini(doc_title)
+
+    info_cols = st.columns([3, 2])
+
+    with info_cols[0]:
+        st.info(
+            f"参照元: {ref_doc_type if ref_doc_type else 'なし'}"
+            + (" / テスト時は参照なしでも作成可" if TEST_ALLOW_EMPTY_REFERENCE else "")
+        )
+
+    with info_cols[1]:
+        st.caption("先に下の利用者選択を触っておくと確実です。")
+
+    new_policy_text = st.text_area(
+        "新しい方針・補足（任意）",
+        key=f"{doc_title}_secret_new_policy",
+        height=100,
+        placeholder="Geminiに追加で考慮させたい内容があれば入れる",
+    )
+
+    if st.button(f"🤖 {doc_title}をGeminiで作成", key=f"{doc_title}_secret_generate"):
+        if not selected_label or not resident_id or not resident_name:
+            st.warning("先に下の利用者選択をしてから押してください。")
+            return
+
+        try:
+            generated = run_secret_gemini_generation(
+                doc_title=doc_title,
+                resident_id=resident_id,
+                resident_name=resident_name,
+                new_policy_text=new_policy_text,
+            )
+
+            apply_generated_data_to_form(doc_title, generated)
+            st.success("Geminiで作成して入力欄へ反映しました。")
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"Gemini作成でエラーです: {e}")
 
 
 def render_secret_page(doc_title: str):
     st.title(f"🤫 {doc_title}")
-    render_secret_generation_panel(doc_title)
-    st.divider()
+
+    if doc_title in ["個別支援計画案", "サービス担当者会議", "個別支援計画", "モニタリング"]:
+        render_secret_generation_panel(doc_title)
+        st.divider()
 
     if doc_title == "サービス担当者会議":
         render_meeting_form_page(doc_title)
@@ -11888,7 +12291,7 @@ def render_secret_page(doc_title: str):
     elif doc_title == "基本シート":
         render_basic_sheet_form_page(doc_title)
     elif doc_title == "就労分野シート":
-        render_work_field_form_page(doc_title)
+        render_work_sheet_form_page(doc_title)
     else:
         render_plan_form_page(doc_title)
 
