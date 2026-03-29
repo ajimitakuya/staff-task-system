@@ -1913,6 +1913,18 @@ def render_chat_room_page():
 
         uploader_key = f"chat_attach_{selected_room_id}_{st.session_state[uploader_nonce_key]}"
 
+        text_nonce_key = f"chat_text_nonce_{selected_room_id}"
+        uploader_nonce_key = f"chat_attach_nonce_{selected_room_id}"
+
+        if text_nonce_key not in st.session_state:
+            st.session_state[text_nonce_key] = 0
+
+        if uploader_nonce_key not in st.session_state:
+            st.session_state[uploader_nonce_key] = 0
+
+        text_key = f"chat_post_text_{selected_room_id}_{st.session_state[text_nonce_key]}"
+        uploader_key = f"chat_attach_{selected_room_id}_{st.session_state[uploader_nonce_key]}"
+
         post_text = st.text_area(
             "メッセージ",
             key=text_key,
@@ -1940,8 +1952,7 @@ def render_chat_room_page():
                     attached_file=attached_file,
                 )
 
-                # 送信後に入力を全部クリア
-                st.session_state[text_key] = ""
+                st.session_state[text_nonce_key] += 1
                 st.session_state[uploader_nonce_key] += 1
 
                 st.success("投稿しました！")
