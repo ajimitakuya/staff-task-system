@@ -5709,7 +5709,14 @@ def create_excel_file(template_name, cell_data):
     ws = wb.active
 
     for cell, value in cell_data.items():
-        ws[cell] = value
+        try:
+            st.write(f"DEBUG ▶ {cell} = {value}")
+            ws[cell] = value
+        except Exception as e:
+            st.error(f"❌ エラーセル: {cell}")
+            st.error(f"❌ 値: {value}")
+            st.error(f"❌ エラー内容: {e}")
+            raise
 
     buffer = BytesIO()
     wb.save(buffer)
