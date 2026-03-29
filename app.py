@@ -13313,7 +13313,9 @@ def render_secret_home_eval_auto_page():
             )
 
             st.session_state["secret_home_eval_cell_data"] = cell_data
-            st.session_state["secret_home_eval_file"] = create_excel_file("在宅評価シート", cell_data)
+
+            excel_buffer = create_excel_file("在宅評価シート", cell_data)
+            st.session_state["secret_home_eval_file"] = excel_buffer.getvalue()
 
             st.success("在宅評価シートの自動作成が完了したある🥳")
 
@@ -13345,7 +13347,7 @@ def render_secret_home_eval_auto_page():
             key="secret_home_eval_json_view"
         )
 
-    if st.session_state.get("secret_home_eval_file"):
+    if st.session_state.get("secret_home_eval_file") is not None:
         st.download_button(
             label="📥 在宅評価シートをダウンロード",
             data=st.session_state["secret_home_eval_file"],
