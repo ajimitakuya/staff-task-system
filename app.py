@@ -13215,7 +13215,7 @@ def render_secret_home_eval_auto_page():
     st.markdown("## サビ管訪問")
     visit_cols_1 = st.columns(2)
     visit_cols_2 = st.columns(2)
-    visit_cols_3 = st.columns(1)
+    visit_cols_3 = st.columns(2)
 
     with visit_cols_1[0]:
         visit_1 = st.text_input("第1週 サビ管訪問", key="secret_home_eval_visit_1")
