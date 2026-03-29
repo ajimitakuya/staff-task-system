@@ -267,7 +267,7 @@ def build_meeting_cell_data_from_json(
         "J8": attendees.get("staff", ""),
         "O8": attendees.get("user", ""),
 
-        "F8": attendees.get("caremanager", ""),
+        "E8": attendees.get("caremanager", ""),
         "J9": attendees.get("nurse", ""),
         "O9": attendees.get("family", ""),
 
