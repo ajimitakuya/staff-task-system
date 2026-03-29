@@ -2014,7 +2014,17 @@ def render_chat_room_page():
                     if attach_text:
                         st.caption(attach_text)
                     if time_text:
-                        st.caption(time_text)
+                        st.markdown(
+                            f"""<div style="
+                                font-size:11px;
+                                color:#777;
+                                text-align:right;
+                                margin-top:2px;
+                            ">
+                                {time_text}
+                            </div>""",
+                            unsafe_allow_html=True
+                        )
 
             else:
                 with left_msg_col:
@@ -2045,7 +2055,17 @@ def render_chat_room_page():
                     if attach_text:
                         st.caption(attach_text)
                     if time_text:
-                        st.caption(time_text)
+                        st.markdown(
+                            f"""<div style="
+                                font-size:11px;
+                                color:#777;
+                                text-align:left;
+                                margin-top:2px;
+                            ">
+                                {time_text}
+                            </div>""",
+                            unsafe_allow_html=True
+                        )
                         
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
