@@ -2065,8 +2065,9 @@ def render_chat_room_page():
                     bubble_text = "ファイル送信"
                     is_file_only = True
                 else:
+                    bubble_text = "　"
 
-                    bubble_html = esc_text(bubble_text).replace("\n", "<br>")
+                bubble_html = esc_text(bubble_text).replace("\n", "<br>")
 
                 if is_me:
                     with right_msg_col:
