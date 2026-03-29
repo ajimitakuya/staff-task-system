@@ -460,13 +460,34 @@ def get_chat_rooms_df():
     return get_chat_rooms_df_cached().copy()
 
 def render_excel_download_block(doc_title, file_name, template_name, cell_data):
-    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
-        st.session_state[f"{doc_title}_excel_file"] = create_excel_file(template_name, cell_data)
+    import json
 
-    if st.session_state.get(f"{doc_title}_excel_file"):
+    file_key = f"{doc_title}_excel_file"
+    sig_key = f"{doc_title}_excel_signature"
+
+    # 入力内容の変化を判定するための署名
+    current_signature = json.dumps(
+        cell_data,
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str
+    )
+
+    # 入力内容が1文字でも変わったら、古いExcelを消す
+    if st.session_state.get(sig_key) != current_signature:
+        st.session_state[sig_key] = current_signature
+        st.session_state.pop(file_key, None)
+
+    # Excel作成
+    if st.button("Excelを作成", key=f"{doc_title}_make_excel"):
+        st.session_state[file_key] = create_excel_file(template_name, cell_data)
+        st.session_state[sig_key] = current_signature
+
+    # 作成済みのときだけダウンロードボタン表示
+    if st.session_state.get(file_key):
         st.download_button(
             label="📥 ダウンロード",
-            data=st.session_state[f"{doc_title}_excel_file"],
+            data=st.session_state[file_key],
             file_name=file_name,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key=f"{doc_title}_download_excel"
