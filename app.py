@@ -5712,29 +5712,32 @@ def render_plan_form_page(doc_title: str):
 
             # ===== 1行目 =====
             "C17": row_data[0]["target"],
-            "H17": row_data[0]["role"],
-            "M17": row_data[0]["support"],
-            "T17": row_data[0]["period"],
-            "W17": row_data[0]["person"],
-            "Z17": row_data[0]["priority"],
+            "G17": row_data[0]["role"],
+            "J17": row_data[0]["support"],
+            "M17": row_data[0]["period"],
+            "O17": row_data[0]["person"],
+            "Q17": row_data[0]["priority"],
 
             # ===== 2行目 =====
             "C18": row_data[1]["target"],
-            "H18": row_data[1]["role"],
-            "M18": row_data[1]["support"],
-            "T18": row_data[1]["period"],
-            "W18": row_data[1]["person"],
-            "Z18": row_data[1]["priority"],
+            "G18": row_data[1]["role"],
+            "J18": row_data[1]["support"],
+            "M18": row_data[1]["period"],
+            "O18": row_data[1]["person"],
+            "Q18": row_data[1]["priority"],
 
             # ===== 3行目 =====
             "C19": row_data[2]["target"],
-            "H19": row_data[2]["role"],
-            "M19": row_data[2]["support"],
-            "T19": row_data[2]["period"],
-            "W19": row_data[2]["person"],
-            "Z19": row_data[2]["priority"],
+            "G19": row_data[2]["role"],
+            "J19": row_data[2]["support"],
+            "M19": row_data[2]["period"],
+            "O19": row_data[2]["person"],
+            "Q19": row_data[2]["priority"],
 
             # 同意・担当者
+            "B21": agree_year_val,
+            "E21": agree_month_val,
+            "H21": agree_day_val,
             "N21": manager_val
         }
 
