@@ -1937,15 +1937,15 @@ def render_chat_room_page():
         st.markdown(
             """
             <div style="
-                background:#FAFAFB;
-                border:1px solid #E5E7EB;
-                border-radius:12px;
-                padding:6px 10px;
-                margin-bottom:8px;
-                font-size:12px;
+                background:#F3F4F6;
+                border:1px solid #D1D5DB;
+                border-radius:14px;
+                padding:10px 12px;
+                margin-bottom:10px;
                 color:#6B7280;
+                font-size:12px;
             ">
-                この枠の中をスクロールしてチャット履歴を確認します
+                チャット履歴
             </div>
             """,
             unsafe_allow_html=True,
@@ -2047,10 +2047,13 @@ def render_chat_room_page():
 
                 left_msg_col, spacer_col, right_msg_col = st.columns([5, 1, 5])
 
+                is_file_only = False
+
                 if message_text:
                     bubble_text = message_text
                 elif has_attachment == "1":
-                    bubble_text = "📎 添付ファイル"
+                    bubble_text = "ファイル送信"
+                    is_file_only = True
                 else:
                     bubble_text = "　"
 
