@@ -5193,7 +5193,7 @@ page_options = [
     "書類_サービス担当者会議",
     "書類_個別支援計画",
     "書類_モニタリング",
-    "🤫一括書類作成🤫"
+    "書類_一括書類作成",
     "書類_在宅評価シート",
     "書類_アセスメント",
     "書類_基本シート",
@@ -5369,7 +5369,7 @@ document_page_options = [
     ("書類_サービス担当者会議", "🤫サービス担当者会議🤫" if st.session_state.get("secret_doc_mode", False) else "サービス担当者会議"),
     ("書類_個別支援計画", "🤫個別支援計画🤫" if st.session_state.get("secret_doc_mode", False) else "個別支援計画"),
     ("書類_モニタリング", "🤫モニタリング🤫" if st.session_state.get("secret_doc_mode", False) else "モニタリング"),
-    ("🤫一括書類作成🤫", "🤫一括書類作成🤫") if st.session_state.get("secret_doc_mode", False) else None,    
+    ("書類_一括書類作成", "🤫一括書類作成🤫") if st.session_state.get("secret_doc_mode", False) else None,    
     ("書類_在宅評価シート", "在宅評価シート"),
     ("書類_アセスメント", "アセスメント"),
     ("書類_基本シート", "基本シート"),
@@ -12513,5 +12513,5 @@ elif page == "Knowbe情報登録":
     render_company_knowbe_settings_page()
 elif page == "お問い合わせ":
     render_contact_page()
-elif page == "🤫一括書類作成🤫":
+elif page == "書類_一括書類作成":
     render_bulk_documents_page()
