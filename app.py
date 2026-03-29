@@ -79,21 +79,34 @@ COMPANY_SCOPED_SHEETS = {
     "assistant_plans",
 }
 
-def generate_with_gemini(prompt):
-    try:
-        import google.generativeai as genai
+def generate_with_gemini(prompt: str):
+    api_key = get_gemini_api_key_from_app()
+    if not api_key:
+        raise RuntimeError("APIキーありません")
 
-        genai.configure(api_key=st.secrets.get("GEMINI_API_KEY"))
+    genai.configure(api_key=api_key)
 
-        model = genai.GenerativeModel("gemini-1.5-flash")
+    model_candidates = [
+        "gemini-2.5-flash",
+        "gemini-1.0-pro",
+    ]
 
-        response = model.generate_content(prompt)
+    last_error = None
 
-        return response.text
+    for model_name in model_candidates:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            text = str(getattr(response, "text", "")).strip()
 
-    except Exception as e:
-        st.error(f"Geminiエラー: {e}")
-        return "生成に失敗しました"
+            if text:
+                return text
+
+        except Exception as e:
+            last_error = e
+            continue
+
+    raise RuntimeError(f"Gemini生成失敗: {last_error}")
 
 def get_sheet_name_candidates(file):
     if file in COMMON_SHEETS:
