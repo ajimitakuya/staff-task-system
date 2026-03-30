@@ -2561,25 +2561,43 @@ def render_chat_room_page():
                                 my_text_color = "#E11D48"
                                 my_font_weight = "bold"
 
-                            st.markdown(
-                                f"""<div style="
-                                    background:{my_bg_color};
-                                    color:{my_text_color};
-                                    padding:10px 14px;
-                                    border-radius:18px;
-                                    border-bottom-right-radius:6px;
-                                    margin:6px 0 2px auto;
-                                    display:inline-block;
-                                    max-width:70%;
-                                    word-break:break-word;
-                                    overflow-wrap:break-word;
-                                    font-weight:{my_font_weight};
-                                ">
-                                    {bubble_html}
-                                </div>
-                                """,
-                                unsafe_allow_html=True,
-                            )
+                                st.markdown(
+                                    f"""
+                                    <div style="
+                                        background:{my_bg_color};
+                                        color:{my_text_color};
+                                        padding:10px 14px;
+                                        border-radius:18px;
+                                        border-bottom-right-radius:6px;
+                                        margin:6px 0 2px auto;
+                                        display:inline-block;
+                                        max-width:70%;
+                                        word-break:break-word;
+                                        overflow-wrap:break-word;
+                                        font-weight:{my_font_weight};
+                                    ">＜添付ファイルを送信しました＞</div>
+                                    """,
+                                    unsafe_allow_html=True,
+                                )
+                            else:
+                                st.markdown(
+                                    f"""
+                                    <div style="
+                                        background:{my_bg_color};
+                                        color:{my_text_color};
+                                        padding:10px 14px;
+                                        border-radius:18px;
+                                        border-bottom-right-radius:6px;
+                                        margin:6px 0 2px auto;
+                                        display:inline-block;
+                                        max-width:70%;
+                                        word-break:break-word;
+                                        overflow-wrap:break-word;
+                                        font-weight:{my_font_weight};
+                                    ">{bubble_html}</div>
+                                    """,
+                                    unsafe_allow_html=True,
+                                )
 
                             if attached_file_bytes is not None and attached_file_name:
                                 st.download_button(
@@ -2620,26 +2638,45 @@ def render_chat_room_page():
                                 other_font_weight = "bold"
                                 other_border = "none"
 
-                            st.markdown(
-                                f"""<div style="
-                                    background:{other_bg_color};
-                                    color:{other_text_color};
-                                    border:{other_border};
-                                    padding:10px 14px;
-                                    border-radius:18px;
-                                    border-bottom-left-radius:6px;
-                                    margin:6px auto 2px 0;
-                                    display:inline-block;
-                                    max-width:70%;
-                                    word-break:break-word;
-                                    overflow-wrap:break-word;
-                                    font-weight:{other_font_weight};
-                                ">
-                                    {bubble_html}
-                                </div>
-                                """,
-                                unsafe_allow_html=True,
-                            )
+                                st.markdown(
+                                    f"""
+                                    <div style="
+                                        background:{other_bg_color};
+                                        color:{other_text_color};
+                                        border:{other_border};
+                                        padding:10px 14px;
+                                        border-radius:18px;
+                                        border-bottom-left-radius:6px;
+                                        margin:6px auto 2px 0;
+                                        display:inline-block;
+                                        max-width:70%;
+                                        word-break:break-word;
+                                        overflow-wrap:break-word;
+                                        font-weight:{other_font_weight};
+                                    ">＜添付ファイルを送信しました＞</div>
+                                    """,
+                                    unsafe_allow_html=True,
+                                )
+                            else:
+                                st.markdown(
+                                    f"""
+                                    <div style="
+                                        background:{other_bg_color};
+                                        color:{other_text_color};
+                                        border:{other_border};
+                                        padding:10px 14px;
+                                        border-radius:18px;
+                                        border-bottom-left-radius:6px;
+                                        margin:6px auto 2px 0;
+                                        display:inline-block;
+                                        max-width:70%;
+                                        word-break:break-word;
+                                        overflow-wrap:break-word;
+                                        font-weight:{other_font_weight};
+                                    ">{bubble_html}</div>
+                                    """,
+                                    unsafe_allow_html=True,
+                                )
 
                             if attached_file_bytes is not None and attached_file_name:
                                 st.download_button(
