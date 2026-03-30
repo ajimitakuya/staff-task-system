@@ -13563,6 +13563,45 @@ def render_piecework_page():
 
         st.write(f"**備考**: {note if note else '-'}")
 
+        st.markdown("### 📥 実績入力")
+
+        row1 = st.columns(3)
+
+        with row1[0]:
+            defect_quantity = st.number_input(
+                "不良/欠品数",
+                min_value=0,
+                step=1,
+                key="defect_quantity"
+            )
+
+        with row1[1]:
+            final_delivery_quantity = st.number_input(
+                "最終納品数",
+                min_value=0,
+                step=1,
+                key="final_delivery_quantity"
+            )
+
+        with row1[2]:
+            income = st.number_input(
+                "収入（円）",
+                min_value=0,
+                step=1,
+                key="income"
+            )
+
+        if st.button("実績を登録", key="save_piecework_entry", width="stretch"):
+                save_piecework_entry(
+                    piecework_id=selected_piecework_id,
+                    defect_quantity=defect_quantity,
+                    final_delivery_quantity=final_delivery_quantity,
+                    income=income,
+                )
+
+        st.success("実績を登録しました")
+        st.rerun()
+
         st.divider()
         st.markdown("### 📅 表示年月")
 
@@ -13739,6 +13778,56 @@ def render_piecework_page():
                 st.dataframe(show_prod, width="stretch", height=250)
 
         st.info("次でここに『支出登録・売上登録・作成数登録』を追加していくある。")
+
+def save_piecework_entry(
+    piecework_id,
+    defect_quantity,
+    final_delivery_quantity,
+    income,
+):
+    import pandas as pd
+
+    cols = [
+        "company_id",
+        "entry_id",
+        "piecework_id",
+        "entry_date",
+        "defect_quantity",
+        "final_delivery_quantity",
+        "income",
+        "created_at",
+        "updated_at",
+        "is_deleted",
+    ]
+
+    df = get_piecework_entries_df()
+
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=cols)
+
+    for c in cols:
+        if c not in df.columns:
+            df[c] = ""
+
+    now = now_jst()
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+
+    new_row = pd.DataFrame([{
+        "company_id": str(st.session_state.get("company_id", "")),
+        "entry_id": f"PE{now.strftime('%Y%m%d%H%M%S')}",
+        "piecework_id": piecework_id,
+        "entry_date": now.strftime("%Y-%m-%d"),
+        "defect_quantity": defect_quantity,
+        "final_delivery_quantity": final_delivery_quantity,
+        "income": income,
+        "created_at": now_str,
+        "updated_at": now_str,
+        "is_deleted": "0",
+    }])
+
+    df = pd.concat([df, new_row], ignore_index=True)
+
+    save_db(df, "piecework_entries")
 
 def render_bulk_documents_page():
     st.title("🤫一括書類作成🤫")
