@@ -2138,7 +2138,7 @@ def render_break_room_page():
 
     st.divider()
 
-    cols = st.columns(4)
+    cols = st.columns(3)
 
     with cols[0]:
         st.markdown("## 🚪 チャットルーム")
@@ -2161,12 +2161,6 @@ def render_break_room_page():
             st.session_state.current_page = "休憩室_倉庫"
             st.rerun()
 
-    with cols[3]:
-        st.markdown("## 🚪 内職管理")
-        st.caption("内職案件の一覧・詳細確認ができます。")
-        if st.button("内職管理へ", key="go_piecework_page", use_container_width=True):
-            st.session_state.current_page = "内職管理"
-            st.rerun()
 
 def render_contact_page():
     st.title("📩 お問い合わせ")
@@ -5925,6 +5919,7 @@ main_page_options = [
     "⑧ 緊急一覧",
     "⑨ 利用者情報",
     "⑩ 書類アップロード",
+    "内職管理"
 ]
 
 document_page_options = [
@@ -14119,6 +14114,8 @@ elif page == "⑩ 書類アップロード":
     render_archive_page()
 elif page == "休憩室_倉庫":
     render_warehouse_page()
+elif page == "内職管理":
+    render_piecework_page()
 elif page == "スタッフ管理":
     if not st.session_state.get("is_admin", False):
         st.error("このページは管理者専用です。")
@@ -14132,5 +14129,4 @@ elif page == "お問い合わせ":
     render_contact_page()
 elif page == "書類_一括書類作成":
     render_bulk_documents_page()
-elif st.session_state.get("current_page") == "内職管理":
-    render_piecework_page()
+
