@@ -86,6 +86,7 @@ COMPANY_SCOPED_SHEETS = {
     "piecework_master",
     "piecework_entries",
     "piecework_production",
+    "piecework_clients",
 }
 
 def generate_with_gemini(prompt: str):
@@ -883,6 +884,19 @@ def load_db(file, retries=3, delay=0.8):
                         "unit",
                         "note",
                         "status",
+                        "created_at",
+                        "updated_at",
+                        "is_deleted",
+                    ],
+                    "piecework_clients": [
+                        "company_id",
+                        "client_id",
+                        "client_name",
+                        "client_address",
+                        "contact_1",
+                        "contact_person_1",
+                        "contact_2",
+                        "contact_person_2",
                         "created_at",
                         "updated_at",
                         "is_deleted",
@@ -13092,6 +13106,75 @@ def save_piecework_master(
     df = pd.concat([df, new_row], ignore_index=True)
     save_db(df, "piecework_master")
 
+def get_next_piecework_client_id():
+    df = get_piecework_clients_df()
+
+    if df is None or df.empty:
+        return "PC0001"
+
+    nums = []
+    for x in df["client_id"].fillna("").astype(str):
+        x = x.strip().upper()
+        if x.startswith("PC"):
+            num = x[2:]
+            if num.isdigit():
+                nums.append(int(num))
+
+    next_num = max(nums) + 1 if nums else 1
+    return f"PC{next_num:04d}"
+
+def save_piecework_client(
+    client_name,
+    client_address,
+    contact_1,
+    contact_person_1,
+    contact_2,
+    contact_person_2,
+):
+    import pandas as pd
+
+    cols = [
+        "company_id",
+        "client_id",
+        "client_name",
+        "client_address",
+        "contact_1",
+        "contact_person_1",
+        "contact_2",
+        "contact_person_2",
+        "created_at",
+        "updated_at",
+        "is_deleted",
+    ]
+
+    df = get_piecework_clients_df(company_id=None)
+
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=cols)
+
+    for c in cols:
+        if c not in df.columns:
+            df[c] = ""
+
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    new_row = pd.DataFrame([{
+        "company_id": str(st.session_state.get("company_id", "")).strip(),
+        "client_id": get_next_piecework_client_id(),
+        "client_name": str(client_name).strip(),
+        "client_address": str(client_address).strip(),
+        "contact_1": str(contact_1).strip(),
+        "contact_person_1": str(contact_person_1).strip(),
+        "contact_2": str(contact_2).strip(),
+        "contact_person_2": str(contact_person_2).strip(),
+        "created_at": now_str,
+        "updated_at": now_str,
+        "is_deleted": "0",
+    }])
+
+    df = pd.concat([df, new_row], ignore_index=True)
+    save_db(df, "piecework_clients")
+
 def get_piecework_clients_df(company_id=None):
     import pandas as pd
 
@@ -13209,7 +13292,20 @@ def render_piecework_page():
         with row2[1]:
             contact_person_2 = st.text_input("担当者", key="contact_person_2")
 
-
+            if st.button("企業を登録", key="save_piecework_client", width="stretch", type="secondary"):
+                if not str(client_name).strip():
+                    st.error("企業名を入れてください。")
+                else:
+                    save_piecework_client(
+                        client_name=client_name,
+                        client_address=client_address,
+                        contact_1=contact_1,
+                        contact_person_1=contact_person_1,
+                        contact_2=contact_2,
+                        contact_person_2=contact_person_2,
+                    )
+                    st.success("企業を登録しました。")
+                    st.rerun()
 
     with st.expander("＋ 内職を登録する"):
         row1 = st.columns([3, 2])
@@ -13257,7 +13353,7 @@ def render_piecework_page():
                 purchase_price=purchase_price,
                 defect_quantity=defect_quantity,
                 final_delivery_quantity=final_delivery_quantity,
-                income=income,
+                income=0,
                 unit="個",
                 note=note,
                 status="active",
