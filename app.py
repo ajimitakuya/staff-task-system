@@ -843,13 +843,9 @@ def load_db(file, retries=3, delay=0.8):
                         "entry_id",
                         "piecework_id",
                         "entry_date",
-                        "entry_type",
-                        "item_name",
-                        "quantity",
-                        "unit_price",
-                        "amount",
-                        "partner",
-                        "note",
+                        "defect_quantity",
+                        "final_delivery_quantity",
+                        "income",
                         "created_at",
                         "updated_at",
                         "is_deleted",
@@ -13320,46 +13316,39 @@ def render_piecework_page():
         with row2[1]:
             delivery_date = st.date_input("納品日", key="delivery_date")
 
-        row3 = st.columns(2)
+        row3 = st.columns(3)
         with row3[0]:
             quantity = st.number_input("数量", min_value=0, step=1, key="new_piecework_quantity")
         with row3[1]:
             unit_price = st.number_input("単価（円）", min_value=0, step=1, key="new_piecework_unit_price")
-
-        row4 = st.columns(3)
-        with row4[0]:
+        with row3[2]:
             purchase_price = st.number_input("購入価格（円）", min_value=0, step=1, key="purchase_price")
-        with row4[1]:
-            defect_quantity = st.number_input("不良/欠品数", min_value=0, step=1, key="defect_quantity")
-        with row4[2]:
-            final_delivery_quantity = st.number_input("最終納品数", min_value=0, step=1, key="final_delivery_quantity")
 
-    income = st.number_input("収入", min_value=0, step=1, key="income")
-    note = st.text_area("備考", key="new_piecework_note", height=80)
+        note = st.text_area("備考", key="new_piecework_note", height=80)
 
-    if st.button("内職を登録", key="save_new_piecework", width="stretch", type="secondary"):
-        if not str(new_piecework_name).strip():
-            st.error("内職名を入れてください。")
-        elif client_name_list == ["企業未登録"]:
-            st.error("先に企業を登録してください。")
-        else:
-            save_piecework_master(
-                piecework_name=new_piecework_name,
-                client_name=selected_client,
-                arrival_date=arrival_date,
-                delivery_date=delivery_date,
-                quantity=quantity,
-                unit_price=unit_price,
-                purchase_price=purchase_price,
-                defect_quantity=defect_quantity,
-                final_delivery_quantity=final_delivery_quantity,
-                income=0,
-                unit="個",
-                note=note,
-                status="active",
-            )
-            st.success("内職案件を登録しました。")
-            st.rerun()
+        if st.button("内職を登録", key="save_new_piecework", width="stretch", type="secondary"):
+            if not str(new_piecework_name).strip():
+                st.error("内職名を入れてください。")
+            elif client_name_list == ["企業未登録"]:
+                st.error("先に企業を登録してください。")
+            else:
+                save_piecework_master(
+                    piecework_name=new_piecework_name,
+                    client_name=selected_client,
+                    arrival_date=arrival_date,
+                    delivery_date=delivery_date,
+                    quantity=quantity,
+                    unit_price=unit_price,
+                    purchase_price=purchase_price,
+                    defect_quantity=0,
+                    final_delivery_quantity=0,
+                    income=0,
+                    unit="個",
+                    note=note,
+                    status="active",
+                )
+                st.success("内職案件を登録しました。")
+                st.rerun()
 
     filter_cols = st.columns([2, 1, 1])
 
@@ -13568,39 +13557,39 @@ def render_piecework_page():
         row1 = st.columns(3)
 
         with row1[0]:
-            defect_quantity = st.number_input(
+            defect_quantity_input = st.number_input(
                 "不良/欠品数",
                 min_value=0,
                 step=1,
-                key="defect_quantity"
+                key=f"detail_defect_quantity_{selected_piecework_id}"
             )
 
         with row1[1]:
-            final_delivery_quantity = st.number_input(
+            final_delivery_quantity_input = st.number_input(
                 "最終納品数",
                 min_value=0,
                 step=1,
-                key="final_delivery_quantity"
+                key=f"detail_final_delivery_quantity_{selected_piecework_id}"
             )
 
         with row1[2]:
-            income = st.number_input(
+            income_input = st.number_input(
                 "収入（円）",
                 min_value=0,
                 step=1,
-                key="income"
+                key=f"detail_income_{selected_piecework_id}"
             )
 
-        if st.button("実績を登録", key="save_piecework_entry", width="stretch"):
-                save_piecework_entry(
-                    piecework_id=selected_piecework_id,
-                    defect_quantity=defect_quantity,
-                    final_delivery_quantity=final_delivery_quantity,
-                    income=income,
-                )
+        if st.button("実績を登録", key=f"save_piecework_entry_{selected_piecework_id}", width="stretch"):
+            save_piecework_entry(
+                piecework_id=selected_piecework_id,
+                defect_quantity=defect_quantity_input,
+                final_delivery_quantity=final_delivery_quantity_input,
+                income=income_input,
+            )
+            st.success("実績を登録しました")
+            st.rerun()
 
-        st.success("実績を登録しました")
-        st.rerun()
 
         st.divider()
         st.markdown("### 📅 表示年月")
@@ -13704,30 +13693,28 @@ def render_piecework_page():
 
         # 数値化
         if not month_entries.empty:
-            month_entries["amount_num"] = pd.to_numeric(month_entries["amount"], errors="coerce").fillna(0)
+            month_entries["defect_quantity_num"] = pd.to_numeric(month_entries["defect_quantity"], errors="coerce").fillna(0)
+            month_entries["final_delivery_quantity_num"] = pd.to_numeric(month_entries["final_delivery_quantity"], errors="coerce").fillna(0)
+            month_entries["income_num"] = pd.to_numeric(month_entries["income"], errors="coerce").fillna(0)
 
-        if not month_production.empty:
-            month_production["quantity_num"] = pd.to_numeric(month_production["quantity"], errors="coerce").fillna(0)
-            month_production["defect_quantity_num"] = pd.to_numeric(month_production["defect_quantity"], errors="coerce").fillna(0)
-
-        expense_total = 0
+        defect_total = 0
+        final_delivery_total = 0
         sales_total = 0
 
         if not month_entries.empty:
-            expense_total = month_entries[
-                month_entries["entry_type"].astype(str).str.strip().str.lower() == "expense"
-            ]["amount_num"].sum()
-
-            sales_total = month_entries[
-                month_entries["entry_type"].astype(str).str.strip().str.lower() == "sales"
-            ]["amount_num"].sum()
+            defect_total = month_entries["defect_quantity_num"].sum()
+            final_delivery_total = month_entries["final_delivery_quantity_num"].sum()
+            sales_total = month_entries["income_num"].sum()
 
         production_total = 0
-        defect_total = 0
-
         if not month_production.empty:
             production_total = month_production["quantity_num"].sum()
-            defect_total = month_production["defect_quantity_num"].sum()
+
+        expense_total = 0
+        try:
+            expense_total = float(row.get("purchase_price", 0) or 0)
+        except Exception:
+            expense_total = 0
 
         profit_total = sales_total - expense_total
 
@@ -13748,6 +13735,7 @@ def render_piecework_page():
         with sum_cols[3]:
             st.metric("売上合計", f"¥{int(sales_total):,}")
 
+        st.metric("最終納品数", f"{int(final_delivery_total) if pd.notna(final_delivery_total) else 0}{unit if unit else ''}")
         st.metric("差引", f"¥{int(profit_total):,}")
 
         st.divider()
