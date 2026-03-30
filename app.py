@@ -83,6 +83,7 @@ COMPANY_SCOPED_SHEETS = {
     "staff_examples",
     "personal_rules",
     "assistant_plans",
+    "piecework_master",
 }
 
 def generate_with_gemini(prompt: str):
@@ -822,7 +823,18 @@ def load_db(file, retries=3, delay=0.8):
                         "message",
                         "status",
                         "created_at",
-                    ],                                  
+                    ],
+                    "piecework_master": [
+                        "company_id",
+                        "piecework_id",
+                        "piecework_name",
+                        "status",
+                        "unit",
+                        "note",
+                        "created_at",
+                        "updated_at",
+                        "is_deleted",
+                    ],                                                      
                 }
 
                 for col in expected_cols[file]:
@@ -2094,7 +2106,7 @@ def render_break_room_page():
 
     st.divider()
 
-    cols = st.columns(3)
+    cols = st.columns(4)
 
     with cols[0]:
         st.markdown("## 🚪 チャットルーム")
@@ -2115,6 +2127,13 @@ def render_break_room_page():
         st.caption("全事業所共通の資料置き場です。")
         if st.button("倉庫へ", key="go_warehouse_page", use_container_width=True):
             st.session_state.current_page = "休憩室_倉庫"
+            st.rerun()
+
+    with cols[3]:
+        st.markdown("## 🚪 内職管理")
+        st.caption("内職案件の一覧・詳細確認ができます。")
+        if st.button("内職管理へ", key="go_piecework_page", use_container_width=True):
+            st.session_state.current_page = "内職管理"
             st.rerun()
 
 def render_contact_page():
@@ -12792,6 +12811,289 @@ elif page == "⓪ 検索":
                 st.write(f"相談員: {consultant} / ケースワーカー: {caseworker}")
                 st.write(f"病院: {hospital} / 看護: {nurse} / 介護: {care}")
 
+def get_piecework_master_df(company_id=None):
+    import pandas as pd
+
+    if company_id is None:
+        company_id = str(st.session_state.get("company_id", "")).strip()
+
+    cols = [
+        "company_id",
+        "piecework_id",
+        "piecework_name",
+        "status",
+        "unit",
+        "note",
+        "created_at",
+        "updated_at",
+        "is_deleted",
+    ]
+
+    try:
+        df = load_db("piecework_master")
+
+        if df is None or df.empty:
+            return pd.DataFrame(columns=cols)
+
+        df = df.copy()
+
+        for c in cols:
+            if c not in df.columns:
+                df[c] = ""
+
+        df = df[cols].fillna("").copy()
+
+        if company_id:
+            df = df[
+                df["company_id"].astype(str).str.strip() == str(company_id).strip()
+            ].copy()
+
+        return df
+
+    except Exception:
+        return pd.DataFrame(columns=cols)
+
+def render_piecework_page():
+    import pandas as pd
+    import streamlit as st
+
+    st.title("内職管理")
+    st.caption("内職案件の一覧・検索・詳細確認ができます。")
+
+    df = get_piecework_master_df()
+
+    if df is None:
+        df = pd.DataFrame()
+
+    if "selected_piecework_id" not in st.session_state:
+        st.session_state.selected_piecework_id = ""
+
+    top_cols = st.columns([1, 1])
+
+    with top_cols[0]:
+        if st.button(
+            "← 戻る",
+            key="back_from_piecework",
+            width="stretch",
+            type="secondary",
+        ):
+            st.session_state.current_page = "休憩室"
+            st.rerun()
+
+    with top_cols[1]:
+        if st.button(
+            "選択中の内職を解除",
+            key="clear_selected_piecework",
+            width="stretch",
+            type="secondary",
+        ):
+            st.session_state.selected_piecework_id = ""
+            st.rerun()
+
+    st.divider()
+
+    filter_cols = st.columns([2, 1, 1])
+
+    with filter_cols[0]:
+        search_text = st.text_input(
+            "内職名検索",
+            key="piecework_search_text",
+            placeholder="内職名を入力",
+        )
+
+    with filter_cols[1]:
+        status_filter = st.selectbox(
+            "状態",
+            ["すべて", "進行中", "停止中", "終了"],
+            key="piecework_status_filter",
+        )
+
+    with filter_cols[2]:
+        sort_order = st.selectbox(
+            "並び順",
+            ["更新日が新しい順", "作成日が新しい順", "名前順"],
+            key="piecework_sort_order",
+        )
+
+    st.divider()
+
+    if df.empty:
+        st.info("まだ内職案件がありません。")
+        return
+
+    work = df.copy()
+
+    if "is_deleted" in work.columns:
+        work = work[
+            work["is_deleted"].astype(str).str.strip() != "1"
+        ].copy()
+
+    if "company_id" in work.columns:
+        current_company_id = str(st.session_state.get("company_id", "")).strip()
+        if current_company_id:
+            work = work[
+                work["company_id"].astype(str).str.strip() == current_company_id
+            ].copy()
+
+    for c in ["piecework_name", "status", "unit", "note", "piecework_id", "created_at", "updated_at"]:
+        if c not in work.columns:
+            work[c] = ""
+        work[c] = work[c].fillna("").astype(str)
+
+    if str(search_text).strip():
+        keyword = str(search_text).strip().lower()
+        work = work[
+            work["piecework_name"].str.lower().str.contains(keyword, na=False)
+        ].copy()
+
+    status_map = {
+        "進行中": "active",
+        "停止中": "stopped",
+        "終了": "closed",
+    }
+
+    if status_filter != "すべて":
+        target_status = status_map.get(status_filter, "")
+        work = work[
+            work["status"].astype(str).str.strip().str.lower() == target_status
+        ].copy()
+
+    try:
+        work["updated_at_dt"] = pd.to_datetime(work["updated_at"], errors="coerce")
+        work["created_at_dt"] = pd.to_datetime(work["created_at"], errors="coerce")
+    except Exception:
+        work["updated_at_dt"] = pd.NaT
+        work["created_at_dt"] = pd.NaT
+
+    if sort_order == "更新日が新しい順":
+        work = work.sort_values(["updated_at_dt"], ascending=[False], na_position="last")
+    elif sort_order == "作成日が新しい順":
+        work = work.sort_values(["created_at_dt"], ascending=[False], na_position="last")
+    else:
+        work = work.sort_values(["piecework_name"], ascending=[True], na_position="last")
+
+    if work.empty:
+        st.info("条件に一致する内職案件がありません。")
+        return
+
+    st.caption(f"件数: {len(work)}件")
+
+    cards = work.to_dict("records")
+    for i in range(0, len(cards), 2):
+        row_cols = st.columns(2)
+
+        for j in range(2):
+            idx = i + j
+            if idx >= len(cards):
+                continue
+
+            row = cards[idx]
+
+            piecework_id = str(row.get("piecework_id", "")).strip()
+            piecework_name = str(row.get("piecework_name", "")).strip() or "名称なし"
+            status_raw = str(row.get("status", "")).strip().lower()
+            unit = str(row.get("unit", "")).strip()
+            updated_at = str(row.get("updated_at", "")).strip()
+
+            is_selected = (
+                str(st.session_state.get("selected_piecework_id", "")).strip() == piecework_id
+            )
+
+            if status_raw == "active":
+                status_label = "進行中"
+                status_color = "#ECFDF5"
+            elif status_raw == "stopped":
+                status_label = "停止中"
+                status_color = "#FEFCE8"
+            elif status_raw == "closed":
+                status_label = "終了"
+                status_color = "#F3F4F6"
+            else:
+                status_label = "未設定"
+                status_color = "#F9FAFB"
+
+            with row_cols[j]:
+                st.markdown(
+                    f"""
+                    <div style="
+                        background:{status_color};
+                        border:1px solid #E5E7EB;
+                        border-radius:16px;
+                        padding:16px;
+                        margin-bottom:12px;
+                    ">
+                        <div style="font-size:20px; font-weight:700; margin-bottom:8px;">
+                            {piecework_name}{' ✓' if is_selected else ''}
+                        </div>
+                        <div style="font-size:13px; color:#6B7280; margin-bottom:4px;">
+                            状態：{status_label}
+                        </div>
+                        <div style="font-size:13px; color:#6B7280; margin-bottom:4px;">
+                            単位：{unit if unit else '-'}
+                        </div>
+                        <div style="font-size:13px; color:#6B7280; margin-bottom:4px;">
+                            最終更新日：{updated_at if updated_at else '-'}
+                        </div>
+                        <div style="font-size:12px; color:#9CA3AF;">
+                            ID：{piecework_id if piecework_id else '-'}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                if st.button(
+                    "詳細を見る",
+                    key=f"piecework_detail_{piecework_id}",
+                    width="stretch",
+                    type="primary" if is_selected else "secondary",
+                ):
+                    st.session_state.selected_piecework_id = piecework_id
+                    st.rerun()
+
+    selected_piecework_id = str(st.session_state.get("selected_piecework_id", "")).strip()
+
+    if selected_piecework_id:
+        st.divider()
+        st.markdown("## 内職詳細")
+
+        selected_df = work[
+            work["piecework_id"].astype(str).str.strip() == selected_piecework_id
+        ].copy()
+
+        if selected_df.empty:
+            st.warning("選択中の内職案件が見つかりません。")
+            return
+
+        row = selected_df.iloc[0]
+
+        piecework_name = str(row.get("piecework_name", "")).strip()
+        status_raw = str(row.get("status", "")).strip().lower()
+        unit = str(row.get("unit", "")).strip()
+        note = str(row.get("note", "")).strip()
+
+        if status_raw == "active":
+            status_label = "進行中"
+        elif status_raw == "stopped":
+            status_label = "停止中"
+        elif status_raw == "closed":
+            status_label = "終了"
+        else:
+            status_label = "未設定"
+
+        st.markdown(f"### {piecework_name if piecework_name else '名称なし'}")
+        st.caption(f"状態: {status_label}")
+
+        info_cols = st.columns(2)
+        with info_cols[0]:
+            st.write(f"**単位**: {unit if unit else '-'}")
+        with info_cols[1]:
+            st.write(f"**ID**: {selected_piecework_id}")
+
+        st.write(f"**備考**: {note if note else '-'}")
+
+        st.info("ここに次で『年月選択・支出/売上/作成数・出納帳』を追加していくある。")
+
 def render_bulk_documents_page():
     st.title("🤫一括書類作成🤫")
     st.caption("個別支援計画案・サービス担当者会議・個別支援計画をまとめて作成するページです。")
@@ -13529,3 +13831,5 @@ elif page == "お問い合わせ":
     render_contact_page()
 elif page == "書類_一括書類作成":
     render_bulk_documents_page()
+elif st.session_state.get("current_page") == "内職管理":
+    render_piecework_page()
