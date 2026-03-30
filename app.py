@@ -858,8 +858,6 @@ def load_db(file, retries=3, delay=0.8):
                         "user_id",
                         "user_name",
                         "quantity",
-                        "defect_quantity",
-                        "note",
                         "created_at",
                         "updated_at",
                         "is_deleted",
@@ -12967,6 +12965,50 @@ def get_piecework_entries_df(company_id=None):
     except Exception:
         return pd.DataFrame(columns=cols)
 
+def save_piecework_production(piecework_id, user_id, user_name, quantity):
+    import pandas as pd
+
+    cols = [
+        "company_id",
+        "production_id",
+        "piecework_id",
+        "work_date",
+        "user_id",
+        "user_name",
+        "quantity",
+        "created_at",
+        "updated_at",
+        "is_deleted",
+    ]
+
+    df = get_piecework_production_df()
+
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=cols)
+
+    for c in cols:
+        if c not in df.columns:
+            df[c] = ""
+
+    now = now_jst()
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+
+    new_row = pd.DataFrame([{
+        "company_id": str(st.session_state.get("company_id", "")).strip(),
+        "production_id": f"PR{now.strftime('%Y%m%d%H%M%S%f')}",
+        "piecework_id": str(piecework_id).strip(),
+        "work_date": now.strftime("%Y-%m-%d"),
+        "user_id": str(user_id).strip(),
+        "user_name": str(user_name).strip(),
+        "quantity": int(quantity),
+        "created_at": now_str,
+        "updated_at": now_str,
+        "is_deleted": "0",
+    }])
+
+    df = pd.concat([df, new_row], ignore_index=True)
+    save_db(df, "piecework_production")
+
 def get_piecework_production_df(company_id=None):
     import pandas as pd
 
@@ -12981,8 +13023,6 @@ def get_piecework_production_df(company_id=None):
         "user_id",
         "user_name",
         "quantity",
-        "defect_quantity",
-        "note",
         "created_at",
         "updated_at",
         "is_deleted",
@@ -13554,6 +13594,78 @@ def render_piecework_page():
 
         st.markdown("### 📥 実績入力")
 
+        st.markdown("### 👤 利用者ごとの作成数登録")
+
+        resident_df = get_resident_master_df()
+        if resident_df is None:
+            resident_df = pd.DataFrame()
+
+        resident_options = []
+        resident_map = {}
+
+        if not resident_df.empty:
+            if "company_id" in resident_df.columns:
+                resident_df = resident_df[
+                    resident_df["company_id"].astype(str).str.strip() == str(st.session_state.get("company_id", "")).strip()
+                ].copy()
+
+            if "status" in resident_df.columns:
+                resident_df = resident_df[
+                    resident_df["status"].astype(str).str.strip() != "退所"
+                ].copy()
+
+            for _, r in resident_df.iterrows():
+                rid = str(r.get("resident_id", "")).strip()
+                rname = str(r.get("resident_name", "")).strip()
+                if rid and rname:
+                    label = f"{rname}（{rid}）"
+                    resident_options.append(label)
+                    resident_map[label] = {
+                        "resident_id": rid,
+                        "resident_name": rname,
+                    }
+
+        prod_cols = st.columns([1, 1, 1])
+
+        with prod_cols[0]:
+            st.text_input(
+                "内職名",
+                value=piecework_name if piecework_name else "",
+                key=f"production_piecework_name_{selected_piecework_id}",
+                disabled=True,
+            )
+
+        with prod_cols[1]:
+            selected_resident_label = st.selectbox(
+                "利用者",
+                resident_options if resident_options else ["利用者未登録"],
+                key=f"production_resident_{selected_piecework_id}",
+            )
+
+        with prod_cols[2]:
+            production_quantity_input = st.number_input(
+                "数量",
+                min_value=0,
+                step=1,
+                key=f"production_quantity_{selected_piecework_id}",
+            )
+
+        if st.button("登録", key=f"save_piecework_production_{selected_piecework_id}", width="stretch"):
+            if not resident_options:
+                st.error("利用者が登録されていません。")
+            elif production_quantity_input <= 0:
+                st.error("数量を入れてください。")
+            else:
+                picked = resident_map.get(selected_resident_label, {})
+                save_piecework_production(
+                    piecework_id=selected_piecework_id,
+                    user_id=picked.get("resident_id", ""),
+                    user_name=picked.get("resident_name", ""),
+                    quantity=production_quantity_input,
+                )
+                st.success("作成数を登録しました。")
+                st.rerun()
+
         row1 = st.columns(3)
 
         with row1[0]:
@@ -13737,6 +13849,37 @@ def render_piecework_page():
 
         st.metric("最終納品数", f"{int(final_delivery_total) if pd.notna(final_delivery_total) else 0}{unit if unit else ''}")
         st.metric("差引", f"¥{int(profit_total):,}")
+
+        st.divider()
+        st.markdown("### 📋 利用者ごとの作成記録")
+
+        if month_production.empty:
+            st.info("この月の利用者別作成記録はありません。")
+        else:
+            show_user_prod = month_production.copy()
+
+            show_user_prod["quantity_num"] = pd.to_numeric(
+                show_user_prod["quantity"], errors="coerce"
+            ).fillna(0)
+
+            unit_price_val = 0
+            try:
+                unit_price_val = float(row.get("unit_price", 0) or 0)
+            except Exception:
+                unit_price_val = 0
+
+            show_user_prod["amount"] = (show_user_prod["quantity_num"] * unit_price_val).astype(int)
+
+            show_user_prod = show_user_prod[[
+                "work_date",
+                "user_name",
+                "quantity",
+                "amount",
+            ]].copy()
+
+            show_user_prod.columns = ["日付", "利用者名", "数量", "金額"]
+
+            st.dataframe(show_user_prod, width="stretch", height=220)
 
         st.divider()
         st.markdown("### 履歴プレビュー")
