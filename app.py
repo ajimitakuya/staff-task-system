@@ -2255,7 +2255,7 @@ def render_chat_room_page():
             "ルームパスワード（制限ルーム用）",
             key="new_room_password",
         )
-        room_description = st.text_area("説明", key="new_room_description", height=80)
+        room_description = st.text_area("説明", key="new_room_description", height=45)
 
         if st.button(
             "ルームを作成",
