@@ -84,6 +84,8 @@ COMPANY_SCOPED_SHEETS = {
     "personal_rules",
     "assistant_plans",
     "piecework_master",
+    "piecework_entries",
+    "piecework_production",
 }
 
 def generate_with_gemini(prompt: str):
@@ -834,7 +836,37 @@ def load_db(file, retries=3, delay=0.8):
                         "created_at",
                         "updated_at",
                         "is_deleted",
-                    ],                                                      
+                    ],
+                    "piecework_entries": [
+                        "company_id",
+                        "entry_id",
+                        "piecework_id",
+                        "entry_date",
+                        "entry_type",
+                        "item_name",
+                        "quantity",
+                        "unit_price",
+                        "amount",
+                        "partner",
+                        "note",
+                        "created_at",
+                        "updated_at",
+                        "is_deleted",
+                    ],
+                    "piecework_production": [
+                        "company_id",
+                        "production_id",
+                        "piecework_id",
+                        "work_date",
+                        "user_id",
+                        "user_name",
+                        "quantity",
+                        "defect_quantity",
+                        "note",
+                        "created_at",
+                        "updated_at",
+                        "is_deleted",
+                    ],                                                 
                 }
 
                 for col in expected_cols[file]:
@@ -12853,6 +12885,98 @@ def get_piecework_master_df(company_id=None):
     except Exception:
         return pd.DataFrame(columns=cols)
 
+def get_piecework_entries_df(company_id=None):
+    import pandas as pd
+
+    if company_id is None:
+        company_id = str(st.session_state.get("company_id", "")).strip()
+
+    cols = [
+        "company_id",
+        "entry_id",
+        "piecework_id",
+        "entry_date",
+        "entry_type",
+        "item_name",
+        "quantity",
+        "unit_price",
+        "amount",
+        "partner",
+        "note",
+        "created_at",
+        "updated_at",
+        "is_deleted",
+    ]
+
+    try:
+        df = load_db("piecework_entries")
+
+        if df is None or df.empty:
+            return pd.DataFrame(columns=cols)
+
+        df = df.copy()
+
+        for c in cols:
+            if c not in df.columns:
+                df[c] = ""
+
+        df = df[cols].fillna("").copy()
+
+        if company_id:
+            df = df[
+                df["company_id"].astype(str).str.strip() == str(company_id).strip()
+            ].copy()
+
+        return df
+
+    except Exception:
+        return pd.DataFrame(columns=cols)
+
+def get_piecework_production_df(company_id=None):
+    import pandas as pd
+
+    if company_id is None:
+        company_id = str(st.session_state.get("company_id", "")).strip()
+
+    cols = [
+        "company_id",
+        "production_id",
+        "piecework_id",
+        "work_date",
+        "user_id",
+        "user_name",
+        "quantity",
+        "defect_quantity",
+        "note",
+        "created_at",
+        "updated_at",
+        "is_deleted",
+    ]
+
+    try:
+        df = load_db("piecework_production")
+
+        if df is None or df.empty:
+            return pd.DataFrame(columns=cols)
+
+        df = df.copy()
+
+        for c in cols:
+            if c not in df.columns:
+                df[c] = ""
+
+        df = df[cols].fillna("").copy()
+
+        if company_id:
+            df = df[
+                df["company_id"].astype(str).str.strip() == str(company_id).strip()
+            ].copy()
+
+        return df
+
+    except Exception:
+        return pd.DataFrame(columns=cols)
+
 def render_piecework_page():
     import pandas as pd
     import streamlit as st
@@ -13084,15 +13208,192 @@ def render_piecework_page():
         st.markdown(f"### {piecework_name if piecework_name else '名称なし'}")
         st.caption(f"状態: {status_label}")
 
-        info_cols = st.columns(2)
+        info_cols = st.columns(3)
         with info_cols[0]:
             st.write(f"**単位**: {unit if unit else '-'}")
         with info_cols[1]:
             st.write(f"**ID**: {selected_piecework_id}")
+        with info_cols[2]:
+            st.write(f"**状態**: {status_label}")
 
         st.write(f"**備考**: {note if note else '-'}")
 
-        st.info("ここに次で『年月選択・支出/売上/作成数・出納帳』を追加していくある。")
+        st.divider()
+        st.markdown("### 📅 表示年月")
+
+        now_dt = datetime.now()
+        year_key = f"piecework_year_{selected_piecework_id}"
+        month_key = f"piecework_month_{selected_piecework_id}"
+
+        if year_key not in st.session_state:
+            st.session_state[year_key] = now_dt.year
+        if month_key not in st.session_state:
+            st.session_state[month_key] = now_dt.month
+
+        ym_cols = st.columns([1, 1, 1])
+
+        with ym_cols[0]:
+            selected_year = st.number_input(
+                "年",
+                min_value=2020,
+                max_value=2100,
+                value=int(st.session_state[year_key]),
+                step=1,
+                key=f"{year_key}_input",
+            )
+
+        with ym_cols[1]:
+            selected_month = st.number_input(
+                "月",
+                min_value=1,
+                max_value=12,
+                value=int(st.session_state[month_key]),
+                step=1,
+                key=f"{month_key}_input",
+            )
+
+        with ym_cols[2]:
+            st.write("")
+            st.write("")
+            if st.button(
+                "表示",
+                key=f"apply_piecework_ym_{selected_piecework_id}",
+                width="stretch",
+                type="secondary",
+            ):
+                st.session_state[year_key] = int(selected_year)
+                st.session_state[month_key] = int(selected_month)
+                st.rerun()
+
+        view_year = int(st.session_state[year_key])
+        view_month = int(st.session_state[month_key])
+
+        st.caption(f"現在表示：{view_year}年 {view_month}月")
+
+        entries_df = get_piecework_entries_df()
+        production_df = get_piecework_production_df()
+
+        if entries_df is None:
+            entries_df = pd.DataFrame()
+        if production_df is None:
+            production_df = pd.DataFrame()
+
+        month_entries = pd.DataFrame()
+        if not entries_df.empty:
+            month_entries = entries_df[
+                entries_df["piecework_id"].astype(str).str.strip() == selected_piecework_id
+            ].copy()
+
+            if "is_deleted" in month_entries.columns:
+                month_entries = month_entries[
+                    month_entries["is_deleted"].astype(str).str.strip() != "1"
+                ].copy()
+
+            month_entries["entry_date_dt"] = pd.to_datetime(
+                month_entries["entry_date"], errors="coerce"
+            )
+
+            month_entries = month_entries[
+                (month_entries["entry_date_dt"].dt.year == view_year) &
+                (month_entries["entry_date_dt"].dt.month == view_month)
+            ].copy()
+
+        month_production = pd.DataFrame()
+        if not production_df.empty:
+            month_production = production_df[
+                production_df["piecework_id"].astype(str).str.strip() == selected_piecework_id
+            ].copy()
+
+            if "is_deleted" in month_production.columns:
+                month_production = month_production[
+                    month_production["is_deleted"].astype(str).str.strip() != "1"
+                ].copy()
+
+            month_production["work_date_dt"] = pd.to_datetime(
+                month_production["work_date"], errors="coerce"
+            )
+
+            month_production = month_production[
+                (month_production["work_date_dt"].dt.year == view_year) &
+                (month_production["work_date_dt"].dt.month == view_month)
+            ].copy()
+
+        # 数値化
+        if not month_entries.empty:
+            month_entries["amount_num"] = pd.to_numeric(month_entries["amount"], errors="coerce").fillna(0)
+
+        if not month_production.empty:
+            month_production["quantity_num"] = pd.to_numeric(month_production["quantity"], errors="coerce").fillna(0)
+            month_production["defect_quantity_num"] = pd.to_numeric(month_production["defect_quantity"], errors="coerce").fillna(0)
+
+        expense_total = 0
+        sales_total = 0
+
+        if not month_entries.empty:
+            expense_total = month_entries[
+                month_entries["entry_type"].astype(str).str.strip().str.lower() == "expense"
+            ]["amount_num"].sum()
+
+            sales_total = month_entries[
+                month_entries["entry_type"].astype(str).str.strip().str.lower() == "sales"
+            ]["amount_num"].sum()
+
+        production_total = 0
+        defect_total = 0
+
+        if not month_production.empty:
+            production_total = month_production["quantity_num"].sum()
+            defect_total = month_production["defect_quantity_num"].sum()
+
+        profit_total = sales_total - expense_total
+
+        st.divider()
+        st.markdown("### 📊 月間サマリー")
+
+        sum_cols = st.columns(4)
+
+        with sum_cols[0]:
+            st.metric("作成数", f"{int(production_total) if pd.notna(production_total) else 0}{unit if unit else ''}")
+
+        with sum_cols[1]:
+            st.metric("不良数", f"{int(defect_total) if pd.notna(defect_total) else 0}{unit if unit else ''}")
+
+        with sum_cols[2]:
+            st.metric("支出合計", f"¥{int(expense_total):,}")
+
+        with sum_cols[3]:
+            st.metric("売上合計", f"¥{int(sales_total):,}")
+
+        st.metric("差引", f"¥{int(profit_total):,}")
+
+        st.divider()
+        st.markdown("### 履歴プレビュー")
+
+        prev_cols = st.columns(2)
+
+        with prev_cols[0]:
+            st.markdown("#### 入出金")
+            if month_entries.empty:
+                st.info("この月の入出金記録はありません。")
+            else:
+                show_entries = month_entries.copy()
+                show_entries = show_entries[[
+                    "entry_date", "entry_type", "item_name", "quantity", "unit_price", "amount", "partner", "note"
+                ]].copy()
+                st.dataframe(show_entries, width="stretch", height=250)
+
+        with prev_cols[1]:
+            st.markdown("#### 作成記録")
+            if month_production.empty:
+                st.info("この月の作成記録はありません。")
+            else:
+                show_prod = month_production.copy()
+                show_prod = show_prod[[
+                    "work_date", "user_name", "quantity", "defect_quantity", "note"
+                ]].copy()
+                st.dataframe(show_prod, width="stretch", height=250)
+
+        st.info("次でここに『支出登録・売上登録・作成数登録』を追加していくある。")
 
 def render_bulk_documents_page():
     st.title("🤫一括書類作成🤫")
