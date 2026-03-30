@@ -866,6 +866,26 @@ def load_db(file, retries=3, delay=0.8):
                         "created_at",
                         "updated_at",
                         "is_deleted",
+                    ],
+                    "piecework_master": [
+                        "company_id",
+                        "piecework_id",
+                        "piecework_name",
+                        "client_name",
+                        "arrival_date",
+                        "delivery_date",
+                        "quantity",
+                        "unit_price",
+                        "purchase_price",
+                        "defect_quantity",
+                        "final_delivery_quantity",
+                        "income",
+                        "unit",
+                        "note",
+                        "status",
+                        "created_at",
+                        "updated_at",
+                        "is_deleted",
                     ],                                                 
                 }
 
@@ -12849,9 +12869,18 @@ def get_piecework_master_df(company_id=None):
         "company_id",
         "piecework_id",
         "piecework_name",
-        "status",
+        "client_name",
+        "arrival_date",
+        "delivery_date",
+        "quantity",
+        "unit_price",
+        "purchase_price",
+        "defect_quantity",
+        "final_delivery_quantity",
+        "income",
         "unit",
         "note",
+        "status",
         "created_at",
         "updated_at",
         "is_deleted",
@@ -12990,21 +13019,52 @@ def get_next_piecework_id():
     next_num = max(nums) + 1 if nums else 1
     return f"PW{next_num:04d}"
 
-def save_piecework_master(piecework_name, status, unit, note):
+def save_piecework_master(
+    piecework_name,
+    client_name,
+    arrival_date,
+    delivery_date,
+    quantity,
+    unit_price,
+    purchase_price,
+    defect_quantity,
+    final_delivery_quantity,
+    income,
+    unit,
+    note,
+    status="active",
+):
+    import pandas as pd
+
     df = get_piecework_master_df(company_id=None)
 
+    cols = [
+        "company_id",
+        "piecework_id",
+        "piecework_name",
+        "client_name",
+        "arrival_date",
+        "delivery_date",
+        "quantity",
+        "unit_price",
+        "purchase_price",
+        "defect_quantity",
+        "final_delivery_quantity",
+        "income",
+        "unit",
+        "note",
+        "status",
+        "created_at",
+        "updated_at",
+        "is_deleted",
+    ]
+
     if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "company_id",
-            "piecework_id",
-            "piecework_name",
-            "status",
-            "unit",
-            "note",
-            "created_at",
-            "updated_at",
-            "is_deleted",
-        ])
+        df = pd.DataFrame(columns=cols)
+
+    for c in cols:
+        if c not in df.columns:
+            df[c] = ""
 
     now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -13012,9 +13072,18 @@ def save_piecework_master(piecework_name, status, unit, note):
         "company_id": str(st.session_state.get("company_id", "")).strip(),
         "piecework_id": get_next_piecework_id(),
         "piecework_name": str(piecework_name).strip(),
-        "status": str(status).strip(),
+        "client_name": str(client_name).strip(),
+        "arrival_date": str(arrival_date).strip(),
+        "delivery_date": str(delivery_date).strip(),
+        "quantity": str(quantity).strip(),
+        "unit_price": str(unit_price).strip(),
+        "purchase_price": str(purchase_price).strip(),
+        "defect_quantity": str(defect_quantity).strip(),
+        "final_delivery_quantity": str(final_delivery_quantity).strip(),
+        "income": str(income).strip(),
         "unit": str(unit).strip(),
         "note": str(note).strip(),
+        "status": str(status).strip(),
         "created_at": now_str,
         "updated_at": now_str,
         "is_deleted": "0",
@@ -13022,6 +13091,50 @@ def save_piecework_master(piecework_name, status, unit, note):
 
     df = pd.concat([df, new_row], ignore_index=True)
     save_db(df, "piecework_master")
+
+def get_piecework_clients_df(company_id=None):
+    import pandas as pd
+
+    if company_id is None:
+        company_id = str(st.session_state.get("company_id", "")).strip()
+
+    cols = [
+        "company_id",
+        "client_id",
+        "client_name",
+        "client_address",
+        "contact_1",
+        "contact_person_1",
+        "contact_2",
+        "contact_person_2",
+        "created_at",
+        "updated_at",
+        "is_deleted",
+    ]
+
+    try:
+        df = load_db("piecework_clients")
+
+        if df is None or df.empty:
+            return pd.DataFrame(columns=cols)
+
+        df = df.copy()
+
+        for c in cols:
+            if c not in df.columns:
+                df[c] = ""
+
+        df = df[cols].fillna("").copy()
+
+        if company_id:
+            df = df[
+                df["company_id"].astype(str).str.strip() == str(company_id).strip()
+            ].copy()
+
+        return df
+
+    except Exception:
+        return pd.DataFrame(columns=cols)
 
 def render_piecework_page():
     import pandas as pd
@@ -13031,6 +13144,24 @@ def render_piecework_page():
     st.caption("内職案件の一覧・検索・詳細確認ができます。")
 
     df = get_piecework_master_df()
+
+    clients_df = get_piecework_clients_df()
+
+    if clients_df is None:
+        clients_df = pd.DataFrame()
+
+    if not clients_df.empty:
+        clients_df = clients_df[
+            clients_df["is_deleted"].astype(str).str.strip() != "1"
+        ].copy()
+
+        client_name_list = clients_df["client_name"].fillna("").astype(str).str.strip().tolist()
+        client_name_list = [x for x in client_name_list if x]
+    else:
+        client_name_list = []
+
+    if not client_name_list:
+        client_name_list = ["企業未登録"]
 
     if df is None:
         df = pd.DataFrame()
@@ -13062,33 +13193,77 @@ def render_piecework_page():
 
     st.divider()
 
-    with st.expander("＋ 内職を登録する"):
-        new_piecework_name = st.text_input("内職名", key="new_piecework_name")
-        new_piecework_status = st.selectbox(
-            "状態",
-            ["active", "stopped", "closed"],
-            format_func=lambda x: {
-                "active": "進行中",
-                "stopped": "停止中",
-                "closed": "終了",
-            }.get(x, x),
-            key="new_piecework_status",
-        )
-        new_piecework_unit = st.text_input("単位", key="new_piecework_unit", placeholder="例：個、袋、セット")
-        new_piecework_note = st.text_area("備考", key="new_piecework_note", height=80)
+    with st.expander("＋ 企業を登録する"):
+        client_name = st.text_input("企業名", key="client_name")
+        client_address = st.text_input("住所", key="client_address")
 
-        if st.button("内職を登録", key="save_new_piecework", width="stretch", type="secondary"):
-            if not str(new_piecework_name).strip():
-                st.error("内職名を入れてください。")
-            else:
-                save_piecework_master(
-                    piecework_name=new_piecework_name,
-                    status=new_piecework_status,
-                    unit=new_piecework_unit,
-                    note=new_piecework_note,
-                )
-                st.success("内職案件を登録しました。")
-                st.rerun()
+        row1 = st.columns(2)
+        with row1[0]:
+            contact_1 = st.text_input("連絡先(1)", key="contact_1")
+        with row1[1]:
+            contact_person_1 = st.text_input("担当者", key="contact_person_1")
+
+        row2 = st.columns(2)
+        with row2[0]:
+            contact_2 = st.text_input("連絡先(2)", key="contact_2")
+        with row2[1]:
+            contact_person_2 = st.text_input("担当者", key="contact_person_2")
+
+
+
+    with st.expander("＋ 内職を登録する"):
+        row1 = st.columns([3, 2])
+        with row1[0]:
+            new_piecework_name = st.text_input("内職名", key="new_piecework_name")
+        with row1[1]:
+            selected_client = st.selectbox("企業名", client_name_list, key="selected_client")
+
+        row2 = st.columns(2)
+        with row2[0]:
+            arrival_date = st.date_input("納入日", key="arrival_date")
+        with row2[1]:
+            delivery_date = st.date_input("納品日", key="delivery_date")
+
+        row3 = st.columns(2)
+        with row3[0]:
+            quantity = st.number_input("数量", min_value=0, step=1, key="new_piecework_quantity")
+        with row3[1]:
+            unit_price = st.number_input("単価（円）", min_value=0, step=1, key="new_piecework_unit_price")
+
+        row4 = st.columns(3)
+        with row4[0]:
+            purchase_price = st.number_input("購入価格（円）", min_value=0, step=1, key="purchase_price")
+        with row4[1]:
+            defect_quantity = st.number_input("不良/欠品数", min_value=0, step=1, key="defect_quantity")
+        with row4[2]:
+            final_delivery_quantity = st.number_input("最終納品数", min_value=0, step=1, key="final_delivery_quantity")
+
+    income = st.number_input("収入", min_value=0, step=1, key="income")
+    note = st.text_area("備考", key="new_piecework_note", height=80)
+
+    if st.button("内職を登録", key="save_new_piecework", width="stretch", type="secondary"):
+        if not str(new_piecework_name).strip():
+            st.error("内職名を入れてください。")
+        elif client_name_list == ["企業未登録"]:
+            st.error("先に企業を登録してください。")
+        else:
+            save_piecework_master(
+                piecework_name=new_piecework_name,
+                client_name=selected_client,
+                arrival_date=arrival_date,
+                delivery_date=delivery_date,
+                quantity=quantity,
+                unit_price=unit_price,
+                purchase_price=purchase_price,
+                defect_quantity=defect_quantity,
+                final_delivery_quantity=final_delivery_quantity,
+                income=income,
+                unit="個",
+                note=note,
+                status="active",
+            )
+            st.success("内職案件を登録しました。")
+            st.rerun()
 
     filter_cols = st.columns([2, 1, 1])
 
