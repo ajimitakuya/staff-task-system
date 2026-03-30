@@ -2552,37 +2552,15 @@ def render_chat_room_page():
 
                     if is_me:
                         with right_msg_col:
-                            my_bg_color = "#95EC69"
-                            my_text_color = "#111827"
-                            my_font_weight = "normal"
+                            should_show_bubble = not is_file_only and bool(str(bubble_text).strip())
 
-                            if is_file_only:
+                            if should_show_bubble:
                                 my_bg_color = "#95EC69"
-                                my_text_color = "#E11D48"
-                                my_font_weight = "bold"
+                                my_text_color = "#111827"
+                                my_font_weight = "normal"
 
                                 st.markdown(
-                                    f"""
-                                    <div style="
-                                        background:{my_bg_color};
-                                        color:{my_text_color};
-                                        padding:10px 14px;
-                                        border-radius:18px;
-                                        border-bottom-right-radius:6px;
-                                        margin:6px 0 2px auto;
-                                        display:inline-block;
-                                        max-width:70%;
-                                        word-break:break-word;
-                                        overflow-wrap:break-word;
-                                        font-weight:{my_font_weight};
-                                    ">＜添付ファイルを送信しました＞</div>
-                                    """,
-                                    unsafe_allow_html=True,
-                                )
-                            else:
-                                st.markdown(
-                                    f"""
-                                    <div style="
+                                    f"""<div style="
                                         background:{my_bg_color};
                                         color:{my_text_color};
                                         padding:10px 14px;
@@ -2627,20 +2605,16 @@ def render_chat_room_page():
                             if display_name:
                                 st.caption(display_name)
 
-                            other_bg_color = "#FFFFFF"
-                            other_text_color = "#111827"
-                            other_font_weight = "normal"
-                            other_border = "1px solid #DADADA"
+                            should_show_bubble = not is_file_only and bool(str(bubble_text).strip())
 
-                            if is_file_only:
-                                other_bg_color = "#95EC69"
-                                other_text_color = "#E11D48"
-                                other_font_weight = "bold"
-                                other_border = "none"
+                            if should_show_bubble:
+                                other_bg_color = "#FFFFFF"
+                                other_text_color = "#111827"
+                                other_font_weight = "normal"
+                                other_border = "1px solid #DADADA"
 
                                 st.markdown(
-                                    f"""
-                                    <div style="
+                                    f"""<div style="
                                         background:{other_bg_color};
                                         color:{other_text_color};
                                         border:{other_border};
@@ -2653,9 +2627,32 @@ def render_chat_room_page():
                                         word-break:break-word;
                                         overflow-wrap:break-word;
                                         font-weight:{other_font_weight};
-                                    ">＜添付ファイルを送信しました＞</div>
+                                    ">{bubble_html}</div>
                                     """,
                                     unsafe_allow_html=True,
+                                )
+
+                            if attached_file_bytes is not None and attached_file_name:
+                                st.download_button(
+                                    label=f"📎 {attached_file_name}",
+                                    data=attached_file_bytes,
+                                    file_name=attached_file_name,
+                                    mime=attached_file_mime,
+                                    key=f"chat_download_other_{msg.get('message_id', '')}",
+                                    use_container_width=False,
+                                )
+
+                            if time_text:
+                                st.markdown(
+                                    f"""<div style="
+                                        font-size:11px;
+                                        color:#777;
+                                        text-align:left;
+                                        margin-top:2px;
+                                    ">
+                                        {time_text}
+                                    </div>""",
+                                    unsafe_allow_html=True
                                 )
                             else:
                                 st.markdown(
