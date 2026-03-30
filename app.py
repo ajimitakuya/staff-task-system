@@ -2418,14 +2418,6 @@ def render_chat_room_page():
 
         st.divider()
 
-        text_key = f"chat_post_text_{selected_room_id}"
-        uploader_nonce_key = f"chat_attach_nonce_{selected_room_id}"
-
-        if uploader_nonce_key not in st.session_state:
-            st.session_state[uploader_nonce_key] = 0
-
-        uploader_key = f"chat_attach_{selected_room_id}_{st.session_state[uploader_nonce_key]}"
-
         text_nonce_key = f"chat_text_nonce_{selected_room_id}"
         uploader_nonce_key = f"chat_attach_nonce_{selected_room_id}"
 
@@ -2438,6 +2430,258 @@ def render_chat_room_page():
         text_key = f"chat_post_text_{selected_room_id}_{st.session_state[text_nonce_key]}"
         uploader_key = f"chat_attach_{selected_room_id}_{st.session_state[uploader_nonce_key]}"
 
+        room_msgs = msgs_df.copy()
+        if not room_msgs.empty:
+            room_msgs = room_msgs[
+                room_msgs["room_id"].astype(str).str.strip() == selected_room_id
+            ].copy()
+
+            if "is_deleted" in room_msgs.columns:
+                room_msgs = room_msgs[
+                    room_msgs["is_deleted"].astype(str).str.strip() != "1"
+                ].copy()
+
+            try:
+                room_msgs = room_msgs.copy()
+
+                room_msgs["created_at_dt"] = pd.to_datetime(
+                    room_msgs["created_at"].astype(str).str.strip(),
+                    errors="coerce"
+                )
+
+                if "message_id" in room_msgs.columns:
+                    room_msgs["message_id_num"] = (
+                        room_msgs["message_id"]
+                        .astype(str)
+                        .str.replace("M", "", regex=False)
+                        .str.strip()
+                    )
+                    room_msgs["message_id_num"] = pd.to_numeric(
+                        room_msgs["message_id_num"],
+                        errors="coerce"
+                    )
+
+                    room_msgs = room_msgs.sort_values(
+                        ["created_at_dt", "message_id_num"],
+                        ascending=[True, True]
+                    )
+                else:
+                    room_msgs = room_msgs.sort_values(
+                        ["created_at_dt"],
+                        ascending=[True]
+                    )
+            except Exception:
+                pass
+
+        # -----------------------------
+        # 上：投稿一覧
+        # -----------------------------
+        st.markdown("### 投稿一覧")
+
+        if room_msgs.empty:
+            st.info("まだ投稿がありません。")
+        else:
+            with st.container(height=800, border=True):
+                current_user_name = str(st.session_state.get("user", "")).strip()
+                current_user_id = str(st.session_state.get("user_id", "")).strip()
+
+                warehouse_df = get_warehouse_files_df()
+                if warehouse_df is None:
+                    warehouse_df = pd.DataFrame()
+                else:
+                    warehouse_df = warehouse_df.copy()
+                    if "is_deleted" in warehouse_df.columns:
+                        warehouse_df = warehouse_df[
+                            warehouse_df["is_deleted"].astype(str).str.strip() != "1"
+                        ].copy()
+
+                for _, msg in room_msgs.iterrows():
+                    display_name = clean_plain_text(msg.get("display_name", ""))
+                    message_user_id = str(msg.get("user_id", "")).strip()
+                    message_text = clean_plain_text(msg.get("message_text", ""))
+                    created_at = str(msg.get("created_at", "")).strip()
+                    has_attachment = str(msg.get("has_attachment", "")).strip()
+                    linked_file_id = clean_plain_text(msg.get("linked_file_id", ""))
+
+                    attached_row = None
+                    attached_file_bytes = None
+                    attached_file_name = ""
+                    attached_file_mime = ""
+
+                    if linked_file_id and not warehouse_df.empty:
+                        hit_file = warehouse_df[
+                            warehouse_df["file_id"].astype(str).str.strip() == linked_file_id
+                        ].copy()
+
+                        if not hit_file.empty:
+                            attached_row = hit_file.iloc[0]
+                            attached_file_bytes, attached_file_name, attached_file_mime = get_warehouse_download_data(attached_row)
+
+                    is_me = False
+                    if current_user_id and message_user_id:
+                        is_me = (current_user_id == message_user_id)
+                    elif current_user_name and display_name:
+                        is_me = (current_user_name == display_name)
+
+                    time_text = created_at[-8:] if created_at and len(created_at) >= 8 else created_at
+
+                    left_msg_col, spacer_col, right_msg_col = st.columns([5, 1, 5])
+
+                    is_file_only = False
+
+                    normalized_message_text = str(message_text).strip()
+
+                    looks_like_broken_html = normalized_message_text in [
+                        "</div>",
+                        "<div>",
+                        "<br>",
+                        "</span>",
+                        "<span>",
+                    ]
+
+                    if normalized_message_text and not (has_attachment == "1" and looks_like_broken_html):
+                        bubble_text = normalized_message_text
+                    elif has_attachment == "1":
+                        bubble_text = "ファイル送信"
+                        is_file_only = True
+                    else:
+                        bubble_text = "　"
+
+                    bubble_html = esc_text(bubble_text).replace("\n", "<br>")
+
+                    if is_me:
+                        with right_msg_col:
+                            my_bg_color = "#95EC69"
+                            my_text_color = "#111827"
+                            my_font_weight = "normal"
+
+                            if is_file_only:
+                                my_bg_color = "#FFE4E6"
+                                my_text_color = "#BE123C"
+                                my_font_weight = "bold"
+
+                            st.markdown(
+                                f"""<div style="
+                                    background:{my_bg_color};
+                                    color:{my_text_color};
+                                    padding:10px 14px;
+                                    border-radius:18px;
+                                    border-bottom-right-radius:6px;
+                                    margin:6px 0 2px auto;
+                                    display:inline-block;
+                                    max-width:70%;
+                                    word-break:break-word;
+                                    overflow-wrap:break-word;
+                                    font-weight:{my_font_weight};
+                                ">
+                                    {bubble_html}
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+
+                            if attached_file_bytes is not None and attached_file_name:
+                                st.download_button(
+                                    label=f"📎 {attached_file_name}",
+                                    data=attached_file_bytes,
+                                    file_name=attached_file_name,
+                                    mime=attached_file_mime,
+                                    key=f"chat_download_me_{msg.get('message_id', '')}",
+                                    use_container_width=False,
+                                )
+
+                            if time_text:
+                                st.markdown(
+                                    f"""<div style="
+                                        font-size:11px;
+                                        color:#777;
+                                        text-align:right;
+                                        margin-top:2px;
+                                    ">
+                                        {time_text}
+                                    </div>""",
+                                    unsafe_allow_html=True
+                                )
+
+                    else:
+                        with left_msg_col:
+                            if display_name:
+                                st.caption(display_name)
+
+                            other_bg_color = "#FFFFFF"
+                            other_text_color = "#111827"
+                            other_font_weight = "normal"
+                            other_border = "1px solid #DADADA"
+
+                            if is_file_only:
+                                other_bg_color = "#FFF1F2"
+                                other_text_color = "#BE123C"
+                                other_font_weight = "bold"
+                                other_border = "1px solid #F9A8D4"
+
+                            st.markdown(
+                                f"""<div style="
+                                    background:{other_bg_color};
+                                    color:{other_text_color};
+                                    border:{other_border};
+                                    padding:10px 14px;
+                                    border-radius:18px;
+                                    border-bottom-left-radius:6px;
+                                    margin:6px auto 2px 0;
+                                    display:inline-block;
+                                    max-width:70%;
+                                    word-break:break-word;
+                                    overflow-wrap:break-word;
+                                    font-weight:{other_font_weight};
+                                ">
+                                    {bubble_html}
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+
+                            if attached_file_bytes is not None and attached_file_name:
+                                st.download_button(
+                                    label=f"📎 {attached_file_name}",
+                                    data=attached_file_bytes,
+                                    file_name=attached_file_name,
+                                    mime=attached_file_mime,
+                                    key=f"chat_download_other_{msg.get('message_id', '')}",
+                                    use_container_width=False,
+                                )
+
+                            if time_text:
+                                st.markdown(
+                                    f"""<div style="
+                                        font-size:11px;
+                                        color:#777;
+                                        text-align:left;
+                                        margin-top:2px;
+                                    ">
+                                        {time_text}
+                                    </div>""",
+                                    unsafe_allow_html=True
+                                )
+
+                st.markdown('<div id="chat-bottom-anchor"></div>', unsafe_allow_html=True)
+
+                components.html(
+                    """
+                    <script>
+                    const anchor = window.parent.document.getElementById("chat-bottom-anchor");
+                    if (anchor) {
+                        anchor.scrollIntoView({ behavior: "auto", block: "end" });
+                    }
+                    </script>
+                    """,
+                    height=0,
+                )
+
+        st.divider()
+
+        # -----------------------------
+        # 下：メッセージ入力部分
+        # -----------------------------
         post_text = st.text_area(
             "メッセージ",
             key=text_key,
@@ -2487,252 +2731,6 @@ def render_chat_room_page():
             """,
             unsafe_allow_html=True,
         )
-
-        st.divider()
-        st.markdown("### 投稿一覧")
-
-        room_msgs = msgs_df.copy()
-        if not room_msgs.empty:
-            room_msgs = room_msgs[
-                room_msgs["room_id"].astype(str).str.strip() == selected_room_id
-            ].copy()
-
-            if "is_deleted" in room_msgs.columns:
-                room_msgs = room_msgs[
-                    room_msgs["is_deleted"].astype(str).str.strip() != "1"
-                ].copy()
-
-            try:
-                room_msgs = room_msgs.copy()
-
-                room_msgs["created_at_dt"] = pd.to_datetime(
-                    room_msgs["created_at"].astype(str).str.strip(),
-                    errors="coerce"
-                )
-
-                if "message_id" in room_msgs.columns:
-                    room_msgs["message_id_num"] = (
-                        room_msgs["message_id"]
-                        .astype(str)
-                        .str.replace("M", "", regex=False)
-                        .str.strip()
-                    )
-                    room_msgs["message_id_num"] = pd.to_numeric(
-                        room_msgs["message_id_num"],
-                        errors="coerce"
-                    )
-
-                    room_msgs = room_msgs.sort_values(
-                        ["created_at_dt", "message_id_num"],
-                        ascending=[True, True]
-                    )
-                else:
-                    room_msgs = room_msgs.sort_values(
-                        ["created_at_dt"],
-                        ascending=[True]
-                    )
-            except Exception:
-                pass
-
-        if room_msgs.empty:
-            st.info("まだ投稿がありません。")
-            return
-
-        with st.container(height=800, border=True):
-            current_user_name = str(st.session_state.get("user", "")).strip()
-            current_user_id = str(st.session_state.get("user_id", "")).strip()
-
-            warehouse_df = get_warehouse_files_df()
-            if warehouse_df is None:
-                warehouse_df = pd.DataFrame()
-            else:
-                warehouse_df = warehouse_df.copy()
-                if "is_deleted" in warehouse_df.columns:
-                    warehouse_df = warehouse_df[
-                        warehouse_df["is_deleted"].astype(str).str.strip() != "1"
-                    ].copy()
-
-            for _, msg in room_msgs.iterrows():
-                display_name = clean_plain_text(msg.get("display_name", ""))
-                message_user_id = str(msg.get("user_id", "")).strip()
-                message_text = clean_plain_text(msg.get("message_text", ""))
-                created_at = str(msg.get("created_at", "")).strip()
-                has_attachment = str(msg.get("has_attachment", "")).strip()
-                linked_file_id = clean_plain_text(msg.get("linked_file_id", ""))
-
-                attached_row = None
-                attached_file_bytes = None
-                attached_file_name = ""
-                attached_file_mime = ""
-
-                if linked_file_id and not warehouse_df.empty:
-                    hit_file = warehouse_df[
-                        warehouse_df["file_id"].astype(str).str.strip() == linked_file_id
-                    ].copy()
-
-                    if not hit_file.empty:
-                        attached_row = hit_file.iloc[0]
-                        attached_file_bytes, attached_file_name, attached_file_mime = get_warehouse_download_data(attached_row)
-
-                is_me = False
-                if current_user_id and message_user_id:
-                    is_me = (current_user_id == message_user_id)
-                elif current_user_name and display_name:
-                    is_me = (current_user_name == display_name)
-
-                time_text = created_at[-8:] if created_at and len(created_at) >= 8 else created_at
-
-                left_msg_col, spacer_col, right_msg_col = st.columns([5, 1, 5])
-
-                is_file_only = False
-
-                normalized_message_text = str(message_text).strip()
-
-                looks_like_broken_html = normalized_message_text in [
-                    "</div>",
-                    "<div>",
-                    "<br>",
-                    "</span>",
-                    "<span>",
-                ]
-
-                if normalized_message_text and not (has_attachment == "1" and looks_like_broken_html):
-                    bubble_text = normalized_message_text
-                elif has_attachment == "1":
-                    bubble_text = "ファイル送信"
-                    is_file_only = True
-                else:
-                    bubble_text = "　"
-
-                bubble_html = esc_text(bubble_text).replace("\n", "<br>")
-
-                if is_me:
-                    with right_msg_col:
-                        my_bg_color = "#95EC69"
-                        my_text_color = "#111827"
-                        my_font_weight = "normal"
-
-                        if is_file_only:
-                            my_bg_color = "#FFE4E6"
-                            my_text_color = "#BE123C"
-                            my_font_weight = "bold"
-
-                        st.markdown(
-                            f"""<div style="
-                                background:{my_bg_color};
-                                color:{my_text_color};
-                                padding:10px 14px;
-                                border-radius:18px;
-                                border-bottom-right-radius:6px;
-                                margin:6px 0 2px auto;
-                                display:inline-block;
-                                max-width:70%;
-                                word-break:break-word;
-                                overflow-wrap:break-word;
-                                font-weight:{my_font_weight};
-                            ">
-                                {bubble_html}
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-
-                        if attached_file_bytes is not None and attached_file_name:
-                            st.download_button(
-                                label=f"📎 {attached_file_name}",
-                                data=attached_file_bytes,
-                                file_name=attached_file_name,
-                                mime=attached_file_mime,
-                                key=f"chat_download_me_{msg.get('message_id', '')}",
-                                use_container_width=False,
-                            )
-
-                        if time_text:
-                            st.markdown(
-                                f"""<div style="
-                                    font-size:11px;
-                                    color:#777;
-                                    text-align:right;
-                                    margin-top:2px;
-                                ">
-                                    {time_text}
-                                </div>""",
-                                unsafe_allow_html=True
-                            )
-
-                else:
-                    with left_msg_col:
-                        if display_name:
-                            st.caption(display_name)
-
-                        other_bg_color = "#FFFFFF"
-                        other_text_color = "#111827"
-                        other_font_weight = "normal"
-                        other_border = "1px solid #DADADA"
-
-                        if is_file_only:
-                            other_bg_color = "#FFF1F2"
-                            other_text_color = "#BE123C"
-                            other_font_weight = "bold"
-                            other_border = "1px solid #F9A8D4"
-
-                        st.markdown(
-                            f"""<div style="
-                                background:{other_bg_color};
-                                color:{other_text_color};
-                                border:{other_border};
-                                padding:10px 14px;
-                                border-radius:18px;
-                                border-bottom-left-radius:6px;
-                                margin:6px auto 2px 0;
-                                display:inline-block;
-                                max-width:70%;
-                                word-break:break-word;
-                                overflow-wrap:break-word;
-                                font-weight:{other_font_weight};
-                            ">
-                                {bubble_html}
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-
-                        if attached_file_bytes is not None and attached_file_name:
-                            st.download_button(
-                                label=f"📎 {attached_file_name}",
-                                data=attached_file_bytes,
-                                file_name=attached_file_name,
-                                mime=attached_file_mime,
-                                key=f"chat_download_other_{msg.get('message_id', '')}",
-                                use_container_width=False,
-                            )
-
-                        if time_text:
-                            st.markdown(
-                                f"""<div style="
-                                    font-size:11px;
-                                    color:#777;
-                                    text-align:left;
-                                    margin-top:2px;
-                                ">
-                                    {time_text}
-                                </div>""",
-                                unsafe_allow_html=True
-                            )
-
-            st.markdown('<div id="chat-bottom-anchor"></div>', unsafe_allow_html=True)
-
-            components.html(
-                """
-                <script>
-                const anchor = window.parent.document.getElementById("chat-bottom-anchor");
-                if (anchor) {
-                    anchor.scrollIntoView({ behavior: "auto", block: "end" });
-                }
-                </script>
-                """,
-                height=0,
-            )
                         
 def render_other_office_register_page():
     st.title("🪪 他事業所へ登録")
@@ -4716,7 +4714,7 @@ def build_plan_draft_generation_prompt(
 
 TEST_ALLOW_EMPTY_REFERENCE = False
 # 動作確認が終わったら False にするか、
-# この1行ごとコメントアウトして本番運用するある。
+# この1行ごとコメントアウトして本番運用する。
 
 
 def get_reference_doc_type_for_gemini(doc_title: str):
@@ -13048,7 +13046,7 @@ def render_bulk_documents_page():
             st.session_state["bulk_meeting_json"] = meeting_json
             st.session_state["bulk_plan_final_json"] = plan_final_json
 
-            st.success("3枚すべて生成完了ある🥳")
+            st.success("3枚すべて生成完了です。")
 
         except Exception as e:
             st.error(f"一括生成エラー: {e}")
@@ -13260,7 +13258,7 @@ def render_secret_home_eval_auto_page():
                 st.error("Knowbeログイン情報が取得できませんでした。")
                 return
 
-            with st.spinner("Knowbeへ接続して支援記録を取得中ある..."):
+            with st.spinner("Knowbeへ接続して支援記録を取得中..."):
                 driver = build_chrome_driver()
                 driver.get("https://mgr.knowbe.jp/v2/")
                 time.sleep(1.0)
@@ -13276,7 +13274,7 @@ def render_secret_home_eval_auto_page():
 
             st.session_state["secret_home_eval_support_record_text"] = support_record_text
 
-            with st.spinner("Geminiで在宅評価を生成中ある..."):
+            with st.spinner("Geminiで在宅評価を生成中..."):
                 home_eval_json = generate_json_with_gemini(
                     build_home_eval_from_support_record_prompt(
                         resident_name=resident_name,
@@ -13317,7 +13315,7 @@ def render_secret_home_eval_auto_page():
             excel_buffer = create_excel_file("在宅評価シート", cell_data)
             st.session_state["secret_home_eval_file"] = excel_buffer.getvalue()
 
-            st.success("在宅評価シートの自動作成が完了したある🥳")
+            st.success("在宅評価シートの自動作成が完了しました。")
 
         except Exception as e:
             st.error(f"在宅評価シート自動作成エラー: {e}")
