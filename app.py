@@ -2481,7 +2481,7 @@ def render_chat_room_page():
         if room_msgs.empty:
             st.info("まだ投稿がありません。")
         else:
-            with st.container(height=450, border=True):
+            with st.container(height=800, border=True):
                 current_user_name = str(st.session_state.get("user", "")).strip()
                 current_user_id = str(st.session_state.get("user_id", "")).strip()
 
@@ -2527,8 +2527,6 @@ def render_chat_room_page():
 
                     left_msg_col, spacer_col, right_msg_col = st.columns([5, 1, 5])
 
-                    is_file_only = False
-
                     normalized_message_text = str(message_text).strip()
 
                     looks_like_broken_html = normalized_message_text in [
@@ -2539,11 +2537,14 @@ def render_chat_room_page():
                         "<span>",
                     ]
 
-                    if normalized_message_text and not (has_attachment == "1" and looks_like_broken_html):
-                        bubble_text = normalized_message_text
-                    elif has_attachment == "1":
-                        bubble_text = "ファイル送信"
+                    is_file_only = False
+                    if has_attachment == "1" and (not normalized_message_text or looks_like_broken_html):
                         is_file_only = True
+
+                    if is_file_only:
+                        bubble_text = "＜添付ファイルを送信しました＞"
+                    elif normalized_message_text:
+                        bubble_text = normalized_message_text
                     else:
                         bubble_text = "　"
 
@@ -2556,8 +2557,8 @@ def render_chat_room_page():
                             my_font_weight = "normal"
 
                             if is_file_only:
-                                my_bg_color = "#FFE4E6"
-                                my_text_color = "#BE123C"
+                                my_bg_color = "#95EC69"
+                                my_text_color = "#E11D48"
                                 my_font_weight = "bold"
 
                             st.markdown(
@@ -2614,10 +2615,10 @@ def render_chat_room_page():
                             other_border = "1px solid #DADADA"
 
                             if is_file_only:
-                                other_bg_color = "#FFF1F2"
-                                other_text_color = "#BE123C"
+                                other_bg_color = "#95EC69"
+                                other_text_color = "#E11D48"
                                 other_font_weight = "bold"
-                                other_border = "1px solid #F9A8D4"
+                                other_border = "none"
 
                             st.markdown(
                                 f"""<div style="
