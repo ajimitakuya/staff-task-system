@@ -2255,7 +2255,7 @@ def render_chat_room_page():
             "ルームパスワード（制限ルーム用）",
             key="new_room_password",
         )
-        room_description = st.text_area("説明", key="new_room_description", height=45)
+        room_description = st.text_area("説明", key="new_room_description", height=80)
 
         if st.button(
             "ルームを作成",
@@ -2481,7 +2481,7 @@ def render_chat_room_page():
         if room_msgs.empty:
             st.info("まだ投稿がありません。")
         else:
-            with st.container(height=800, border=True):
+            with st.container(height=450, border=True):
                 current_user_name = str(st.session_state.get("user", "")).strip()
                 current_user_id = str(st.session_state.get("user_id", "")).strip()
 
