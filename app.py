@@ -12973,6 +12973,56 @@ def get_piecework_production_df(company_id=None):
     except Exception:
         return pd.DataFrame(columns=cols)
 
+def get_next_piecework_id():
+    df = get_piecework_master_df()
+
+    if df is None or df.empty:
+        return "PW0001"
+
+    nums = []
+    for x in df["piecework_id"].fillna("").astype(str):
+        x = x.strip().upper()
+        if x.startswith("PW"):
+            num = x[2:]
+            if num.isdigit():
+                nums.append(int(num))
+
+    next_num = max(nums) + 1 if nums else 1
+    return f"PW{next_num:04d}"
+
+def save_piecework_master(piecework_name, status, unit, note):
+    df = get_piecework_master_df(company_id=None)
+
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=[
+            "company_id",
+            "piecework_id",
+            "piecework_name",
+            "status",
+            "unit",
+            "note",
+            "created_at",
+            "updated_at",
+            "is_deleted",
+        ])
+
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+    new_row = pd.DataFrame([{
+        "company_id": str(st.session_state.get("company_id", "")).strip(),
+        "piecework_id": get_next_piecework_id(),
+        "piecework_name": str(piecework_name).strip(),
+        "status": str(status).strip(),
+        "unit": str(unit).strip(),
+        "note": str(note).strip(),
+        "created_at": now_str,
+        "updated_at": now_str,
+        "is_deleted": "0",
+    }])
+
+    df = pd.concat([df, new_row], ignore_index=True)
+    save_db(df, "piecework_master")
+
 def render_piecework_page():
     import pandas as pd
     import streamlit as st
@@ -12992,7 +13042,7 @@ def render_piecework_page():
 
     with top_cols[0]:
         if st.button(
-            "← 戻る",
+            "← 休憩室へ移動",
             key="back_from_piecework",
             width="stretch",
             type="secondary",
@@ -13011,6 +13061,34 @@ def render_piecework_page():
             st.rerun()
 
     st.divider()
+
+    with st.expander("＋ 内職を登録する"):
+        new_piecework_name = st.text_input("内職名", key="new_piecework_name")
+        new_piecework_status = st.selectbox(
+            "状態",
+            ["active", "stopped", "closed"],
+            format_func=lambda x: {
+                "active": "進行中",
+                "stopped": "停止中",
+                "closed": "終了",
+            }.get(x, x),
+            key="new_piecework_status",
+        )
+        new_piecework_unit = st.text_input("単位", key="new_piecework_unit", placeholder="例：個、袋、セット")
+        new_piecework_note = st.text_area("備考", key="new_piecework_note", height=80)
+
+        if st.button("内職を登録", key="save_new_piecework", width="stretch", type="secondary"):
+            if not str(new_piecework_name).strip():
+                st.error("内職名を入れてください。")
+            else:
+                save_piecework_master(
+                    piecework_name=new_piecework_name,
+                    status=new_piecework_status,
+                    unit=new_piecework_unit,
+                    note=new_piecework_note,
+                )
+                st.success("内職案件を登録しました。")
+                st.rerun()
 
     filter_cols = st.columns([2, 1, 1])
 
