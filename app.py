@@ -13805,9 +13805,20 @@ def render_piecework_page():
 
         # 数値化
         if not month_entries.empty:
-            month_entries["defect_quantity_num"] = pd.to_numeric(month_entries["defect_quantity"], errors="coerce").fillna(0)
-            month_entries["final_delivery_quantity_num"] = pd.to_numeric(month_entries["final_delivery_quantity"], errors="coerce").fillna(0)
-            month_entries["income_num"] = pd.to_numeric(month_entries["income"], errors="coerce").fillna(0)
+            month_entries["defect_quantity_num"] = pd.to_numeric(
+                month_entries["defect_quantity"], errors="coerce"
+            ).fillna(0)
+            month_entries["final_delivery_quantity_num"] = pd.to_numeric(
+                month_entries["final_delivery_quantity"], errors="coerce"
+            ).fillna(0)
+            month_entries["income_num"] = pd.to_numeric(
+                month_entries["income"], errors="coerce"
+            ).fillna(0)
+
+        if not month_production.empty:
+            month_production["quantity_num"] = pd.to_numeric(
+                month_production["quantity"], errors="coerce"
+            ).fillna(0)
 
         defect_total = 0
         final_delivery_total = 0
@@ -13833,22 +13844,25 @@ def render_piecework_page():
         st.divider()
         st.markdown("### 📊 月間サマリー")
 
-        sum_cols = st.columns(4)
+        cols = st.columns(6)
 
-        with sum_cols[0]:
-            st.metric("作成数", f"{int(production_total) if pd.notna(production_total) else 0}{unit if unit else ''}")
+        with cols[0]:
+            st.metric("作成数", f"{int(production_total)}個")
 
-        with sum_cols[1]:
-            st.metric("不良数", f"{int(defect_total) if pd.notna(defect_total) else 0}{unit if unit else ''}")
+        with cols[1]:
+            st.metric("不良数", f"{int(defect_total)}個")
 
-        with sum_cols[2]:
+        with cols[2]:
+            st.metric("最終納品数", f"{int(final_delivery_total)}個")
+
+        with cols[3]:
             st.metric("支出合計", f"¥{int(expense_total):,}")
 
-        with sum_cols[3]:
+        with cols[4]:
             st.metric("売上合計", f"¥{int(sales_total):,}")
 
-        st.metric("最終納品数", f"{int(final_delivery_total) if pd.notna(final_delivery_total) else 0}{unit if unit else ''}")
-        st.metric("差引", f"¥{int(profit_total):,}")
+        with cols[5]:
+            st.metric("差引", f"¥{int(profit_total):,}")
 
         st.divider()
         st.markdown("### 📋 利用者ごとの作成記録")
@@ -13858,17 +13872,15 @@ def render_piecework_page():
         else:
             show_user_prod = month_production.copy()
 
-            show_user_prod["quantity_num"] = pd.to_numeric(
-                show_user_prod["quantity"], errors="coerce"
-            ).fillna(0)
-
             unit_price_val = 0
             try:
                 unit_price_val = float(row.get("unit_price", 0) or 0)
             except Exception:
                 unit_price_val = 0
 
-            show_user_prod["amount"] = (show_user_prod["quantity_num"] * unit_price_val).astype(int)
+            show_user_prod["amount"] = (
+                show_user_prod["quantity_num"] * unit_price_val
+            ).astype(int)
 
             show_user_prod = show_user_prod[[
                 "work_date",
@@ -13893,7 +13905,10 @@ def render_piecework_page():
             else:
                 show_entries = month_entries.copy()
                 show_entries = show_entries[[
-                    "entry_date", "entry_type", "item_name", "quantity", "unit_price", "amount", "partner", "note"
+                    "entry_date",
+                    "defect_quantity",
+                    "final_delivery_quantity",
+                    "income",
                 ]].copy()
                 st.dataframe(show_entries, width="stretch", height=250)
 
@@ -13904,7 +13919,9 @@ def render_piecework_page():
             else:
                 show_prod = month_production.copy()
                 show_prod = show_prod[[
-                    "work_date", "user_name", "quantity", "defect_quantity", "note"
+                    "work_date",
+                    "user_name",
+                    "quantity",
                 ]].copy()
                 st.dataframe(show_prod, width="stretch", height=250)
 
