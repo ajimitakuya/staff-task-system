@@ -6687,6 +6687,12 @@ def create_excel_file(template_name, cell_data):
     wb = load_workbook(template)
     ws = wb.active
 
+    try:
+    if "B3" in cell_data:  # 在宅評価シートの名前セル
+        ws.title = str(cell_data["B3"])[:31]  # 31文字制限
+except Exception:
+    pass
+
     for cell, value in cell_data.items():
         try:
             # st.write(f"DEBUG ▶ {cell} = {value}")
