@@ -661,7 +661,6 @@ def generate_json_with_gemini(prompt: str):
 
     model_candidates = [
         "gemini-2.5-flash",
-        "gemini-1.0-pro",
     ]
 
     last_error = None
@@ -5168,7 +5167,6 @@ def call_gemini_json(prompt: str):
 
     model_candidates = [
         "gemini-2.5-flash",
-        "gemini-1.0-pro",
     ]
 
     last_error = None
