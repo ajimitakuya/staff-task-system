@@ -92,17 +92,6 @@ COMPANY_SCOPED_SHEETS = {
     "piecework_clients",
 }
 
-import streamlit as st
-import pandas as pd
-from datetime import datetime, timedelta
-
-# ===== 共通 =====
-def load_db(sheet_name):
-    return pd.DataFrame(st.session_state.get(sheet_name, []))
-
-def save_db(df, sheet_name):
-    st.session_state[sheet_name] = df.to_dict(orient="records")
-
 def render_attendance_page():
     st.header("勤怠管理")
 
@@ -618,6 +607,53 @@ def generate_with_gemini(prompt: str):
             continue
 
     raise RuntimeError(f"Gemini生成失敗: {last_error}")
+
+def edit_text_with_gemini_for_start_memo(resident_name: str, original_text: str, remark_text: str = ""):
+    original_text = str(original_text or "").strip()
+    remark_text = str(remark_text or "").strip()
+
+    if not original_text:
+        return ""
+
+    prompt = f"""
+利用者名: {resident_name}
+
+以下の開始メモを、就労継続支援B型の支援記録として自然な日本語に整えてください。
+事実を変えすぎず、伝聞調ばかりになりすぎないように、簡潔で読みやすくしてください。
+
+備考:
+{remark_text}
+
+開始メモ:
+{original_text}
+
+出力は本文のみ。
+"""
+    return generate_with_gemini(prompt)
+
+
+def edit_text_with_gemini_for_end_memo(resident_name: str, original_text: str, remark_text: str = ""):
+    original_text = str(original_text or "").strip()
+    remark_text = str(remark_text or "").strip()
+
+    if not original_text:
+        return ""
+
+    prompt = f"""
+利用者名: {resident_name}
+
+以下の終了メモを、就労継続支援B型の職員考察として自然な日本語に整えてください。
+事実を変えすぎず、簡潔で読みやすくしてください。
+
+備考:
+{remark_text}
+
+終了メモ:
+{original_text}
+
+出力は本文のみ。
+"""
+    return generate_with_gemini(prompt)
 
 def generate_json_with_gemini(prompt: str):
     api_key = get_gemini_api_key_from_app()
@@ -6313,8 +6349,11 @@ page_options = [
     "休憩室_倉庫",
     "お問い合わせ",
     "内職管理",
-    "勤怠管理"
-    "過去日誌照合"
+    "スタッフ管理",
+    "ICカード管理",
+    "勤怠管理",
+    "過去日誌照合",
+    "knowbe日誌一括入力",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -6570,6 +6609,15 @@ if st.session_state.get("bee_menu_unlocked", False):
         st.session_state.current_page = "🐝knowbe日誌入力🐝"
         st.rerun()
 
+if st.session_state.get("bee_menu_unlocked", False):
+    knowbe_label = "knowbe日誌一括入力"
+    if st.session_state.get("heart_mode", False):
+        knowbe_label = "💕knowbe日誌一括入力💕"
+
+    if st.sidebar.button(knowbe_label, key="knowbe_menu_button", use_container_width=True):
+        st.session_state.current_page = "knowbe日誌一括入力"
+        st.rerun()
+
 # ===== 💻 他事業所へ登録（条件表示） =====
 if st.session_state.get("other_office_register_unlocked", False):
     register_label = "💻他事業所へ登録💻"
@@ -6591,6 +6639,7 @@ st.sidebar.text_input(
 if st.session_state.get("is_admin", False):
 
     st.sidebar.markdown("### 管理者メニュー")
+
     if st.sidebar.button("スタッフ登録・削除", key="menu_staff_manage", use_container_width=True):
         st.session_state.current_page = "スタッフ管理"
         st.rerun()
@@ -6602,11 +6651,12 @@ if st.session_state.get("is_admin", False):
     if st.sidebar.button("Knowbe情報登録", key="menu_knowbe_settings", use_container_width=True):
         st.session_state.current_page = "Knowbe情報登録"
         st.rerun()
+
     if st.sidebar.button("勤怠管理", key="menu_attendance_manage", use_container_width=True):
         st.session_state.current_page = "勤怠管理"
         st.rerun()
 
-    if st.sidebar.button("過去日誌照合", key="menu_support_record_audit_v2", use_container_width=True):
+    if st.sidebar.button("過去日誌照合", key="menu_support_record_audit", use_container_width=True):
         st.session_state.current_page = "過去日誌照合"
         st.rerun()
 
@@ -9814,6 +9864,202 @@ def send_to_knowbe_from_bee(
         raise RuntimeError("run_assistance.send_one_record_from_app が False を返しました")
 
     return True
+
+import streamlit as st
+import pandas as pd
+from datetime import date
+
+def render_bulk_knowbe_diary_page():
+    st.title("🐝 knowbe日誌入力（一括）")
+
+    current_company_id = st.session_state.get("company_id", "")
+    login_staff_name = st.session_state.get("display_name", "")
+
+    if not current_company_id:
+        st.error("事業所情報が取得できません。")
+        return
+
+    # 利用者一覧取得
+    residents_df = get_resident_master_df().copy()
+    if residents_df.empty:
+        st.warning("利用者データがありません。")
+        return
+
+    if "company_id" in residents_df.columns:
+        residents_df = residents_df[residents_df["company_id"] == current_company_id].copy()
+
+    if "status" in residents_df.columns:
+        residents_df = residents_df[residents_df["status"].fillna("利用中") == "利用中"].copy()
+
+    residents_df = residents_df.reset_index(drop=True)
+
+    if residents_df.empty:
+        st.warning("この事業所の利用中利用者がいません。")
+        return
+
+    # 共通日付
+    bulk_target_date = st.date_input(
+        "対象日（全員共通）",
+        value=date.today(),
+        key="bulk_target_date"
+    )
+
+    st.markdown("---")
+
+    send_targets = []
+
+    for idx, r in residents_df.iterrows():
+        resident_id = str(r.get("resident_id", "")).strip()
+        resident_name = str(r.get("resident_name", "")).strip()
+
+        if not resident_id or not resident_name:
+            continue
+
+        block_key = f"bulk_{resident_id}"
+
+        with st.container():
+            st.subheader(f"{resident_name}")
+
+            enabled = st.checkbox(
+                "この利用者を送信対象にする",
+                value=True,
+                key=f"{block_key}_enabled"
+            )
+
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                start_time = st.text_input("開始時間", value="10:00", key=f"{block_key}_start_time")
+            with c2:
+                end_time = st.text_input("終了時間", value="10:50", key=f"{block_key}_end_time")
+            with c3:
+                meal_flag = st.selectbox("食事提供", ["なし", "あり"], key=f"{block_key}_meal_flag")
+            with c4:
+                service_type = st.selectbox(
+                    "サービス種別",
+                    ["在宅", "通所", "施設外就労"],
+                    key=f"{block_key}_service_type"
+                )
+
+            c5, c6, c7 = st.columns(3)
+            with c5:
+                work_start_time = st.text_input("作業開始時間", value="", key=f"{block_key}_work_start_time")
+            with c6:
+                work_end_time = st.text_input("作業終了時間", value="", key=f"{block_key}_work_end_time")
+            with c7:
+                break_time = st.text_input("休憩時間", value="", key=f"{block_key}_break_time")
+
+            diary_input_staff = st.text_input(
+                "日誌入力者",
+                value=login_staff_name,
+                key=f"{block_key}_staff_name"
+            )
+
+            remark_mode = st.radio(
+                "備考の入力方法",
+                ["候補から選ぶ", "直接入力"],
+                horizontal=True,
+                key=f"{block_key}_remark_mode"
+            )
+
+            remark_text = st.text_input("備考", value="", key=f"{block_key}_remark_text")
+
+            c8, c9 = st.columns(2)
+            with c8:
+                start_memo = st.text_area("開始メモ", height=140, key=f"{block_key}_start_memo")
+            with c9:
+                end_memo = st.text_area("終了メモ", height=140, key=f"{block_key}_end_memo")
+
+            send_mode = st.radio(
+                "送信方式",
+                ["Geminiで編集して送信", "入力文のまま送信"],
+                horizontal=True,
+                key=f"{block_key}_send_mode"
+            )
+
+            st.markdown("---")
+
+            send_targets.append({
+                "enabled": enabled,
+                "resident_id": resident_id,
+                "resident_name": resident_name,
+                "target_date": bulk_target_date.strftime("%Y/%m/%d"),
+                "start_time": start_time,
+                "end_time": end_time,
+                "meal_flag": meal_flag,
+                "service_type": service_type,
+                "work_start_time": work_start_time,
+                "work_end_time": work_end_time,
+                "break_time": break_time,
+                "staff_name": diary_input_staff,
+                "remark_mode": remark_mode,
+                "remark_text": remark_text,
+                "start_memo": start_memo,
+                "end_memo": end_memo,
+                "send_mode": "gemini" if send_mode == "Geminiで編集して送信" else "raw",
+            })
+
+    st.markdown("## 一括送信")
+
+    if st.button("knowbeへ送信する", type="primary", use_container_width=True):
+        active_targets = [x for x in send_targets if x["enabled"]]
+
+        if not active_targets:
+            st.warning("送信対象が1人も選ばれていません。")
+            return
+
+        success_count = 0
+        error_count = 0
+
+        progress = st.progress(0)
+        status_box = st.empty()
+
+        for i, item in enumerate(active_targets, start=1):
+            try:
+                status_box.info(f"{i}/{len(active_targets)} 送信中: {item['resident_name']}")
+
+                start_memo_to_send = item["start_memo"]
+                end_memo_to_send = item["end_memo"]
+
+                if item["send_mode"] == "gemini":
+                    # ここは既存のGemini整形関数名に置き換え
+                    start_memo_to_send = edit_text_with_gemini_for_start_memo(
+                        resident_name=item["resident_name"],
+                        original_text=item["start_memo"],
+                        remark_text=item["remark_text"],
+                    )
+                    end_memo_to_send = edit_text_with_gemini_for_end_memo(
+                        resident_name=item["resident_name"],
+                        original_text=item["end_memo"],
+                        remark_text=item["remark_text"],
+                    )
+
+                # ここは既存のKnowbe送信関数に置き換え
+                send_to_knowbe_from_bee(
+                    target_date=item["target_date"],
+                    resident_id=item["resident_id"],
+                    resident_name=item["resident_name"],
+                    start_time=item["start_time"],
+                    end_time=item["end_time"],
+                    meal_flag=item["meal_flag"],
+                    service_type=item["service_type"],
+                    work_start_time=item["work_start_time"],
+                    work_end_time=item["work_end_time"],
+                    break_time=item["break_time"],
+                    start_memo=start_memo_to_send,
+                    end_memo=end_memo_to_send,
+                    staff_name=item["staff_name"],
+                    remark_text=item["remark_text"],
+                )
+
+                success_count += 1
+
+            except Exception as e:
+                error_count += 1
+                st.error(f"{item['resident_name']} の送信でエラー: {e}")
+
+            progress.progress(i / len(active_targets))
+
+        status_box.success(f"送信完了：成功 {success_count}件 / エラー {error_count}件")
 
 def render_bee_journal_page():
     st.title("🐝knowbe日誌入力🐝")
@@ -15219,6 +15465,8 @@ elif page == "書類_就労分野シート":
     render_work_sheet_form_page("就労分野シート")
 elif page == "🐝knowbe日誌入力🐝":
     render_bee_journal_page()
+elif page == "knowbe日誌一括入力":
+    render_bulk_knowbe_diary_page()
 elif page == "💻他事業所へ登録💻":
     render_other_office_register_page()
 if page == "休憩室":
@@ -15251,6 +15499,7 @@ elif page == "勤怠管理":
         st.error("このページは管理者専用です。")
     else:
         render_attendance_page()
+
 elif page == "過去日誌照合":
     if not st.session_state.get("is_admin", False):
         st.error("このページは管理者専用です。")
