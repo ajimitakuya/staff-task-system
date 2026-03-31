@@ -6610,9 +6610,9 @@ if st.session_state.get("bee_menu_unlocked", False):
         st.rerun()
 
 if st.session_state.get("bee_menu_unlocked", False):
-    knowbe_label = "knowbe日誌一括入力"
+    knowbe_label = "🐝knowbe日誌一括入力🐝"
     if st.session_state.get("heart_mode", False):
-        knowbe_label = "💕knowbe日誌一括入力💕"
+        knowbe_label = "💕🐝knowbe日誌一括入力🐝💕"
 
     if st.sidebar.button("knowbe日誌一括入力", key="knowbe_bulk_menu_button", use_container_width=True):
         st.session_state.current_page = "knowbe日誌一括入力"
@@ -15471,7 +15471,7 @@ elif page == "書類_就労分野シート":
     render_work_sheet_form_page("就労分野シート")
 elif page == "🐝knowbe日誌入力🐝":
     render_bee_journal_page()
-elif page == "knowbe日誌一括入力":
+elif page == "🐝knowbe日誌一括入力🐝":
     render_bulk_knowbe_diary_page()
 elif page == "💻他事業所へ登録💻":
     render_other_office_register_page()
