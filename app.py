@@ -97,10 +97,11 @@ def render_attendance_page():
 
     # ===== データ読み込み =====
     users_df = load_db("users")
-    companies_df = load_db("companies")
     permissions_df = load_db("user_company_permissions")
     attendance_logs_df = load_db("attendance_logs")
     settings_df = load_db("attendance_display_settings")
+
+    companies_df = get_companies_df()
 
     # ===== 必須列補完 =====
     if settings_df is None or settings_df.empty:
@@ -437,7 +438,12 @@ def render_attendance_page():
                         [attendance_logs_df, pd.DataFrame([new_log])],
                         ignore_index=True
                     )
-                    save_db(attendance_logs_df, "attendance_logs")
+                    try:
+                        save_db(attendance_logs_df, "attendance_logs")
+                        st.success(f"{name} → {result_text_map.get(action, action)}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"勤怠保存でエラーある: {e}")
 
                     result_text_map = {
                         "in": "出勤",
