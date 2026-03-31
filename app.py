@@ -97,9 +97,6 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 # ===== 共通 =====
-def now_jst():
-    return datetime.now()
-
 def load_db(sheet_name):
     return pd.DataFrame(st.session_state.get(sheet_name, []))
 
@@ -236,9 +233,6 @@ def render_attendance_page():
 
     if st.button("勤怠管理表示", key="attendance_mode_button", use_container_width=True):
         st.session_state["attendance_mode"] = True
-
-    if not st.session_state.get("attendance_mode"):
-        return
 
     target_settings = settings_df[
         (settings_df["group_id"].astype(str).str.strip() == group_id) &
