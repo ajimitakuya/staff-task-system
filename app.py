@@ -295,10 +295,34 @@ def render_attendance_page():
         last = logs.iloc[-1]
         return str(last.get("action", "out")).strip()
     
-    st.write("5列版動作中")
+    def get_status(user_id):
+        logs = attendance_logs_df[
+            (attendance_logs_df["user_id"].astype(str).str.strip() == str(user_id).strip()) &
+            (attendance_logs_df["company_id"].astype(str).str.strip() == selected_company)
+        ].copy()
+
+        if logs.empty:
+            return "退勤"
+
+        if "timestamp" in logs.columns:
+            logs = logs.sort_values("timestamp")
+
+        last = logs.iloc[-1]
+        last_action = str(last.get("action", "")).strip()
+
+        action_map = {
+            "in": "出勤",
+            "out": "退勤",
+            "break_start": "休憩中",
+            "break_end": "出勤",
+        }
+        return action_map.get(last_action, "退勤")
 
     if "pending_attendance" not in st.session_state:
         st.session_state["pending_attendance"] = {}
+
+    if "attendance_action_mode" not in st.session_state:
+        st.session_state["attendance_action_mode"] = "in"
 
     st.markdown("""
     <style>
@@ -311,6 +335,59 @@ def render_attendance_page():
     }
     </style>
     """, unsafe_allow_html=True)
+
+    st.markdown("### 勤怠モード選択")
+
+    mode_cols = st.columns(4)
+
+    with mode_cols[0]:
+        if st.button(
+            "出勤",
+            key="attendance_mode_in",
+            use_container_width=True,
+            type="primary" if st.session_state["attendance_action_mode"] == "in" else "secondary",
+        ):
+            st.session_state["attendance_action_mode"] = "in"
+            st.rerun()
+
+    with mode_cols[1]:
+        if st.button(
+            "退勤",
+            key="attendance_mode_out",
+            use_container_width=True,
+            type="primary" if st.session_state["attendance_action_mode"] == "out" else "secondary",
+        ):
+            st.session_state["attendance_action_mode"] = "out"
+            st.rerun()
+
+    with mode_cols[2]:
+        if st.button(
+            "休憩開始",
+            key="attendance_mode_break_start",
+            use_container_width=True,
+            type="primary" if st.session_state["attendance_action_mode"] == "break_start" else "secondary",
+        ):
+            st.session_state["attendance_action_mode"] = "break_start"
+            st.rerun()
+
+    with mode_cols[3]:
+        if st.button(
+            "休憩終了",
+            key="attendance_mode_break_end",
+            use_container_width=True,
+            type="primary" if st.session_state["attendance_action_mode"] == "break_end" else "secondary",
+        ):
+            st.session_state["attendance_action_mode"] = "break_end"
+            st.rerun()
+
+    mode_label_map = {
+        "in": "出勤モード",
+        "out": "退勤モード",
+        "break_start": "休憩開始モード",
+        "break_end": "休憩終了モード",
+    }
+
+    st.info(f"現在のモード: {mode_label_map.get(st.session_state['attendance_action_mode'], '出勤モード')}")
 
     users_list = merged.to_dict(orient="records")
 
@@ -331,10 +408,12 @@ def render_attendance_page():
                 name = str(row.get("display_name", uid)).strip()
                 status = get_status(uid)
 
-                button_type = "primary" if status == "in" else "secondary"
+                button_type = "primary" if status in ["出勤", "休憩中"] else "secondary"
+
+                button_label = f"{name}\n{status}"
 
                 if st.button(
-                    name,
+                    button_label,
                     key=f"attendance_user_{selected_company}_{uid}",
                     use_container_width=True,
                     type=button_type,
@@ -350,7 +429,7 @@ def render_attendance_page():
 
                     st.session_state["pending_attendance"][uid] = now
 
-                    action = "in" if status == "out" else "out"
+                    action = st.session_state.get("attendance_action_mode", "in")
 
                     new_log = {
                         "attendance_id": f"A{len(attendance_logs_df) + 1:04}",
@@ -368,7 +447,15 @@ def render_attendance_page():
                         ignore_index=True
                     )
                     save_db(attendance_logs_df, "attendance_logs")
-                    st.success(f"{name} → {action}")
+
+                    action_text_map = {
+                        "in": "出勤",
+                        "out": "退勤",
+                        "break_start": "休憩開始",
+                        "break_end": "休憩終了",
+                    }
+
+                    st.success(f"{name} → {action_text_map.get(action, action)}")
                     st.rerun()
 
 def render_support_record_audit_page():
