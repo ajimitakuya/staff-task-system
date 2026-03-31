@@ -6052,6 +6052,7 @@ page_options = [
     "休憩室_倉庫",
     "お問い合わせ",
     "内職管理",
+    "勤怠管理"
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
