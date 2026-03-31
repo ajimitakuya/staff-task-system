@@ -6353,7 +6353,7 @@ page_options = [
     "ICカード管理",
     "勤怠管理",
     "過去日誌照合",
-    "knowbe日誌一括入力",
+    "🐝knowbe日誌一括入力🐝",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -6603,7 +6603,7 @@ if st.sidebar.button("事業所切り替え", use_container_width=True):
 if st.session_state.get("bee_menu_unlocked", False):
     knowbe_label = "🐝knowbe日誌入力🐝"
     if st.session_state.get("heart_mode", False):
-        knowbe_label = "💕knowbe日誌入力💕"
+        knowbe_label = "💕🐝knowbe日誌入力🐝💕"
 
     if st.sidebar.button("🐝knowbe日誌入力🐝", key="knowbe_single_menu_button", use_container_width=True):
         st.session_state.current_page = "🐝knowbe日誌入力🐝"
