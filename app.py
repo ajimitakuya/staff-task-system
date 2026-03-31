@@ -6320,7 +6320,7 @@ page_options = [
     "お問い合わせ",
     "内職管理",
     "勤怠管理"
-    "過去日誌管理"
+    "過去日誌照合"
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
