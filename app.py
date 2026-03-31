@@ -1207,9 +1207,9 @@ def load_db(file, retries=3, delay=0.8):
             try:
                 ttl_sec = 60
                 if file == "attendance_logs":
-                    ttl_sec = 0
+                    ttl_sec = 2
                 elif file == "attendance_display_settings":
-                    ttl_sec = 0
+                    ttl_sec = 5
 
                 df = conn.read(worksheet=s_name, ttl=ttl_sec)
 
