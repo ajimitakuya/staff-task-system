@@ -60,6 +60,8 @@ COMMON_SHEETS = {
     "users",
     "user_company_permissions",
     "admin_logs",
+    "attendance_logs",
+    "attendance_display_settings",    
 }
 
 COMPANY_SCOPED_SHEETS = {
@@ -1154,7 +1156,27 @@ def load_db(file, retries=3, delay=0.8):
                         "created_at",
                         "updated_at",
                         "is_deleted",
-                    ],                                                 
+                    ],
+                    "attendance_logs": [
+                        "attendance_id",
+                        "date",
+                        "user_id",
+                        "company_id",
+                        "action",
+                        "timestamp",
+                        "device_name",
+                        "recorded_by",
+                    ],
+
+                    "attendance_display_settings": [
+                        "setting_id",
+                        "group_id",
+                        "slot_no",
+                        "company_id",
+                        "status",
+                        "created_at",
+                        "registered_by",
+                    ],                                                                     
                 }
 
                 for col in expected_cols[file]:
