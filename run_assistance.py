@@ -1138,6 +1138,609 @@ def fetch_support_record_text_for_month(driver, resident_name: str, year: int, m
     return text
 
 # =========================
+# 支援記録 → 利用形態一覧化（期間一括）
+# =========================
+
+DAY_HEADER_RE = re.compile(r"^(\d{1,2})日[（(]([^)）]+)[)）]$")
+SUPPORT_ITEM_LABELS = ["就労先企業", "作業", "利用者状態", "職員考察", "面談", "その他"]
+
+
+def _iter_year_months(start_year: int, start_month: int, end_year: int, end_month: int):
+    y = int(start_year)
+    m = int(start_month)
+    ey = int(end_year)
+    em = int(end_month)
+
+    while (y, m) <= (ey, em):
+        yield y, m
+        m += 1
+        if m >= 13:
+            y += 1
+            m = 1
+
+
+def _clean_support_lines(text: str):
+    text = "" if text is None else str(text)
+    raw_lines = text.replace("\r", "\n").split("\n")
+
+    lines = []
+    for x in raw_lines:
+        s = str(x).strip()
+        if not s:
+            continue
+        lines.append(s)
+
+    return lines
+
+
+def _extract_support_body_text_for_parse(driver) -> str:
+    """
+    支援記録ページ全体の可視テキストを取る
+    月一覧の1日ごとの表示をテキスト解析しやすい形にするため、body.text を使う
+    """
+    try:
+        body_text = driver.find_element(By.TAG_NAME, "body").text or ""
+    except Exception:
+        body_text = ""
+
+    body_text = body_text.strip()
+    if not body_text:
+        raise RuntimeError("[FATAL] 支援記録ページのbody text取得に失敗したある")
+
+    return body_text
+
+
+def _split_support_day_blocks_from_text(body_text: str):
+    """
+    支援記録ページの全文から、1日ごとのブロックへ分割する
+    """
+    lines = _clean_support_lines(body_text)
+
+    start_idx = None
+    for i, line in enumerate(lines):
+        if DAY_HEADER_RE.match(line):
+            start_idx = i
+            break
+
+    if start_idx is None:
+        return []
+
+    lines = lines[start_idx:]
+
+    blocks = []
+    current = None
+
+    for line in lines:
+        m = DAY_HEADER_RE.match(line)
+        if m:
+            if current:
+                blocks.append(current)
+
+            current = {
+                "day": int(m.group(1)),
+                "weekday": str(m.group(2)).strip(),
+                "lines": [line],
+            }
+        else:
+            if current is not None:
+                current["lines"].append(line)
+
+    if current:
+        blocks.append(current)
+
+    return blocks
+
+
+def _detect_registered_kind_from_block_lines(lines):
+    """
+    画面の登録区分判定
+    ルール（今回版）
+    - 施設外就労 = 施設外
+    - 通所 + 食事/あり がある = 通所
+    - 通所 + それ以外 = 在宅
+    """
+    joined = "\n".join([str(x).strip() for x in lines if str(x).strip()])
+
+    # 施設外
+    if "施設外就労" in joined:
+        return "施設外"
+
+    # 通所
+    if "通所" in joined:
+        # 食事あり パターン
+        for i, line in enumerate(lines):
+            s = str(line).strip()
+
+            # 「食事」→ 次行が「あり」
+            if s == "食事":
+                if i + 1 < len(lines):
+                    nxt = str(lines[i + 1]).strip()
+                    if nxt == "あり":
+                        return "通所"
+
+            # 1行にまとまってるパターン保険
+            if "食事" in s and "あり" in s:
+                return "通所"
+
+            if "食事提供" in s and "あり" in s:
+                return "通所"
+
+        # 通所だけど食事ありが見えない → 在宅
+        return "在宅"
+
+    return "不明"
+
+
+def _parse_support_sections_from_block_lines(lines):
+    """
+    1日ブロック内の項目を辞書にする
+    例:
+      利用者状態 -> 本文
+      職員考察 -> 本文
+    """
+    sections = {}
+    i = 0
+    n = len(lines)
+
+    while i < n:
+        label = str(lines[i]).strip()
+
+        if label in SUPPORT_ITEM_LABELS:
+            i += 1
+            vals = []
+
+            while i < n:
+                cur = str(lines[i]).strip()
+                if cur in SUPPORT_ITEM_LABELS:
+                    break
+                vals.append(cur)
+                i += 1
+
+            sections[label] = "\n".join(vals).strip()
+            continue
+
+        i += 1
+
+    return sections
+
+def _contains_any(text: str, keywords):
+    s = "" if text is None else str(text)
+    for kw in keywords:
+        if kw in s:
+            return True
+    return False
+
+
+def _rule_based_diary_kind_safe(diary_text: str) -> str:
+    """
+    安全優先の事前判定
+    - 自信があるときだけ返す
+    - 少しでも怪しければ 判定できず
+    """
+    s = "" if diary_text is None else str(diary_text).strip()
+    if not s:
+        return "判定できず"
+
+    # -------------------------
+    # 施設外（強い根拠）
+    # -------------------------
+    outside_words = [
+        "施設外就労",
+        "就労先企業",
+        "清掃",
+        "拭き掃除",
+        "ほうき",
+        "モップ",
+        "雑巾",
+        "手すり",
+        "ゴミ拾い",
+        "マンション",
+        "配電盤",
+        "消火器",
+        "エバーグリーン",
+        "施設外",
+    ]
+    if _contains_any(s, outside_words):
+        return "施設外"
+
+    # -------------------------
+    # 在宅（伝聞・電話/LINE連絡系）
+    # -------------------------
+    home_words = [
+        "とのこと",
+        "と言っていた",
+        "と話していた",
+        "とお話があり",
+        "と連絡があり",
+        "連絡があり",
+        "電話",
+        "LINE",
+        "作業開始の連絡",
+        "作業開始前の連絡",
+        "作業終了の連絡",
+        "開始の連絡",
+        "終了の報告",
+        "終了報告",
+        "開始報告",
+        "ご本人から",
+        "在宅",
+        "自宅",
+    ]
+
+    # -------------------------
+    # 通所（来所・複数人関与・帰所系）
+    # -------------------------
+    day_words = [
+        "来所",
+        "通所",
+        "談笑",
+        "コミュニケーション",
+        "役割分担",
+        "他の利用者",
+        "みんなと",
+        "一緒に",
+        "職員と",
+        "周囲と",
+        "帰る",
+        "帰宅",
+        "帰所",
+        "退所",
+        "出勤",
+        "登所",
+    ]
+
+    has_home = _contains_any(s, home_words)
+    has_day = _contains_any(s, day_words)
+
+    # 在宅/通所が両方立つなら危険なので保留
+    if has_home and has_day:
+        return "判定できず"
+
+    if has_home:
+        return "在宅"
+
+    if has_day:
+        return "通所"
+
+    return "判定できず"
+
+def _build_diary_text_for_gemini(sections: dict) -> str:
+    """
+    Geminiに渡す日誌本文
+    今回はなるべく判断材料を残すため
+      作業 + 利用者状態 + 職員考察
+    をまとめて渡す
+    """
+    parts = []
+
+    work_text = str(sections.get("作業", "")).strip()
+    user_state = str(sections.get("利用者状態", "")).strip()
+    staff_note = str(sections.get("職員考察", "")).strip()
+
+    if work_text:
+        parts.append(f"【作業】\n{work_text}")
+
+    if user_state:
+        parts.append(f"【利用者状態】\n{user_state}")
+
+    if staff_note:
+        parts.append(f"【職員考察】\n{staff_note}")
+
+    return "\n\n".join(parts).strip()
+
+
+def _normalize_gemini_kind(text: str) -> str:
+    s = "" if text is None else str(text).strip()
+
+    if "施設外" in s:
+        return "施設外"
+    if "在宅" in s:
+        return "在宅"
+    if "通所" in s:
+        return "通所"
+    if "判定できず" in s:
+        return "判定できず"
+    if "不明" in s:
+        return "判定できず"
+
+    # 保険
+    if "来所" in s:
+        return "通所"
+
+    return "判定できず"
+
+
+def classify_support_diary_kind_with_gemini(client, diary_text: str) -> str:
+    """
+    diary_text の内容だけを見て
+    在宅 / 通所 / 施設外 / 判定できず
+    を返す
+
+    方針:
+    1) まずコード側で安全判定
+    2) 判定できないときだけ Gemini
+    3) Geminiでも怪しければ 判定できず
+    """
+    diary_text = "" if diary_text is None else str(diary_text).strip()
+    if not diary_text:
+        return "判定できず"
+
+    # まず安全なルール判定
+    safe_kind = _rule_based_diary_kind_safe(diary_text)
+    if safe_kind != "判定できず":
+        return safe_kind
+
+    prompt = f"""以下は就労継続支援B型の支援記録の日誌本文です。
+本文だけを見て、次の4択から最も安全に判定してください。
+
+選択肢:
+- 在宅
+- 通所
+- 施設外
+- 判定できず
+
+重要ルール:
+- 間違った判定をするくらいなら、必ず「判定できず」を選ぶこと
+- 自信が弱い場合は必ず「判定できず」
+- 無理に推測しないこと
+- 出力は1語のみ
+- 理由は書かないこと
+
+判定基準:
+【在宅】
+- 「〜とのこと」「〜と言っていた」など伝聞調
+- 電話やLINEなどで連絡を取ったことが分かる
+- 「連絡」「作業開始の連絡」「終了報告」など開始/終了を遠隔でやり取りしている
+- 自宅での作業と読み取れる
+
+【通所】
+- 「来所」がある
+- 「コミュニケーション」「談笑」「役割分担」など複数人との関わりが分かる
+- 「帰る」「帰宅」「退所」など事業所から去ることが分かる
+- 事業所内で一緒に作業している様子がある
+
+【施設外】
+- 「清掃」「拭き掃除」「ほうき」「モップ」「雑巾」など清掃系作業
+- 就労先企業や施設外就労の文脈
+- 内職ではなく外部作業先での作業と分かる
+
+【判定できず】
+- 上のどれとも断定しにくい
+- 在宅と通所の要素が混ざる
+- 決め手が弱い
+- 少しでも怪しい
+
+本文:
+{diary_text}
+"""
+
+    try:
+        result_text = _gemini_generate_text(client, prompt)
+        normalized = _normalize_gemini_kind(result_text)
+
+        # Geminiが曖昧なら即保留
+        if normalized not in ["在宅", "通所", "施設外", "判定できず"]:
+            return "判定できず"
+
+        return normalized
+
+    except Exception:
+        return "判定できず"
+
+def collect_support_record_daily_kind_rows_for_month(driver, resident_name: str, year: int, month: int, gemini_client=None):
+    """
+    いま開いている支援記録ページ（対象月）から、
+    1日ごとの
+      日付 / 曜日 / 登録判定 / 日誌判定 / 日誌本文
+    を抽出する
+    """
+    body_text = _extract_support_body_text_for_parse(driver)
+    day_blocks = _split_support_day_blocks_from_text(body_text)
+
+    rows = []
+
+    for block in day_blocks:
+        block_lines = block.get("lines", [])
+        if not block_lines:
+            continue
+
+        # 先頭の日付行を除いた内容
+        content_lines = block_lines[1:]
+
+        registered_kind = _detect_registered_kind_from_block_lines(content_lines)
+        sections = _parse_support_sections_from_block_lines(content_lines)
+        diary_text = _build_diary_text_for_gemini(sections)
+
+        diary_kind = "判定できず"
+        if gemini_client is not None:
+            diary_kind = classify_support_diary_kind_with_gemini(gemini_client, diary_text)
+
+        rows.append({
+            "year": int(year),
+            "month": int(month),
+            "day": int(block.get("day", 0)),
+            "weekday": str(block.get("weekday", "")).strip(),
+            "registered_kind": registered_kind,
+            "resident_name": str(resident_name).strip(),
+            "diary_kind": diary_kind,
+            "diary_text": diary_text,
+            "user_state": str(sections.get("利用者状態", "")).strip(),
+            "staff_note": str(sections.get("職員考察", "")).strip(),
+            "work_text": str(sections.get("作業", "")).strip(),
+            "company_text": str(sections.get("就労先企業", "")).strip(),
+            "raw_block_text": "\n".join(block_lines).strip(),
+        })
+
+    return rows
+
+
+def export_support_record_kind_rows_to_excel(rows, output_path: str):
+    """
+    簡易一覧Excel
+    A: 利用者
+    B: 日付
+    C: 登録
+    D: 日誌
+    E: 判定できず
+    F: 一致判定（一致=1 / 不一致=0）
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+
+    # 見出し
+    ws["A1"] = "利用者"
+    ws["B1"] = "日付"
+    ws["C1"] = "登録"
+    ws["D1"] = "日誌"
+    ws["E1"] = "判定できず"
+    ws["F1"] = "登録と一致する場合は 1\n登録と一致しない場合は 0"
+
+    row_no = 2
+
+    for item in rows:
+        resident_name = str(item.get("resident_name", "")).strip()
+        y = int(item.get("year", 0))
+        m = int(item.get("month", 0))
+        d = int(item.get("day", 0))
+
+        registered_kind = str(item.get("registered_kind", "")).strip()
+        diary_kind = str(item.get("diary_kind", "")).strip()
+
+        # E列
+        judge_cannot = "1" if diary_kind == "判定できず" else ""
+
+        # F列
+        match_flag = ""
+        if diary_kind != "判定できず":
+            match_flag = "1" if registered_kind == diary_kind else "0"
+
+        ws.cell(row=row_no, column=1, value=resident_name)
+        ws.cell(row=row_no, column=2, value=f"{y}/{m}/{d}")
+        ws.cell(row=row_no, column=3, value=registered_kind)
+        ws.cell(row=row_no, column=4, value=diary_kind)
+        ws.cell(row=row_no, column=5, value=judge_cannot)
+        ws.cell(row=row_no, column=6, value=match_flag)
+
+        row_no += 1
+
+    # 列幅
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 12
+    ws.column_dimensions["C"].width = 10
+    ws.column_dimensions["D"].width = 10
+    ws.column_dimensions["E"].width = 12
+    ws.column_dimensions["F"].width = 32
+
+    # 折り返し
+    from openpyxl.styles import Alignment
+    ws["F1"].alignment = Alignment(wrap_text=True)
+
+    wb.save(output_path)
+    return output_path
+
+
+def fetch_support_record_kind_rows_for_range(
+    driver,
+    resident_name: str,
+    start_year: int,
+    start_month: int,
+    end_year: int,
+    end_month: int,
+    gemini_client=None,
+):
+    """
+    既存driverを使って、
+    対象利用者の支援記録ページを1回開き、
+    指定期間を月ごとに回して一覧データを返す
+    """
+    log("[STEP] fetch_support_record_kind_rows_for_range start")
+
+    goto_record_user_page(driver)
+    open_support_record_page_for_user(driver, resident_name)
+
+    all_rows = []
+
+    for y, m in _iter_year_months(start_year, start_month, end_year, end_month):
+        log(f"[STEP] support kind collect target={y}-{m:02d}")
+
+        goto_support_record_month(driver, y, m)
+        time.sleep(1.0)
+
+        month_rows = collect_support_record_daily_kind_rows_for_month(
+            driver=driver,
+            resident_name=resident_name,
+            year=y,
+            month=m,
+            gemini_client=gemini_client,
+        )
+
+        all_rows.extend(month_rows)
+
+    log("[STEP] fetch_support_record_kind_rows_for_range done")
+    return all_rows
+
+
+def run_support_record_kind_export(
+    resident_name: str,
+    start_year: int,
+    start_month: int,
+    end_year: int,
+    end_month: int,
+    output_path: str,
+    login_username: str = "",
+    login_password: str = "",
+    gemini_client=None,
+):
+    """
+    単発実行用
+    - Knowbeログイン
+    - 対象利用者の指定期間を全部読む
+    - 登録判定 / 日誌判定一覧をExcel出力
+    """
+    resident_name = "" if resident_name is None else str(resident_name).strip()
+    output_path = "" if output_path is None else str(output_path).strip()
+
+    if not resident_name:
+        raise RuntimeError("[FATAL] resident_name が空ある")
+    if not output_path:
+        raise RuntimeError("[FATAL] output_path が空ある")
+
+    if not login_username or not login_password:
+        login_username, login_password = get_knowbe_login_credentials()
+
+    if not login_username or not login_password:
+        raise RuntimeError("[FATAL] Knowbeログイン情報が空ある")
+
+    driver = build_chrome_driver()
+
+    try:
+        log("[STEP] goto report daily")
+        goto_report_daily(driver)
+
+        log("[STEP] login")
+        manual_login_wait(driver, login_username, login_password)
+
+        rows = fetch_support_record_kind_rows_for_range(
+            driver=driver,
+            resident_name=resident_name,
+            start_year=int(start_year),
+            start_month=int(start_month),
+            end_year=int(end_year),
+            end_month=int(end_month),
+            gemini_client=gemini_client,
+        )
+
+        export_support_record_kind_rows_to_excel(rows, output_path)
+        return rows
+
+    finally:
+        try:
+            driver.quit()
+        except Exception:
+            pass
+
+# =========================
 # 入力：強制クリア＆JS注入
 # =========================
 def _js_set_value_and_fire(driver, el, value: str):

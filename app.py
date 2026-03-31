@@ -19,6 +19,7 @@ from run_assistance import (
     get_knowbe_login_credentials,
     manual_login_wait,
     fetch_support_record_text_for_month,
+    run_support_record_kind_export,
 )
 
 JST = timezone(timedelta(hours=9))
@@ -310,46 +311,290 @@ def render_attendance_page():
             logs = logs.sort_values("timestamp")
         last = logs.iloc[-1]
         return str(last.get("action", "out")).strip()
+    
+    st.write("5列版動作中")
 
     if "pending_attendance" not in st.session_state:
         st.session_state["pending_attendance"] = {}
 
-    for _, row in merged.iterrows():
-        uid = str(row["user_id"]).strip()
-        name = str(row.get("display_name", uid)).strip()
-        status = get_status(uid)
+    st.markdown("""
+    <style>
+    div[data-testid="stButton"] > button {
+        height: 56px !important;
+        width: 100% !important;
+        font-size: 18px !important;
+        font-weight: 600 !important;
+        border-radius: 10px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-        label = f"🟩 {name}" if status == "in" else f"⬜ {name}"
+    users_list = merged.to_dict(orient="records")
 
-        if st.button(label, key=f"attendance_user_{selected_company}_{uid}", use_container_width=True):
-            now = now_jst()
+    for start_idx in range(0, len(users_list), 5):
+        cols = st.columns(5)
 
-            if uid in st.session_state["pending_attendance"]:
-                t0 = st.session_state["pending_attendance"][uid]
-                if isinstance(t0, datetime) and (now - t0) < timedelta(seconds=10):
-                    st.session_state["pending_attendance"].pop(uid, None)
-                    st.warning("キャンセルしたある")
+        for col_idx in range(5):
+            data_idx = start_idx + col_idx
+
+            with cols[col_idx]:
+                if data_idx >= len(users_list):
+                    st.write("")
+                    continue
+
+                row = users_list[data_idx]
+
+                uid = str(row["user_id"]).strip()
+                name = str(row.get("display_name", uid)).strip()
+                status = get_status(uid)
+
+                button_type = "primary" if status == "in" else "secondary"
+
+                if st.button(
+                    name,
+                    key=f"attendance_user_{selected_company}_{uid}",
+                    use_container_width=True,
+                    type=button_type,
+                ):
+                    now = now_jst()
+
+                    if uid in st.session_state["pending_attendance"]:
+                        t0 = st.session_state["pending_attendance"][uid]
+                        if isinstance(t0, datetime) and (now - t0) < timedelta(seconds=10):
+                            st.session_state["pending_attendance"].pop(uid, None)
+                            st.warning("キャンセルしたある")
+                            st.rerun()
+
+                    st.session_state["pending_attendance"][uid] = now
+
+                    action = "in" if status == "out" else "out"
+
+                    new_log = {
+                        "attendance_id": f"A{len(attendance_logs_df) + 1:04}",
+                        "date": now.strftime("%Y-%m-%d"),
+                        "user_id": uid,
+                        "company_id": selected_company,
+                        "action": action,
+                        "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+                        "device_name": "tablet",
+                        "recorded_by": current_user_id,
+                    }
+
+                    attendance_logs_df = pd.concat(
+                        [attendance_logs_df, pd.DataFrame([new_log])],
+                        ignore_index=True
+                    )
+                    save_db(attendance_logs_df, "attendance_logs")
+                    st.success(f"{name} → {action}")
                     st.rerun()
 
-            st.session_state["pending_attendance"][uid] = now
+def render_support_record_audit_page():
+    st.header("過去日誌照合")
+    st.caption("Knowbeの支援記録を期間指定で読み込み、登録区分と日誌内容の判定結果を一覧化します。")
 
-            action = "in" if status == "out" else "out"
+    if not st.session_state.get("is_admin", False):
+        st.error("このページは管理者専用です。")
+        return
 
-            new_log = {
-                "attendance_id": f"A{len(attendance_logs_df) + 1:04}",
-                "date": now.strftime("%Y-%m-%d"),
-                "user_id": uid,
-                "company_id": selected_company,
-                "action": action,
-                "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
-                "device_name": "tablet",
-                "recorded_by": current_user_id,
-            }
+    company_id = get_current_company_id()
+    master_df = get_resident_master_df(company_id)
 
-            attendance_logs_df = pd.concat([attendance_logs_df, pd.DataFrame([new_log])], ignore_index=True)
-            save_db(attendance_logs_df, "attendance_logs")
-            st.success(f"{name} → {action}")
-            st.rerun()
+    if master_df is None or master_df.empty:
+        st.warning("利用者マスタが見つからないある。")
+        return
+
+    work = master_df.copy()
+    if "resident_name" not in work.columns:
+        st.error("resident_master に resident_name 列がないある。")
+        return
+
+    if "status" in work.columns:
+        active_df = work[
+            work["status"].astype(str).str.strip().isin(["active", "利用中", ""])
+        ].copy()
+        if not active_df.empty:
+            work = active_df
+
+    work["resident_name"] = work["resident_name"].fillna("").astype(str).str.strip()
+    work = work[work["resident_name"] != ""].copy()
+
+    if work.empty:
+        st.warning("選択できる利用者がいないある。")
+        return
+
+    resident_options = sorted(work["resident_name"].unique().tolist())
+
+    st.markdown("### 条件設定")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        resident_name = st.selectbox(
+            "利用者",
+            resident_options,
+            key="support_audit_resident_name"
+        )
+
+        start_year = st.number_input(
+            "開始年",
+            min_value=2024,
+            max_value=2035,
+            value=2025,
+            step=1,
+            key="support_audit_start_year"
+        )
+
+        start_month = st.number_input(
+            "開始月",
+            min_value=1,
+            max_value=12,
+            value=8,
+            step=1,
+            key="support_audit_start_month"
+        )
+
+    with col2:
+        end_year = st.number_input(
+            "終了年",
+            min_value=2024,
+            max_value=2035,
+            value=2026,
+            step=1,
+            key="support_audit_end_year"
+        )
+
+        end_month = st.number_input(
+            "終了月",
+            min_value=1,
+            max_value=12,
+            value=3,
+            step=1,
+            key="support_audit_end_month"
+        )
+
+    file_name = f"過去日誌照合_{resident_name}_{start_year}_{start_month:02d}_to_{end_year}_{end_month:02d}.xlsx"
+
+    if st.button("過去日誌照合を実行", key="run_support_record_audit", use_container_width=True):
+        if (int(start_year), int(start_month)) > (int(end_year), int(end_month)):
+            st.error("開始年月が終了年月より後になってるある。")
+            return
+
+        api_key = get_gemini_api_key_from_app()
+        if not api_key:
+            st.error("GEMINI_API_KEY が見つからないある。")
+            return
+
+        try:
+            from google import genai
+        except Exception as e:
+            st.error(f"google.genai の読み込みに失敗したある: {e}")
+            return
+
+        try:
+            client = genai.Client(api_key=api_key)
+        except Exception as e:
+            st.error(f"Geminiクライアント作成に失敗したある: {e}")
+            return
+
+        try:
+            with st.spinner("Knowbeから支援記録を読み込み中ある。少し待ってほしいある…"):
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+                tmp_path = tmp.name
+                tmp.close()
+
+                rows = run_support_record_kind_export(
+                    resident_name=resident_name,
+                    start_year=int(start_year),
+                    start_month=int(start_month),
+                    end_year=int(end_year),
+                    end_month=int(end_month),
+                    output_path=tmp_path,
+                    gemini_client=client,
+                )
+
+                with open(tmp_path, "rb") as f:
+                    result_bytes = f.read()
+
+            st.session_state["support_record_audit_result_bytes"] = result_bytes
+            st.session_state["support_record_audit_result_name"] = file_name
+            st.session_state["support_record_audit_rows"] = rows
+
+            st.success("照合が完了したある。")
+
+        except Exception as e:
+            st.error(f"照合中にエラーが出たある: {e}")
+
+    rows = st.session_state.get("support_record_audit_rows", [])
+    if rows:
+        st.markdown("### 結果プレビュー")
+
+        preview_df = pd.DataFrame(rows).copy()
+
+        show_cols = []
+        rename_map = {}
+
+        if "resident_name" in preview_df.columns:
+            show_cols.append("resident_name")
+            rename_map["resident_name"] = "利用者"
+
+        if "year" in preview_df.columns and "month" in preview_df.columns and "day" in preview_df.columns:
+            preview_df["date_str"] = (
+                preview_df["year"].astype(str) + "/" +
+                preview_df["month"].astype(str) + "/" +
+                preview_df["day"].astype(str)
+            )
+            show_cols.append("date_str")
+            rename_map["date_str"] = "日付"
+
+        if "registered_kind" in preview_df.columns:
+            show_cols.append("registered_kind")
+            rename_map["registered_kind"] = "登録"
+
+        if "diary_kind" in preview_df.columns:
+            show_cols.append("diary_kind")
+            rename_map["diary_kind"] = "日誌"
+
+        if "weekday" in preview_df.columns:
+            show_cols.append("weekday")
+            rename_map["weekday"] = "曜日"
+
+        if show_cols:
+            show_df = preview_df[show_cols].copy().rename(columns=rename_map)
+            st.dataframe(show_df, use_container_width=True)
+
+        total_count = len(preview_df)
+
+        cannot_count = 0
+        if "diary_kind" in preview_df.columns:
+            cannot_count = int((preview_df["diary_kind"].astype(str) == "判定できず").sum())
+
+        mismatch_count = 0
+        if "registered_kind" in preview_df.columns and "diary_kind" in preview_df.columns:
+            judge_df = preview_df[
+                preview_df["diary_kind"].astype(str) != "判定できず"
+            ].copy()
+            if not judge_df.empty:
+                mismatch_count = int(
+                    (judge_df["registered_kind"].astype(str) != judge_df["diary_kind"].astype(str)).sum()
+                )
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.info(f"総件数: {total_count}")
+        with c2:
+            st.warning(f"判定できず: {cannot_count}")
+        with c3:
+            st.error(f"不一致件数: {mismatch_count}")
+
+    if st.session_state.get("support_record_audit_result_bytes"):
+        st.download_button(
+            label="Excelダウンロード",
+            data=st.session_state["support_record_audit_result_bytes"],
+            file_name=st.session_state.get("support_record_audit_result_name", "過去日誌照合.xlsx"),
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_support_record_audit_excel",
+            use_container_width=True,
+        )
 
 def generate_with_gemini(prompt: str):
     api_key = get_gemini_api_key_from_app()
@@ -6075,6 +6320,7 @@ page_options = [
     "お問い合わせ",
     "内職管理",
     "勤怠管理"
+    "過去日誌管理"
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -6366,6 +6612,9 @@ if st.session_state.get("is_admin", False):
         st.session_state.current_page = "勤怠管理"
         st.rerun()
 
+    if st.sidebar.button("過去日誌照合", key="menu_support_record_audit_v2", use_container_width=True):
+        st.session_state.current_page = "過去日誌照合"
+        st.rerun()
 
 # ===== 最下部 =====
 st.sidebar.divider()
@@ -15008,3 +15257,8 @@ elif page == "勤怠管理":
         st.error("このページは管理者専用です。")
     else:
         render_attendance_page()
+elif page == "過去日誌照合":
+    if not st.session_state.get("is_admin", False):
+        st.error("このページは管理者専用です。")
+    else:
+        render_support_record_audit_page()
