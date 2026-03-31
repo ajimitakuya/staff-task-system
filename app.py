@@ -586,12 +586,8 @@ def generate_with_gemini(prompt: str):
 
     genai.configure(api_key=api_key)
 
-    model_candidates = [
-        "gemini-2.5-flash",
-        "gemini-1.0-pro",
-    ]
-
-    last_error = None
+    model_candidates = ["gemini-2.5-flash"]
+    errors = []
 
     for model_name in model_candidates:
         try:
@@ -602,11 +598,12 @@ def generate_with_gemini(prompt: str):
             if text:
                 return text
 
-        except Exception as e:
-            last_error = e
-            continue
+            errors.append(f"{model_name}: empty response")
 
-    raise RuntimeError(f"Gemini生成失敗: {last_error}")
+        except Exception as e:
+            errors.append(f"{model_name}: {e}")
+
+    raise RuntimeError("Gemini生成失敗: " + " | ".join(errors))
 
 def edit_text_with_gemini_for_start_memo(resident_name: str, original_text: str, remark_text: str = ""):
     original_text = str(original_text or "").strip()
