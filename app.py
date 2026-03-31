@@ -1205,7 +1205,13 @@ def load_db(file, retries=3, delay=0.8):
     for s_name in sheet_candidates:
         for attempt in range(retries):
             try:
-                df = conn.read(worksheet=s_name, ttl=60)
+                ttl_sec = 60
+                if file == "attendance_logs":
+                    ttl_sec = 0
+                elif file == "attendance_display_settings":
+                    ttl_sec = 0
+
+                df = conn.read(worksheet=s_name, ttl=ttl_sec)
 
                 if df is None:
                     df = pd.DataFrame()
