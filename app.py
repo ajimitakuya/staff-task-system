@@ -89,6 +89,266 @@ COMPANY_SCOPED_SHEETS = {
     "piecework_clients",
 }
 
+import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta
+
+# ===== 共通 =====
+def now_jst():
+    return datetime.now()
+
+def load_db(sheet_name):
+    return pd.DataFrame(st.session_state.get(sheet_name, []))
+
+def save_db(df, sheet_name):
+    st.session_state[sheet_name] = df.to_dict(orient="records")
+
+def render_attendance_page():
+    st.header("勤怠管理")
+
+    # ===== データ読み込み =====
+    users_df = load_db("users")
+    companies_df = load_db("companies")
+    permissions_df = load_db("user_company_permissions")
+    attendance_logs_df = load_db("attendance_logs")
+    settings_df = load_db("attendance_display_settings")
+
+    # ===== 必須列補完 =====
+    if settings_df is None or settings_df.empty:
+        settings_df = pd.DataFrame(columns=[
+            "setting_id", "group_id", "slot_no", "company_id",
+            "status", "created_at", "registered_by"
+        ])
+    else:
+        for col in ["setting_id", "group_id", "slot_no", "company_id", "status", "created_at", "registered_by"]:
+            if col not in settings_df.columns:
+                settings_df[col] = ""
+
+    if attendance_logs_df is None or attendance_logs_df.empty:
+        attendance_logs_df = pd.DataFrame(columns=[
+            "attendance_id", "date", "user_id", "company_id",
+            "action", "timestamp", "device_name", "recorded_by"
+        ])
+    else:
+        for col in ["attendance_id", "date", "user_id", "company_id", "action", "timestamp", "device_name", "recorded_by"]:
+            if col not in attendance_logs_df.columns:
+                attendance_logs_df[col] = ""
+
+    # ===== ログイン中情報 =====
+    current_company_id = str(st.session_state.get("company_id", "")).strip()
+    current_user_id = str(st.session_state.get("user_id", "")).strip()
+
+    # ===== group_id取得 =====
+    group_id = None
+    if current_company_id and companies_df is not None and not companies_df.empty:
+        row = companies_df[companies_df["company_id"].astype(str).str.strip() == current_company_id]
+        if not row.empty and "group_id" in row.columns:
+            group_id = str(row.iloc[0]["group_id"]).strip()
+
+    if not group_id:
+        st.error("group_id が取得できないある")
+        return
+
+    st.subheader("事業所登録（最大5件）")
+
+    existing_settings = settings_df[
+        (settings_df["group_id"].astype(str).str.strip() == group_id) &
+        (settings_df["status"].astype(str).str.strip() == "active")
+    ].copy()
+
+    for i in range(1, 6):
+        slot_row = existing_settings[
+            pd.to_numeric(existing_settings["slot_no"], errors="coerce").fillna(0).astype(int) == i
+        ]
+
+        registered_company_name = ""
+        registered_company_id = ""
+
+        if not slot_row.empty:
+            registered_company_id = str(slot_row.iloc[0]["company_id"]).strip()
+            comp_row = companies_df[
+                companies_df["company_id"].astype(str).str.strip() == registered_company_id
+            ]
+            if not comp_row.empty:
+                registered_company_name = str(comp_row.iloc[0].get("company_name", "")).strip()
+
+        st.markdown(f"### 事業所{i}")
+
+        if registered_company_id:
+            col_a, col_b = st.columns([4, 1])
+            with col_a:
+                st.success(f"登録済み: {registered_company_name}（{registered_company_id}）")
+            with col_b:
+                if st.button("削除", key=f"delete_slot_{i}", use_container_width=True):
+                    idx = slot_row.index
+                    settings_df.loc[idx, "status"] = "inactive"
+                    save_db(settings_df, "attendance_display_settings")
+                    st.rerun()
+        else:
+            col1, col2, col3 = st.columns([2, 2, 1])
+
+            with col1:
+                login_id = st.text_input(f"事業所ID_{i}", key=f"attendance_id_{i}")
+
+            with col2:
+                password = st.text_input(f"事業所PASS_{i}", type="password", key=f"attendance_pass_{i}")
+
+            with col3:
+                st.write("")
+                if st.button(f"登録_{i}", key=f"attendance_register_{i}", use_container_width=True):
+                    comp = companies_df[
+                        (companies_df["company_login_id"].astype(str).str.strip() == str(login_id).strip()) &
+                        (companies_df["company_login_password"].astype(str).str.strip() == str(password).strip()) &
+                        (companies_df["status"].astype(str).str.strip() == "active")
+                    ]
+
+                    if comp.empty:
+                        st.error("認証失敗ある")
+                    else:
+                        cid = str(comp.iloc[0]["company_id"]).strip()
+
+                        same_active = settings_df[
+                            (settings_df["group_id"].astype(str).str.strip() == group_id) &
+                            (settings_df["company_id"].astype(str).str.strip() == cid) &
+                            (settings_df["status"].astype(str).str.strip() == "active")
+                        ]
+                        if not same_active.empty:
+                            st.warning("その事業所はもう登録済みある")
+                        else:
+                            new_row = {
+                                "setting_id": f"ADS{len(settings_df) + 1:04}",
+                                "group_id": group_id,
+                                "slot_no": i,
+                                "company_id": cid,
+                                "status": "active",
+                                "created_at": now_jst().strftime("%Y-%m-%d %H:%M:%S"),
+                                "registered_by": current_user_id,
+                            }
+                            settings_df = pd.concat([settings_df, pd.DataFrame([new_row])], ignore_index=True)
+                            save_db(settings_df, "attendance_display_settings")
+                            st.success(f"{cid} を登録したある")
+                            st.rerun()
+
+    st.markdown("---")
+
+    if st.button("勤怠管理表示", key="attendance_mode_button", use_container_width=True):
+        st.session_state["attendance_mode"] = True
+
+    if not st.session_state.get("attendance_mode"):
+        return
+
+    target_settings = settings_df[
+        (settings_df["group_id"].astype(str).str.strip() == group_id) &
+        (settings_df["status"].astype(str).str.strip() == "active")
+    ].copy()
+
+    if target_settings.empty:
+        st.info("登録済み事業所がまだないある")
+        return
+
+    target_settings["slot_no_num"] = pd.to_numeric(target_settings["slot_no"], errors="coerce").fillna(9999)
+    target_settings = target_settings.sort_values("slot_no_num")
+
+    company_ids = target_settings["company_id"].astype(str).str.strip().tolist()
+
+    company_name_map = {}
+    for cid in company_ids:
+        comp_row = companies_df[companies_df["company_id"].astype(str).str.strip() == cid]
+        if not comp_row.empty:
+            company_name_map[cid] = str(comp_row.iloc[0].get("company_name", cid)).strip()
+        else:
+            company_name_map[cid] = cid
+
+    selected_company = st.radio(
+        "事業所選択",
+        options=company_ids,
+        format_func=lambda x: company_name_map.get(x, x),
+        horizontal=True,
+        key="attendance_selected_company"
+    )
+
+    valid_users = users_df.copy()
+    if "attendance_enabled" in valid_users.columns:
+        valid_users = valid_users[
+            pd.to_numeric(valid_users["attendance_enabled"], errors="coerce").fillna(0).astype(int) == 1
+        ]
+    if "status" in valid_users.columns:
+        valid_users = valid_users[
+            valid_users["status"].astype(str).str.strip() == "active"
+        ]
+
+    merged = pd.merge(valid_users, permissions_df, on="user_id", how="inner", suffixes=("", "_perm"))
+    merged = merged[
+        merged["company_id_perm"].astype(str).str.strip() == selected_company
+    ].copy()
+
+    if "can_use" in merged.columns:
+        merged = merged[
+            pd.to_numeric(merged["can_use"], errors="coerce").fillna(0).astype(int) == 1
+        ]
+
+    if "display_order" in merged.columns:
+        merged["display_order_num"] = pd.to_numeric(merged["display_order"], errors="coerce").fillna(9999)
+        merged = merged.sort_values("display_order_num")
+    else:
+        merged = merged.sort_values("display_name")
+
+    st.markdown("---")
+
+    def get_status(user_id):
+        logs = attendance_logs_df[
+            (attendance_logs_df["user_id"].astype(str).str.strip() == str(user_id).strip()) &
+            (attendance_logs_df["company_id"].astype(str).str.strip() == selected_company)
+        ].copy()
+
+        if logs.empty:
+            return "out"
+
+        if "timestamp" in logs.columns:
+            logs = logs.sort_values("timestamp")
+        last = logs.iloc[-1]
+        return str(last.get("action", "out")).strip()
+
+    if "pending_attendance" not in st.session_state:
+        st.session_state["pending_attendance"] = {}
+
+    for _, row in merged.iterrows():
+        uid = str(row["user_id"]).strip()
+        name = str(row.get("display_name", uid)).strip()
+        status = get_status(uid)
+
+        label = f"🟩 {name}" if status == "in" else f"⬜ {name}"
+
+        if st.button(label, key=f"attendance_user_{selected_company}_{uid}", use_container_width=True):
+            now = now_jst()
+
+            if uid in st.session_state["pending_attendance"]:
+                t0 = st.session_state["pending_attendance"][uid]
+                if isinstance(t0, datetime) and (now - t0) < timedelta(seconds=10):
+                    st.session_state["pending_attendance"].pop(uid, None)
+                    st.warning("キャンセルしたある")
+                    st.rerun()
+
+            st.session_state["pending_attendance"][uid] = now
+
+            action = "in" if status == "out" else "out"
+
+            new_log = {
+                "attendance_id": f"A{len(attendance_logs_df) + 1:04}",
+                "date": now.strftime("%Y-%m-%d"),
+                "user_id": uid,
+                "company_id": selected_company,
+                "action": action,
+                "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+                "device_name": "tablet",
+                "recorded_by": current_user_id,
+            }
+
+            attendance_logs_df = pd.concat([attendance_logs_df, pd.DataFrame([new_log])], ignore_index=True)
+            save_db(attendance_logs_df, "attendance_logs")
+            st.success(f"{name} → {action}")
+            st.rerun()
+
 def generate_with_gemini(prompt: str):
     api_key = get_gemini_api_key_from_app()
     if not api_key:
@@ -6079,6 +6339,10 @@ if st.session_state.get("is_admin", False):
     if st.sidebar.button("Knowbe情報登録", key="menu_knowbe_settings", use_container_width=True):
         st.session_state.current_page = "Knowbe情報登録"
         st.rerun()
+    if st.sidebar.button("勤怠管理", key="menu_attendance_manage", use_container_width=True):
+        st.session_state.current_page = "勤怠管理"
+        st.rerun()
+
 
 # ===== 最下部 =====
 st.sidebar.divider()
@@ -14716,4 +14980,8 @@ elif page == "お問い合わせ":
     render_contact_page()
 elif page == "書類_一括書類作成":
     render_bulk_documents_page()
-
+elif page == "勤怠管理":
+    if not st.session_state.get("is_admin", False):
+        st.error("このページは管理者専用です。")
+    else:
+        render_attendance_page()
