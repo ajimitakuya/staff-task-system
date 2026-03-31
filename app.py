@@ -6605,7 +6605,7 @@ if st.session_state.get("bee_menu_unlocked", False):
     if st.session_state.get("heart_mode", False):
         knowbe_label = "💕knowbe日誌入力💕"
 
-    if st.sidebar.button(knowbe_label, key="knowbe_menu_button", use_container_width=True):
+    if st.sidebar.button("🐝knowbe日誌入力🐝", key="knowbe_single_menu_button", use_container_width=True):
         st.session_state.current_page = "🐝knowbe日誌入力🐝"
         st.rerun()
 
@@ -6614,7 +6614,7 @@ if st.session_state.get("bee_menu_unlocked", False):
     if st.session_state.get("heart_mode", False):
         knowbe_label = "💕knowbe日誌一括入力💕"
 
-    if st.sidebar.button(knowbe_label, key="knowbe_menu_button", use_container_width=True):
+    if st.sidebar.button("knowbe日誌一括入力", key="knowbe_bulk_menu_button", use_container_width=True):
         st.session_state.current_page = "knowbe日誌一括入力"
         st.rerun()
 
@@ -6688,10 +6688,10 @@ def create_excel_file(template_name, cell_data):
     ws = wb.active
 
     try:
-    if "B3" in cell_data:  # 在宅評価シートの名前セル
-        ws.title = str(cell_data["B3"])[:31]  # 31文字制限
-except Exception:
-    pass
+        if "B3" in cell_data:
+            ws.title = str(cell_data["B3"])[:31]
+    except Exception:
+        pass
 
     for cell, value in cell_data.items():
         try:
