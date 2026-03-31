@@ -6614,8 +6614,8 @@ if st.session_state.get("bee_menu_unlocked", False):
     if st.session_state.get("heart_mode", False):
         knowbe_label = "💕🐝knowbe日誌一括入力🐝💕"
 
-    if st.sidebar.button("knowbe日誌一括入力", key="knowbe_bulk_menu_button", use_container_width=True):
-        st.session_state.current_page = "knowbe日誌一括入力"
+    if st.sidebar.button("🐝knowbe日誌一括入力🐝", key="knowbe_bulk_menu_button", use_container_width=True):
+        st.session_state.current_page = "🐝knowbe日誌一括入力🐝"
         st.rerun()
 
 # ===== 💻 他事業所へ登録（条件表示） =====
