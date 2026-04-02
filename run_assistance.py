@@ -3299,14 +3299,18 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
 
 def goto_support_record_month(driver, target_year: int, target_month: int) -> bool:
     """
-    支援記録ページに入ったあと、URLの /support/YYYY/M を対象月へ差し替えて移動する
-    Knowbe側がSPAで、URL変更だけでは再描画しないことがあるため refresh をかける
+    支援記録ページに入ったあと、
+    .../support で終わっていても
+    .../support/YYYY/M の形を自前で作って移動する
     """
-    # まず /support/ URL になるまで待つ
+    cur = driver.current_url or ""
+    log(f"[DEBUG] goto_support_record_month start current_url = {cur}")
+
+    # まず /support を含むURLになるまで待つ
     for _ in range(30):
         cur = driver.current_url or ""
         log(f"[DEBUG] goto_support_record_month current_url = {cur}")
-        if "/support/" in cur:
+        if "/support" in cur:
             break
         time.sleep(0.5)
     else:
@@ -3315,42 +3319,42 @@ def goto_support_record_month(driver, target_year: int, target_month: int) -> bo
 
     cur = driver.current_url or ""
 
-    m = re.search(r"/support/(\d{4})/(\d{1,2})(?:$|[/?#])", cur)
-    if not m:
-        log(f"[DEBUG] support regex not matched. current_url = {cur}")
-        return False
+    # ① すでに /support/YYYY/M まで入っている場合
+    if re.search(r"/support/\d{4}/\d{1,2}(?=$|[/?#])", cur):
+        new_url = re.sub(
+            r"/support/\d{4}/\d{1,2}(?=$|[/?#])",
+            f"/support/{target_year}/{target_month}",
+            cur
+        )
+    else:
+        # ② /support で止まっている場合は、その後ろに自分で年月を足す
+        m = re.search(r"^(.*?/support)(?=$|[/?#])", cur)
+        if not m:
+            log(f"[DEBUG] support base regex not matched. current_url = {cur}")
+            return False
 
-    new_url = re.sub(
-        r"/support/\d{4}/\d{1,2}(?=$|[/?#])",
-        f"/support/{target_year}/{target_month}",
-        cur
-    )
+        base_url = m.group(1)
+        new_url = f"{base_url}/{target_year}/{target_month}"
 
     log(f"[DEBUG] goto_support_record_month new_url = {new_url}")
 
-    # URL変更
+    # URLを直接開く
     driver.get(new_url)
     time.sleep(1.0)
 
-    # ★これが重要：URL変更だけでは月表示が切り替わらないので refresh
+    # Knowbe側がSPAっぽいので refresh が必要
     driver.refresh()
     time.sleep(2.0)
 
-    try:
-        WebDriverWait(driver, 15).until(
-            lambda d: f"/support/{target_year}/{target_month}" in (d.current_url or "")
-        )
-    except Exception:
-        log(f"[DEBUG] target month url not confirmed. current_url = {driver.current_url}")
+    log(f"[DEBUG] goto_support_record_month after refresh current_url = {driver.current_url}")
 
-    # 支援記録ページの主要文字が見えるまで待つ
+    # 支援記録ページらしい表示を待つ
     WebDriverWait(driver, 15).until(
         EC.presence_of_element_located(
             (By.XPATH, "//*[contains(normalize-space(.), '支援記録')]")
         )
     )
 
-    time.sleep(1.0)
     return True
 
 def extract_support_record_text(driver) -> str:
