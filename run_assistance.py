@@ -462,36 +462,6 @@ def goto_support_record_page_by_text(driver) -> bool:
     return True
 
 
-def debug_dump_page_text(driver, label: str = "page_text") -> str:
-    """
-    今開いているページの本文を text として取得してログに出す
-    """
-    try:
-        body = driver.find_element(By.TAG_NAME, "body")
-        text = str(body.text or "").strip()
-    except Exception:
-        text = ""
-
-    log(f"[DEBUG_TEXT_START] {label}")
-    if text:
-        # 長すぎると見づらいので先頭だけ
-        log(text[:8000])
-    else:
-        log("[DEBUG] body.text is empty")
-    log(f"[DEBUG_TEXT_END] {label}")
-
-    return text
-
-
-def find_resident_in_page_text(driver, resident_name: str) -> bool:
-    """
-    画面の本文 text に利用者名が見えているかだけ確認
-    """
-    page_text = debug_dump_page_text(driver, "resident_search")
-    target = str(resident_name or "").replace(" ", "").replace("　", "").strip()
-    current = page_text.replace(" ", "").replace("　", "")
-    return target in current
-
 def parse_header_date_text(s: str) -> Optional[Tuple[int, int, int]]:
     m = re.search(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日", s)
     if not m:
@@ -1233,16 +1203,6 @@ def fetch_support_record_text_for_month(driver, resident_name: str, year: int, m
     if not ok:
         raise RuntimeError("[FATAL] 記録→利用者ごと→支援記録 へ移動できません")
 
-    # いま開いた支援記録ページの本文をログへ出す
-    page_text = debug_dump_page_text(driver, "support_record_top")
-
-    # 利用者名が画面本文に見えているか確認
-    if not find_resident_in_page_text(driver, resident_name):
-        dump_debug(driver, "resident_name_not_visible_on_support_page")
-        raise RuntimeError(f"[FATAL] 支援記録ページ本文内に利用者名が見つかりません: {resident_name}")
-
-    # ここで、もし既存の open_support_record_for_resident() を使いたいなら使う
-    # ただし、まずは「ページ本文に利用者名が見えてるか」を確認するための段階
     ok = open_support_record_for_resident(driver, resident_name)
     if not ok:
         dump_debug(driver, "open_support_record_for_resident_fail")

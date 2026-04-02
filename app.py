@@ -9777,7 +9777,7 @@ def render_bee_journal_page():
     examples_text = build_examples_text(service_type, example_row)
     loaded_rule_text = rule_row.get("rule_text", "") if rule_row else ""
 
-    st.caption(f"DEBUG 個人ルール読込: {loaded_rule_text!r}")
+    # st.caption(f"DEBUG 個人ルール読込: {loaded_rule_text!r}")
 
     preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
 
@@ -14599,6 +14599,45 @@ def get_support_record_text_via_audit_route(resident_name: str, year_val: str, m
 
     return joined
 
+def fetch_home_eval_support_record_text(resident_name: str, create_year: str, create_month: str):
+    ctx = resolve_bee_company_context(
+        company_login_id="",
+        company_login_password="",
+        knowbe_login_username="",
+        knowbe_login_password="",
+    )
+
+    if not ctx.get("ok", False):
+        raise RuntimeError(ctx.get("error", "Knowbeログイン情報が取得できませんでした。"))
+
+    login_username = str(ctx.get("knowbe_login_username", "")).strip()
+    login_password = str(ctx.get("knowbe_login_password", "")).strip()
+
+    if not login_username or not login_password:
+        raise RuntimeError("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
+
+    driver = None
+    try:
+        driver = build_chrome_driver()
+        driver.get("https://mgr.knowbe.jp/v2/")
+        time.sleep(1.0)
+        manual_login_wait(driver, login_username, login_password)
+
+        support_record_text = fetch_support_record_text_for_month(
+            driver=driver,
+            resident_name=resident_name,
+            year=int(str(create_year).strip()),
+            month=int(str(create_month).strip()),
+        )
+        return support_record_text
+
+    finally:
+        try:
+            if driver is not None:
+                driver.quit()
+        except Exception:
+            pass
+
 def render_secret_home_eval_auto_page():
     st.title("🤫在宅評価シート🤫")
     st.caption("Knowbeの支援記録を読み込み、在宅評価シートを自動作成する裏ページです。")
@@ -14711,10 +14750,10 @@ def render_secret_home_eval_auto_page():
                 knowbe_login_password="",
             )
 
-            st.info(f"DEBUG current_company_id = {st.session_state.get('company_id', '')}")
-            st.info(f"DEBUG company_name = {st.session_state.get('company_name', '')}")
-            st.info(f"DEBUG resolved knowbe username = {ctx.get('knowbe_login_username', '')}")
-            st.info(f"DEBUG ctx ok = {ctx.get('ok', False)} / error = {ctx.get('error', '')}")
+            # st.info(f"DEBUG current_company_id = {st.session_state.get('company_id', '')}")
+            # st.info(f"DEBUG company_name = {st.session_state.get('company_name', '')}")
+            # st.info(f"DEBUG resolved knowbe username = {ctx.get('knowbe_login_username', '')}")
+            # st.info(f"DEBUG ctx ok = {ctx.get('ok', False)} / error = {ctx.get('error', '')}")
 
             if not ctx.get("ok", False):
                 st.error(ctx.get("error", "Knowbeログイン情報が取得できませんでした。"))
@@ -14728,24 +14767,11 @@ def render_secret_home_eval_auto_page():
                 return
 
             with st.spinner("Knowbeへ接続して支援記録を取得中..."):
-                st.info(f"DEBUG login_username just before login = {login_username}")
-
-                driver = build_chrome_driver()
-                driver.get("https://mgr.knowbe.jp/v2/")
-                time.sleep(1.0)
-
-                st.info("DEBUG manual_login_wait start")
-                manual_login_wait(driver, login_username, login_password)
-                st.info("DEBUG manual_login_wait done")
-
-                st.info(f"DEBUG fetch start resident={resident_name} year={create_year} month={create_month}")
-                support_record_text = fetch_support_record_text_for_month(
-                    driver=driver,
+                support_record_text = fetch_home_eval_support_record_text(
                     resident_name=resident_name,
-                    year=int(str(create_year).strip()),
-                    month=int(str(create_month).strip()),
+                    create_year=create_year,
+                    create_month=create_month,
                 )
-                st.info(f"DEBUG fetch done length={len(str(support_record_text))}")
 
             st.session_state["secret_home_eval_support_record_text"] = support_record_text
 
@@ -14788,7 +14814,7 @@ def render_secret_home_eval_auto_page():
             import traceback
             st.error(f"在宅評価シート1人分自動作成エラー: {e}")
             st.code(traceback.format_exc())
-            st.info(f"DEBUG support_record_text current value = {repr(support_record_text)[:500]}")
+            # st.info(f"DEBUG support_record_text current value = {repr(support_record_text)[:500]}")
 
         finally:
             try:
@@ -14864,10 +14890,10 @@ def render_secret_home_eval_auto_page():
                 try:
                     status_box.info(f"{idx}/{total_count} 作成中: {resident_name_loop}")
 
-                    support_record_text = get_support_record_text_via_audit_route(
+                    support_record_text = fetch_home_eval_support_record_text(
                         resident_name=resident_name_loop,
-                        year_val=create_year,
-                        month_val=create_month,
+                        create_year=create_year,
+                        create_month=create_month,
                     )
 
                     support_record_map[resident_name_loop] = support_record_text
@@ -15079,7 +15105,7 @@ import traceback
 
 def run_page_debug(page_name, fn):
     try:
-        st.info(f"DEBUG: {page_name} に入りました")
+        # st.info(f"DEBUG: {page_name} に入りました")
         fn()
     except Exception as e:
         st.error(f"{page_name} でエラーです: {e}")
