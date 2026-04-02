@@ -9242,7 +9242,26 @@ def render_bulk_knowbe_diary_page():
         st.error("事業所情報が取得できません。")
         return
 
-    # 利用者一覧取得
+    # ===== Knowbeログイン情報解決（単発ページに寄せる）=====
+    ctx = resolve_bee_company_context(
+        company_login_id="",
+        company_login_password="",
+        knowbe_login_username="",
+        knowbe_login_password="",
+    )
+
+    if not ctx.get("ok", False):
+        st.error(ctx.get("error", "事業所情報の確認に失敗しました。"))
+        return
+
+    resolved_knowbe_user = ctx["knowbe_login_username"]
+    resolved_knowbe_pw = ctx["knowbe_login_password"]
+
+    if not str(resolved_knowbe_user).strip() or not str(resolved_knowbe_pw).strip():
+        st.error("Knowbe情報が未登録です。送信するには登録が必要です。")
+        return
+
+    # ===== 利用者一覧取得 =====
     residents_df = get_resident_master_df(current_company_id)
     if residents_df.empty:
         st.warning("利用者データがありません。")
@@ -9257,7 +9276,7 @@ def render_bulk_knowbe_diary_page():
         st.warning("この事業所の利用中利用者がいません。")
         return
 
-    # 共通日付
+    # ===== 共通日付 =====
     bulk_target_date = st.date_input(
         "対象日（全員共通）",
         value=date.today(),
@@ -9321,7 +9340,15 @@ def render_bulk_knowbe_diary_page():
                 key=f"{block_key}_remark_mode"
             )
 
-            remark_text = st.text_input("備考", value="", key=f"{block_key}_remark_text")
+            if remark_mode == "候補から選ぶ":
+                remark_candidates = ["在宅利用", "食事摂取量 10/10", "施設外就労(実施報告書等添付)", "入院", ""]
+                remark_text = st.selectbox(
+                    "備考",
+                    remark_candidates,
+                    key=f"{block_key}_remark_text_select"
+                )
+            else:
+                remark_text = st.text_input("備考", value="", key=f"{block_key}_remark_text")
 
             c8, c9 = st.columns(2)
             with c8:
@@ -9342,7 +9369,7 @@ def render_bulk_knowbe_diary_page():
                 "enabled": enabled,
                 "resident_id": resident_id,
                 "resident_name": resident_name,
-                "target_date": bulk_target_date.strftime("%Y/%m/%d"),
+                "target_date": bulk_target_date.strftime("%Y-%m-%d"),
                 "start_time": start_time,
                 "end_time": end_time,
                 "meal_flag": meal_flag,
@@ -9351,7 +9378,6 @@ def render_bulk_knowbe_diary_page():
                 "work_end_time": work_end_time,
                 "break_time": break_time,
                 "staff_name": diary_input_staff,
-                "remark_mode": remark_mode,
                 "remark_text": remark_text,
                 "start_memo": start_memo,
                 "end_memo": end_memo,
@@ -9361,7 +9387,6 @@ def render_bulk_knowbe_diary_page():
     if st.button("knowbeへ送信する", type="primary", use_container_width=True):
         active_targets = [x for x in send_targets if x["enabled"]]
 
-        # --- 事前バリデーション ---
         valid_targets = []
         invalid_messages = []
 
@@ -9390,6 +9415,7 @@ def render_bulk_knowbe_diary_page():
         for i, item in enumerate(valid_targets, start=1):
             try:
                 status_box.info(f"{i}/{len(valid_targets)} 送信中: {item['resident_name']}")
+
                 start_memo_to_send = item["start_memo"]
                 end_memo_to_send = item["end_memo"]
 
@@ -9405,20 +9431,34 @@ def render_bulk_knowbe_diary_page():
                         remark_text=item["remark_text"],
                     )
 
-                # ここは既存のKnowbe送信関数に置き換え
-                    send_to_knowbe_from_bee(
-                        target_date=item["target_date"],
-                        resident_name=item["resident_name"],
-                        start_time=item["start_time"],
-                        end_time=item["end_time"],
-                        meal_flag=item["meal_flag"],
-                        service_type=item["service_type"],
-                        work_start_time=item["work_start_time"],
-                        work_end_time=item["work_end_time"],
-                        staff_name=item["staff_name"],
-                    )
+                ok = send_to_knowbe_from_bee(
+                    company_id=current_company_id,
+                    target_date=item["target_date"],
+                    resident_name=item["resident_name"],
+                    service_type=item["service_type"],
+                    start_time=item["start_time"],
+                    end_time=item["end_time"],
+                    meal_flag=item["meal_flag"],
+                    note_text=item["remark_text"],
+                    generated_status=start_memo_to_send,
+                    generated_support=end_memo_to_send,
+                    staff_name=item["staff_name"],
+                    knowbe_target="bulk_gemini" if item["send_mode"] == "gemini" else "bulk_raw",
+                    work_start_time=item["work_start_time"],
+                    work_end_time=item["work_end_time"],
+                    work_break_time=item.get("break_time", ""),
+                    work_memo="",
+                    login_username=resolved_knowbe_user,
+                    login_password=resolved_knowbe_pw,
+                    send_user_status=True,
+                    send_staff_comment=True,
+                )
 
-                success_count += 1
+                if ok:
+                    success_count += 1
+                else:
+                    error_count += 1
+                    st.error(f"{item['resident_name']} の送信で失敗しました（Knowbe未反映）")
 
             except Exception as e:
                 error_count += 1
