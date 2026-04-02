@@ -14531,6 +14531,74 @@ def build_home_eval_multi_workbook(resident_files: list[tuple[str, bytes]]) -> b
     out.seek(0)
     return out.getvalue()
 
+def get_support_record_text_via_audit_route(resident_name: str, year_val: str, month_val: str) -> str:
+    """
+    過去日誌照合と同じ取得ルートで、指定月の支援記録テキストをまとめて返す
+    """
+    api_key = get_gemini_api_key_from_app()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY が見つかりません。")
+
+    try:
+        from google import genai
+    except Exception as e:
+        raise RuntimeError(f"google.genai の読み込みに失敗しました: {e}")
+
+    try:
+        client = genai.Client(api_key=api_key)
+    except Exception as e:
+        raise RuntimeError(f"Geminiクライアント作成に失敗しました: {e}")
+
+    import tempfile
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    tmp_path = tmp.name
+    tmp.close()
+
+    rows = run_support_record_kind_export(
+        resident_name=resident_name,
+        start_year=int(str(year_val).strip()),
+        start_month=int(str(month_val).strip()),
+        end_year=int(str(year_val).strip()),
+        end_month=int(str(month_val).strip()),
+        output_path=tmp_path,
+        gemini_client=client,
+    )
+
+    if not rows:
+        raise RuntimeError(f"{resident_name} の支援記録が取得できませんでした。")
+
+    text_parts = []
+    for row in rows:
+        day = str(row.get("day", "")).strip()
+        weekday = str(row.get("weekday", "")).strip()
+        registered_kind = str(row.get("registered_kind", "")).strip()
+        diary_kind = str(row.get("diary_kind", "")).strip()
+
+        part_lines = []
+        if day:
+            part_lines.append(f"{month_val}月{day}日（{weekday}）")
+        if registered_kind:
+            part_lines.append(f"登録区分: {registered_kind}")
+        if diary_kind:
+            part_lines.append(f"日誌判定: {diary_kind}")
+
+        # rows の中に本文っぽい列があれば拾う
+        for key in ["support_record_text", "record_text", "text", "body", "content"]:
+            val = str(row.get(key, "")).strip()
+            if val:
+                part_lines.append(val)
+                break
+
+        if part_lines:
+            text_parts.append("\n".join(part_lines))
+
+    joined = "\n\n".join(text_parts).strip()
+    if not joined:
+        raise RuntimeError(f"{resident_name} の支援記録本文が組み立てられませんでした。")
+
+    return joined
+
 def render_secret_home_eval_auto_page():
     st.title("🤫在宅評価シート🤫")
     st.caption("Knowbeの支援記録を読み込み、在宅評価シートを自動作成する裏ページです。")
@@ -14635,9 +14703,22 @@ def render_secret_home_eval_auto_page():
         driver = None
 
         try:
-            login_username, login_password = get_knowbe_login_credentials()
+            ctx = resolve_bee_company_context(
+                company_login_id="",
+                company_login_password="",
+                knowbe_login_username="",
+                knowbe_login_password="",
+            )
+
+            if not ctx.get("ok", False):
+                st.error(ctx.get("error", "Knowbeログイン情報が取得できませんでした。"))
+                return
+
+            login_username = str(ctx.get("knowbe_login_username", "")).strip()
+            login_password = str(ctx.get("knowbe_login_password", "")).strip()
+
             if not login_username or not login_password:
-                st.error("Knowbeログイン情報が取得できませんでした。")
+                st.error("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
                 return
 
             with st.spinner("Knowbeへ接続して支援記録を取得中..."):
@@ -14645,13 +14726,6 @@ def render_secret_home_eval_auto_page():
                 driver.get("https://mgr.knowbe.jp/v2/")
                 time.sleep(1.0)
                 manual_login_wait(driver, login_username, login_password)
-
-                support_record_text = fetch_support_record_text_for_month(
-                    driver=driver,
-                    resident_name=resident_name,
-                    year=int(str(create_year).strip()),
-                    month=int(str(create_month).strip()),
-                )
 
             st.session_state["secret_home_eval_support_record_text"] = support_record_text
 
@@ -14726,9 +14800,22 @@ def render_secret_home_eval_auto_page():
         home_eval_json_map = {}
 
         try:
-            login_username, login_password = get_knowbe_login_credentials()
+            ctx = resolve_bee_company_context(
+                company_login_id="",
+                company_login_password="",
+                knowbe_login_username="",
+                knowbe_login_password="",
+            )
+
+            if not ctx.get("ok", False):
+                st.error(ctx.get("error", "Knowbeログイン情報が取得できませんでした。"))
+                return
+
+            login_username = str(ctx.get("knowbe_login_username", "")).strip()
+            login_password = str(ctx.get("knowbe_login_password", "")).strip()
+
             if not login_username or not login_password:
-                st.error("Knowbeログイン情報が取得できませんでした。")
+                st.error("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
                 return
 
             with st.spinner("Knowbeへ接続中..."):
@@ -14754,11 +14841,10 @@ def render_secret_home_eval_auto_page():
                 try:
                     status_box.info(f"{idx}/{total_count} 作成中: {resident_name_loop}")
 
-                    support_record_text = fetch_support_record_text_for_month(
-                        driver=driver,
+                    support_record_text = get_support_record_text_via_audit_route(
                         resident_name=resident_name_loop,
-                        year=int(str(create_year).strip()),
-                        month=int(str(create_month).strip()),
+                        year_val=create_year,
+                        month_val=create_month,
                     )
 
                     support_record_map[resident_name_loop] = support_record_text
