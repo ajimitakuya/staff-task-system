@@ -14599,7 +14599,16 @@ def get_support_record_text_via_audit_route(resident_name: str, year_val: str, m
 
     return joined
 
-def fetch_home_eval_support_record_text(resident_name: str, create_year: str, create_month: str):
+def fetch_home_eval_support_record_text(
+    resident_name: str,
+    create_year: str,
+    create_month: str,
+    driver=None,
+):
+    """
+    driver が渡されたらそのセッションを再利用する。
+    渡されなければ従来どおり自前でログインして取得する。
+    """
     ctx = resolve_bee_company_context(
         company_login_id="",
         company_login_password="",
@@ -14616,12 +14625,15 @@ def fetch_home_eval_support_record_text(resident_name: str, create_year: str, cr
     if not login_username or not login_password:
         raise RuntimeError("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
 
-    driver = None
+    own_driver = False
+
     try:
-        driver = build_chrome_driver()
-        driver.get("https://mgr.knowbe.jp/v2/")
-        time.sleep(1.0)
-        manual_login_wait(driver, login_username, login_password)
+        if driver is None:
+            driver = build_chrome_driver()
+            driver.get("https://mgr.knowbe.jp/v2/")
+            time.sleep(1.0)
+            manual_login_wait(driver, login_username, login_password)
+            own_driver = True
 
         support_record_text = fetch_support_record_text_for_month(
             driver=driver,
@@ -14632,11 +14644,11 @@ def fetch_home_eval_support_record_text(resident_name: str, create_year: str, cr
         return support_record_text
 
     finally:
-        try:
-            if driver is not None:
+        if own_driver:
+            try:
                 driver.quit()
-        except Exception:
-            pass
+            except Exception:
+                pass
 
 def render_secret_home_eval_auto_page():
     st.title("🤫在宅評価シート🤫")
@@ -14766,12 +14778,12 @@ def render_secret_home_eval_auto_page():
                 st.error("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
                 return
 
-            with st.spinner("Knowbeへ接続して支援記録を取得中..."):
-                support_record_text = fetch_home_eval_support_record_text(
-                    resident_name=resident_name,
-                    create_year=create_year,
-                    create_month=create_month,
-                )
+            support_record_text = fetch_home_eval_support_record_text(
+                resident_name=resident_name_loop,
+                create_year=create_year,
+                create_month=create_month,
+                driver=driver,
+            )
 
             st.session_state["secret_home_eval_support_record_text"] = support_record_text
 
@@ -14936,7 +14948,13 @@ def render_secret_home_eval_auto_page():
                     created_names.append(resident_name_loop)
 
                 except Exception as e:
-                    failed_names.append(f"{resident_name_loop}：{e}")
+                    current_url = ""
+                    try:
+                        current_url = driver.current_url or ""
+                    except Exception:
+                        current_url = ""
+
+                    failed_names.append(f"{resident_name_loop}：{e} | url={current_url}")
 
                 progress.progress(idx / total_count)
 

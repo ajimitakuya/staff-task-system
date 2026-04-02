@@ -1170,7 +1170,6 @@ def get_support_record_page_text(driver) -> str:
 def fetch_support_record_text_for_month(driver, resident_name: str, year: int, month: int) -> str:
     log("[STEP] fetch_support_record_text_for_month start")
 
-    # 毎回、必ず 利用者ごと一覧 へ戻る
     ok = goto_users_summary(driver)
     if not ok:
         dump_debug(driver, "goto_users_summary_fail")
@@ -1178,19 +1177,26 @@ def fetch_support_record_text_for_month(driver, resident_name: str, year: int, m
 
     time.sleep(1.0)
 
-    # 一覧から対象利用者を探して、支援記録へ入る
     ok = open_support_record_for_resident(driver, resident_name)
     if not ok:
         dump_debug(driver, "open_support_record_for_resident_fail")
         raise RuntimeError(f"[FATAL] 利用者一覧で対象利用者が見つかりません: {resident_name}")
 
-    # 対象月へ移動
+    cur = driver.current_url or ""
+    if "support_plan" in cur or "assessment" in cur or (not _is_real_support_record_url(cur)):
+        dump_debug(driver, "wrong_page_after_open_support_record")
+        raise RuntimeError(f"[FATAL] 支援記録ではないページに遷移しました: {cur}")
+
     ok = goto_support_record_month(driver, int(year), int(month))
     if not ok:
         dump_debug(driver, "goto_support_record_month_fail")
         raise RuntimeError(f"[FATAL] 支援記録の対象月へ移動できません: {year}/{month}")
 
-    # 本文取得
+    cur = driver.current_url or ""
+    if "support_plan" in cur or "assessment" in cur or (not _is_real_support_record_url(cur)):
+        dump_debug(driver, "wrong_page_after_month_jump")
+        raise RuntimeError(f"[FATAL] 月移動後に支援記録ページではありません: {cur}")
+
     text = get_support_record_page_text(driver)
 
     log("[STEP] fetch_support_record_text_for_month done")
@@ -3193,53 +3199,55 @@ def find_user_card_by_name(driver, resident_name: str):
     return None
 
 
+def _is_real_support_record_url(url: str) -> bool:
+    """
+    本物の支援記録URLだけを許可する
+    例:
+      https://mgr.knowbe.jp/v2/#/record/365644/support
+      https://mgr.knowbe.jp/v2/#/record/365644/support/2026/4
+    """
+    u = "" if url is None else str(url).strip()
+
+    if "support_plan" in u:
+        return False
+    if "assessment" in u:
+        return False
+
+    return re.search(r"/record/\d+/support(?:$|[/?#])", u) is not None
+
+
 def open_support_record_for_resident(driver, resident_name: str) -> bool:
     """
-    一覧から対象利用者の「支援記録」ボタンを押す
+    一覧から対象利用者の『支援記録』ボタンだけを厳密に押す
+    - support_plan / assessment に飛んだら失敗扱い
+    - 画面全体の曖昧検索はしない
     """
-
-    log(f"[DEBUG] goto_support_record_month raw current_url = {driver.current_url}")
+    log(f"[STEP] open_support_record_for_resident start resident={resident_name}")
 
     card = find_user_card_by_name(driver, resident_name)
     if card is None:
+        log(f"[DEBUG] user card not found: {resident_name}")
         return False
 
-    # cardそのもの、親、さらに親…と範囲を広げて探す
     containers = [card]
 
-    try:
-        parent1 = card.find_element(By.XPATH, "./..")
-        containers.append(parent1)
-    except Exception:
-        parent1 = None
+    cur = card
+    for _ in range(4):
+        try:
+            cur = cur.find_element(By.XPATH, "./..")
+            containers.append(cur)
+        except Exception:
+            break
 
-    try:
-        if parent1 is not None:
-            parent2 = parent1.find_element(By.XPATH, "./..")
-            containers.append(parent2)
-        else:
-            parent2 = None
-    except Exception:
-        parent2 = None
-
-    try:
-        if parent2 is not None:
-            parent3 = parent2.find_element(By.XPATH, "./..")
-            containers.append(parent3)
-    except Exception:
-        pass
-
+    # 「支援記録」完全一致だけを対象にする
     btn_xps = [
-        ".//button[.//span[contains(normalize-space(.), '支援記録')]]",
-        ".//button[contains(normalize-space(.), '支援記録')]",
-        ".//*[self::span or self::p or self::div][contains(normalize-space(.), '支援記録')]/ancestor::button[1]",
+        ".//button[normalize-space(.)='支援記録']",
+        ".//button[.//*[normalize-space(.)='支援記録']]",
+        ".//*[self::span or self::p or self::div][normalize-space(.)='支援記録']/ancestor::button[1]",
     ]
 
-    for idx, container in enumerate(containers, start=1):
-        try:
-            log(f"[DEBUG] search support button in container level {idx}")
-        except Exception:
-            pass
+    for level, container in enumerate(containers, start=1):
+        log(f"[DEBUG] search support button in container level {level}")
 
         for xp in btn_xps:
             try:
@@ -3249,121 +3257,127 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
 
             for btn in btns:
                 try:
-                    txt = (btn.text or "").strip()
-                except Exception:
-                    txt = ""
-
-                try:
                     if not btn.is_displayed():
                         continue
                 except Exception:
                     pass
 
-                log(f"[DEBUG] try click support button level={idx} text={txt}")
+                try:
+                    txt = (btn.text or "").strip()
+                except Exception:
+                    txt = ""
 
-                if safe_click(driver, btn):
-                    try:
-                        WebDriverWait(driver, 15).until(
-                            lambda d: re.search(r"/record/\d+/support(?:$|/|\?)", d.current_url or "") is not None
-                        )
-                    except Exception:
-                        log(f"[DEBUG] support url wait timeout current_url = {driver.current_url}")
-                        return False
+                log(f"[DEBUG] try strict support click level={level} text={txt!r}")
 
-                    log(f"[DEBUG] after click current_url = {driver.current_url}")
+                old_url = driver.current_url or ""
+
+                if not safe_click(driver, btn):
+                    continue
+
+                reached = False
+                bad_url = ""
+
+                t0 = time.time()
+                while time.time() - t0 < 15:
+                    cur_url = driver.current_url or ""
+
+                    if cur_url != old_url:
+                        log(f"[DEBUG] after click current_url = {cur_url}")
+
+                    if "support_plan" in cur_url or "assessment" in cur_url:
+                        bad_url = cur_url
+                        break
+
+                    if _is_real_support_record_url(cur_url):
+                        reached = True
+                        break
+
+                    time.sleep(0.2)
+
+                if bad_url:
+                    log(f"[DEBUG] wrong page reached = {bad_url}")
+                    continue
+
+                if reached:
                     time.sleep(1.0)
+                    log(f"[STEP] open_support_record_for_resident done resident={resident_name}")
                     return True
 
-    # 最後の保険：画面全体から resident名の近くの支援記録ボタンを探す
-    try:
-        target = normalize_resident_name_for_match(resident_name)
-        rows = driver.find_elements(By.XPATH, "//*[contains(normalize-space(.), '支援記録')]")
-        for el in rows:
-            try:
-                txt = (el.text or "").strip()
-            except Exception:
-                txt = ""
-            txt_norm = normalize_resident_name_for_match(txt)
-            if target in txt_norm:
-                btn = el
-                if el.tag_name.lower() != "button":
-                    try:
-                        btn = el.find_element(By.XPATH, "./ancestor::button[1]")
-                    except Exception:
-                        btn = el
-                if safe_click(driver, btn):
-                    try:
-                        WebDriverWait(driver, 15).until(
-                            lambda d: "/support" in (d.current_url or "")
-                        )
-                    except Exception:
-                        pass
-                    log(f"[DEBUG] fallback click current_url = {driver.current_url}")
-                    time.sleep(1.0)
-                    return True
-    except Exception:
-        pass
-
+    log(f"[DEBUG] strict support button click failed: {resident_name}")
     return False
 
 
 def goto_support_record_month(driver, target_year: int, target_month: int) -> bool:
     """
-    支援記録ページに入ったあと、
-    .../support で終わっていても
-    .../support/YYYY/M の形を自前で作って移動する
+    本物の支援記録URLにだけ年月を付けて移動する
+    例:
+      /record/365644/support        -> /record/365644/support/2026/4
+      /record/365644/support/2026/3 -> /record/365644/support/2026/4
+
+    support_plan / assessment は即失敗
     """
     cur = driver.current_url or ""
     log(f"[DEBUG] goto_support_record_month start current_url = {cur}")
 
-    # まず /support を含むURLになるまで待つ
+    # まずURLが安定するまで少し待つ
     for _ in range(30):
         cur = driver.current_url or ""
         log(f"[DEBUG] goto_support_record_month current_url = {cur}")
-        if "/support" in cur:
+
+        if "support_plan" in cur or "assessment" in cur:
+            log(f"[DEBUG] wrong page detected before month jump = {cur}")
+            return False
+
+        if _is_real_support_record_url(cur):
             break
-        time.sleep(0.5)
+
+        time.sleep(0.3)
     else:
-        log("[DEBUG] support URL not reached")
+        log("[DEBUG] real support URL not reached")
         return False
 
     cur = driver.current_url or ""
 
-    # ① すでに /support/YYYY/M まで入っている場合
-    if re.search(r"/support/\d{4}/\d{1,2}(?=$|[/?#])", cur):
-        new_url = re.sub(
-            r"/support/\d{4}/\d{1,2}(?=$|[/?#])",
-            f"/support/{target_year}/{target_month}",
-            cur
-        )
-    else:
-        # ② /support で止まっている場合は、その後ろに自分で年月を足す
-        m = re.search(r"^(.*?/support)(?=$|[/?#])", cur)
-        if not m:
-            log(f"[DEBUG] support base regex not matched. current_url = {cur}")
-            return False
+    if "support_plan" in cur or "assessment" in cur:
+        log(f"[DEBUG] wrong page detected = {cur}")
+        return False
 
-        base_url = m.group(1)
-        new_url = f"{base_url}/{target_year}/{target_month}"
+    # /record/{id}/support を基点にする
+    m = re.search(r"^(.*?/record/\d+/support)(?:/\d{4}/\d{1,2})?(?=$|[/?#])", cur)
+    if not m:
+        log(f"[DEBUG] support base regex not matched. current_url = {cur}")
+        return False
+
+    base_url = m.group(1)
+    new_url = f"{base_url}/{int(target_year)}/{int(target_month)}"
 
     log(f"[DEBUG] goto_support_record_month new_url = {new_url}")
 
-    # URLを直接開く
     driver.get(new_url)
-    time.sleep(1.0)
-
-    # Knowbe側がSPAっぽいので refresh が必要
+    time.sleep(1.2)
     driver.refresh()
     time.sleep(2.0)
 
-    log(f"[DEBUG] goto_support_record_month after refresh current_url = {driver.current_url}")
+    after_url = driver.current_url or ""
+    log(f"[DEBUG] goto_support_record_month after refresh current_url = {after_url}")
 
-    # 支援記録ページらしい表示を待つ
-    WebDriverWait(driver, 15).until(
-        EC.presence_of_element_located(
-            (By.XPATH, "//*[contains(normalize-space(.), '支援記録')]")
+    if "support_plan" in after_url or "assessment" in after_url:
+        log(f"[DEBUG] wrong page after refresh = {after_url}")
+        return False
+
+    if not _is_real_support_record_url(after_url):
+        log(f"[DEBUG] still not real support url after refresh = {after_url}")
+        return False
+
+    try:
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located(
+                (By.XPATH, "//*[contains(normalize-space(.), '支援記録')]")
+            )
         )
-    )
+    except Exception:
+        log("[DEBUG] support page marker wait timeout")
+        return False
 
     return True
 
