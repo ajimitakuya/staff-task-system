@@ -3197,6 +3197,9 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
     """
     一覧から対象利用者の「支援記録」ボタンを押す
     """
+
+    log(f"[DEBUG] goto_support_record_month raw current_url = {driver.current_url}")
+
     card = find_user_card_by_name(driver, resident_name)
     if card is None:
         return False
@@ -3261,10 +3264,11 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
                 if safe_click(driver, btn):
                     try:
                         WebDriverWait(driver, 15).until(
-                            lambda d: "/support" in (d.current_url or "")
+                            lambda d: re.search(r"/record/\d+/support(?:$|/|\?)", d.current_url or "") is not None
                         )
                     except Exception:
-                        pass
+                        log(f"[DEBUG] support url wait timeout current_url = {driver.current_url}")
+                        return False
 
                     log(f"[DEBUG] after click current_url = {driver.current_url}")
                     time.sleep(1.0)
