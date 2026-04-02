@@ -3340,7 +3340,53 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
                 old_url = driver.current_url or ""
                 log(f"[DEBUG] try support click level={level} index={i} old_url={old_url}")
 
-                if not safe_click(driver, btn):
+                clicked = False
+
+                # 1) まず通常クリック
+                try:
+                    btn.click()
+                    clicked = True
+                except Exception:
+                    pass
+
+                # 2) だめなら safe_click
+                if not clicked:
+                    try:
+                        clicked = safe_click(driver, btn)
+                    except Exception:
+                        clicked = False
+
+                # 3) それでもだめなら JS で button を直接クリック
+                if not clicked:
+                    try:
+                        driver.execute_script("""
+                            arguments[0].scrollIntoView({block:'center'});
+                            arguments[0].click();
+                        """, btn)
+                        clicked = True
+                    except Exception:
+                        clicked = False
+
+                # 4) さらに保険：button 内の span「支援記録」を直接 click
+                if not clicked:
+                    try:
+                        spans = btn.find_elements(By.XPATH, ".//span[normalize-space(.)='支援記録']")
+                    except Exception:
+                        spans = []
+
+                    for sp in spans:
+                        try:
+                            driver.execute_script("""
+                                arguments[0].scrollIntoView({block:'center'});
+                                arguments[0].click();
+                            """, sp)
+                            clicked = True
+                            break
+                        except Exception:
+                            pass
+
+                if not clicked:
+                    log(f"[DEBUG] click itself failed level={level} index={i}")
                     continue
 
                 bad_url = ""
@@ -3361,6 +3407,18 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
                         reached = True
                         break
 
+                    # URLが変わらなくても、支援記録ページの見出しが出れば成功扱い
+                    try:
+                        marker = driver.find_elements(
+                            By.XPATH,
+                            "//*[contains(normalize-space(.), '利用者状態') or contains(normalize-space(.), '職員考察')]"
+                        )
+                        if marker:
+                            reached = True
+                            break
+                    except Exception:
+                        pass
+
                     time.sleep(0.2)
 
                 if bad_url:
@@ -3372,8 +3430,8 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
                     log(f"[STEP] open_support_record_for_resident done resident={resident_name}")
                     return True
 
-    log(f"[DEBUG] strict support button click failed: {resident_name}")
-    return False
+                    log(f"[DEBUG] strict support button click failed: {resident_name}")
+                    return False
 
 
 def goto_support_record_month(driver, target_year: int, target_month: int) -> bool:
