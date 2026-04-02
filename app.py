@@ -14701,6 +14701,7 @@ def render_secret_home_eval_auto_page():
         }
 
         driver = None
+        support_record_text = ""
 
         try:
             ctx = resolve_bee_company_context(
@@ -14709,6 +14710,11 @@ def render_secret_home_eval_auto_page():
                 knowbe_login_username="",
                 knowbe_login_password="",
             )
+
+            st.info(f"DEBUG current_company_id = {st.session_state.get('company_id', '')}")
+            st.info(f"DEBUG company_name = {st.session_state.get('company_name', '')}")
+            st.info(f"DEBUG resolved knowbe username = {ctx.get('knowbe_login_username', '')}")
+            st.info(f"DEBUG ctx ok = {ctx.get('ok', False)} / error = {ctx.get('error', '')}")
 
             if not ctx.get("ok", False):
                 st.error(ctx.get("error", "Knowbeログイン情報が取得できませんでした。"))
@@ -14722,10 +14728,24 @@ def render_secret_home_eval_auto_page():
                 return
 
             with st.spinner("Knowbeへ接続して支援記録を取得中..."):
+                st.info(f"DEBUG login_username just before login = {login_username}")
+
                 driver = build_chrome_driver()
                 driver.get("https://mgr.knowbe.jp/v2/")
                 time.sleep(1.0)
+
+                st.info("DEBUG manual_login_wait start")
                 manual_login_wait(driver, login_username, login_password)
+                st.info("DEBUG manual_login_wait done")
+
+                st.info(f"DEBUG fetch start resident={resident_name} year={create_year} month={create_month}")
+                support_record_text = fetch_support_record_text_for_month(
+                    driver=driver,
+                    resident_name=resident_name,
+                    year=int(str(create_year).strip()),
+                    month=int(str(create_month).strip()),
+                )
+                st.info(f"DEBUG fetch done length={len(str(support_record_text))}")
 
             st.session_state["secret_home_eval_support_record_text"] = support_record_text
 
@@ -14765,7 +14785,10 @@ def render_secret_home_eval_auto_page():
             st.success("在宅評価シートの1人分自動作成が完了しました。")
 
         except Exception as e:
+            import traceback
             st.error(f"在宅評価シート1人分自動作成エラー: {e}")
+            st.code(traceback.format_exc())
+            st.info(f"DEBUG support_record_text current value = {repr(support_record_text)[:500]}")
 
         finally:
             try:
