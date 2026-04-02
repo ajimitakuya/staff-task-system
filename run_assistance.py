@@ -3265,11 +3265,38 @@ def _is_real_support_record_url(url: str) -> bool:
     return re.search(r"/record/\d+/support(?:$|[/?#])", u) is not None
 
 
+def _button_text_loose(el) -> str:
+    try:
+        txt = (el.text or "").strip()
+    except Exception:
+        txt = ""
+
+    if txt:
+        return txt.replace(" ", "").replace("　", "").replace("\n", "").strip()
+
+    # text が空のbutton対策
+    try:
+        txt = (el.get_attribute("innerText") or "").strip()
+    except Exception:
+        txt = ""
+
+    return txt.replace(" ", "").replace("　", "").replace("\n", "").strip()
+
+
+def _is_real_support_record_url(url: str) -> bool:
+    u = "" if url is None else str(url).strip()
+    if "support_plan" in u:
+        return False
+    if "assessment" in u:
+        return False
+    return re.search(r"/record/\d+/support(?:$|[/?#])", u) is not None
+
+
 def open_support_record_for_resident(driver, resident_name: str) -> bool:
     """
-    一覧から対象利用者の『支援記録』ボタンだけを厳密に押す
-    - support_plan / assessment に飛んだら失敗扱い
-    - 画面全体の曖昧検索はしない
+    名前一致済みのカードから、そのカード内の『支援記録』ボタンだけを押す
+    - 名前探索は find_user_card_by_name に任せる
+    - ここではボタン探索だけ担当
     """
     log(f"[STEP] open_support_record_for_resident start resident={resident_name}")
 
@@ -3278,79 +3305,76 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
         log(f"[DEBUG] user card not found: {resident_name}")
         return False
 
-    containers = [card]
-
+    # card 自体が浅すぎる場合に備えて、少しだけ親にも広げる
+    search_roots = [card]
     cur = card
     for _ in range(4):
         try:
             cur = cur.find_element(By.XPATH, "./..")
-            containers.append(cur)
+            search_roots.append(cur)
         except Exception:
             break
 
-    # 「支援記録」完全一致だけを対象にする
-    btn_xps = [
-        ".//button[normalize-space(.)='支援記録']",
-        ".//button[.//*[normalize-space(.)='支援記録']]",
-        ".//*[self::span or self::p or self::div][normalize-space(.)='支援記録']/ancestor::button[1]",
-    ]
-
-    for level, container in enumerate(containers, start=1):
+    for level, root in enumerate(search_roots, start=1):
         log(f"[DEBUG] search support button in container level {level}")
 
-        for xp in btn_xps:
+        try:
+            buttons = root.find_elements(
+                By.XPATH,
+                ".//span[contains(normalize-space(.), '支援記録')]/ancestor::button[1]"
+            )
+        except Exception:
+            buttons = []
+
+        log(f"[DEBUG] button count level {level} = {len(buttons)}")
+
+        for i, btn in enumerate(buttons, start=1):
             try:
-                btns = container.find_elements(By.XPATH, xp)
+                if not btn.is_displayed():
+                    continue
             except Exception:
-                btns = []
+                pass
 
-            for btn in btns:
-                try:
-                    if not btn.is_displayed():
-                        continue
-                except Exception:
-                    pass
+            txt = _button_text_loose(btn)
+            log(f"[DEBUG] button {i} text={txt!r}")
 
-                try:
-                    txt = (btn.text or "").strip()
-                except Exception:
-                    txt = ""
+            if txt != "支援記録":
+                continue
 
-                log(f"[DEBUG] try strict support click level={level} text={txt!r}")
+            old_url = driver.current_url or ""
+            log(f"[DEBUG] try support click level={level} old_url={old_url}")
 
-                old_url = driver.current_url or ""
+            if not safe_click(driver, btn):
+                continue
 
-                if not safe_click(driver, btn):
-                    continue
+            bad_url = ""
+            reached = False
 
-                reached = False
-                bad_url = ""
+            t0 = time.time()
+            while time.time() - t0 < 15:
+                cur_url = driver.current_url or ""
 
-                t0 = time.time()
-                while time.time() - t0 < 15:
-                    cur_url = driver.current_url or ""
+                if cur_url != old_url:
+                    log(f"[DEBUG] after click current_url = {cur_url}")
 
-                    if cur_url != old_url:
-                        log(f"[DEBUG] after click current_url = {cur_url}")
+                if "support_plan" in cur_url or "assessment" in cur_url:
+                    bad_url = cur_url
+                    break
 
-                    if "support_plan" in cur_url or "assessment" in cur_url:
-                        bad_url = cur_url
-                        break
+                if _is_real_support_record_url(cur_url):
+                    reached = True
+                    break
 
-                    if _is_real_support_record_url(cur_url):
-                        reached = True
-                        break
+                time.sleep(0.2)
 
-                    time.sleep(0.2)
+            if bad_url:
+                log(f"[DEBUG] wrong page reached = {bad_url}")
+                continue
 
-                if bad_url:
-                    log(f"[DEBUG] wrong page reached = {bad_url}")
-                    continue
-
-                if reached:
-                    time.sleep(1.0)
-                    log(f"[STEP] open_support_record_for_resident done resident={resident_name}")
-                    return True
+            if reached:
+                time.sleep(1.0)
+                log(f"[STEP] open_support_record_for_resident done resident={resident_name}")
+                return True
 
     log(f"[DEBUG] strict support button click failed: {resident_name}")
     return False
