@@ -1148,9 +1148,20 @@ def fetch_support_record_text_for_month(driver, resident_name: str, year: int, m
     """
     log("[STEP] fetch_support_record_text_for_month start")
 
-    goto_record_user_page(driver)
-    open_support_record_page_for_user(driver, resident_name)
-    goto_support_record_month(driver, year, month)
+    goto_users_summary(driver)
+
+    log(f"[STEP] find resident: {resident_name}")
+    ok = open_support_record_for_resident(driver, resident_name)
+    if not ok:
+        dump_debug(driver, "resident_not_found_in_users_summary")
+        raise RuntimeError(f"[FATAL] 利用者一覧で対象利用者が見つかりません: {resident_name}")
+
+    log(f"[STEP] goto support target month: {year}/{month}")
+    ok = goto_support_record_month(driver, int(year), int(month))
+    if not ok:
+        dump_debug(driver, "goto_support_record_month_fail")
+        raise RuntimeError(f"[FATAL] 支援記録の対象月へ移動できません: {year}/{month}")
+
     text = get_support_record_page_text(driver)
 
     log("[STEP] fetch_support_record_text_for_month done")
