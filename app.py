@@ -5914,22 +5914,22 @@ def process_secret_command():
 
 
 # ===== メインメニュー =====
-for p in document_page_options:
-    is_selected = (st.session_state.current_page == p)
+for page_key, page_label in document_page_options:
+    is_selected = (st.session_state.current_page == page_label)
 
     if st.session_state.get("heart_mode", False):
-        display_p = heart_label(p)
+        display_p = heart_label(page_label)
     else:
-        display_p = p
+        display_p = page_label
 
     if is_selected:
         st.sidebar.markdown(
-            f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {display_p}</div></div>',
+            f'<div class="menu-selected-wrap"><div class="menu-selected-box">• {display_p}</div></div>',
             unsafe_allow_html=True
         )
     else:
-        if st.sidebar.button(display_p, key=f"menu_{p}", use_container_width=True):
-            st.session_state.current_page = p
+        if st.sidebar.button(display_p, key=f"menu_{page_key}", use_container_width=True):
+            st.session_state.current_page = page_label
             st.rerun()
 
 # ===== 利用者書類 =====
