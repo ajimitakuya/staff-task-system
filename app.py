@@ -5916,7 +5916,11 @@ def process_secret_command():
 # ===== メインメニュー =====
 for p in main_page_options:
     is_selected = (st.session_state.current_page == p)
-    display_p = heart_label(p)
+
+    if st.session_state.get("heart_mode", False):
+        display_p = heart_label(p)
+    else:
+        display_p = p
 
     if is_selected:
         st.sidebar.markdown(

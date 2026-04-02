@@ -60,7 +60,7 @@ def safe_text(v):
     return str(v or "").strip()
 
 def heart_label(text: str) -> str:
-    return f"💖 {text}"
+    return f"💕 {text}"
 
 # ===== 日付 =====
 def get_saturday_dates_for_month(year: int, month: int):
