@@ -14556,21 +14556,21 @@ def render_secret_home_eval_auto_page():
             placeholder="サービス管理責任者名"
         )
 
-    st.markdown("## サビ管訪問")
+    st.markdown("## 訪問者（職員者名）")
     visit_cols_1 = st.columns(2)
     visit_cols_2 = st.columns(2)
     visit_cols_3 = st.columns(2)
 
     with visit_cols_1[0]:
-        visit_1 = st.text_input("第1週 サビ管訪問", key="secret_home_eval_visit_1")
+        visit_1 = st.text_input("第1週 訪問者（職員者名）", key="secret_home_eval_visit_1")
     with visit_cols_1[1]:
-        visit_2 = st.text_input("第2週 サビ管訪問", key="secret_home_eval_visit_2")
+        visit_2 = st.text_input("第2週 訪問者（職員者名）", key="secret_home_eval_visit_2")
     with visit_cols_2[0]:
-        visit_3 = st.text_input("第3週 サビ管訪問", key="secret_home_eval_visit_3")
+        visit_3 = st.text_input("第3週 訪問者（職員者名）", key="secret_home_eval_visit_3")
     with visit_cols_2[1]:
-        visit_4 = st.text_input("第4週 サビ管訪問", key="secret_home_eval_visit_4")
+        visit_4 = st.text_input("第4週 訪問者（職員者名）", key="secret_home_eval_visit_4")
     with visit_cols_3[0]:
-        visit_5 = st.text_input("第5週 サビ管訪問", key="secret_home_eval_visit_5")
+        visit_5 = st.text_input("第5週 訪問者（職員者名）", key="secret_home_eval_visit_5")
 
     weekly_dates = build_home_eval_week_ranges(create_year, create_month)
 
