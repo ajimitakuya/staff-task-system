@@ -3198,47 +3198,59 @@ def goto_users_summary(driver):
     return True
 
 
-def normalize_resident_name_for_match(s: str) -> str:
-    return str(s).replace(" ", "").replace("　", "").strip()
+def normalize_resident_name_for_match(name: str) -> str:
+    s = str(name or "")
+    s = s.replace(" ", "").replace("　", "").strip()
+    return s
 
 
 def find_user_card_by_name(driver, resident_name: str):
     """
-    利用者ごとの一覧から、指定氏名を含むカード（行ブロック）を探す
+    利用者ごと一覧ページから、対象利用者の行（カード）を返す。
+    完全一致ではなく、行本文に名前が含まれていればOKにする。
     """
     target = normalize_resident_name_for_match(resident_name)
+    log(f"[STEP] find_user_card_by_name target={target}")
 
-    # 名前本体っぽい span を拾う
-    name_spans = driver.find_elements(By.XPATH, "//span[contains(@class,'jss509')]")
+    # 一覧の行候補を広めに取る
+    candidate_xpaths = [
+        "//button[.//span[contains(normalize-space(.), '支援記録')]]/ancestor::*[self::div or self::li or self::section or self::tr][1]",
+        "//span[contains(normalize-space(.), '支援記録')]/ancestor::*[self::div or self::li or self::section or self::tr][1]",
+        "//*[contains(normalize-space(.), '支援記録') and (self::button or self::span or self::div)]/ancestor::*[self::div or self::li or self::section or self::tr][1]",
+    ]
 
-    for sp in name_spans:
+    candidates = []
+    for xp in candidate_xpaths:
         try:
-            txt = normalize_resident_name_for_match(sp.text)
-            if not txt:
-                continue
-
-            if target in txt:
-                # この span を含む利用者ブロックを上へたどる
-                # ボタン群（アセスメント/個別支援計画/支援記録...）を持つ親を探す
-                cur = sp
-                for _ in range(8):
-                    try:
-                        cur = cur.find_element(By.XPATH, "..")
-                    except Exception:
-                        break
-
-                    try:
-                        buttons = cur.find_elements(
-                            By.XPATH,
-                            ".//button[.//span[contains(normalize-space(.), '支援記録')] or contains(normalize-space(.), '支援記録')]"
-                        )
-                    except Exception:
-                        buttons = []
-
-                    if buttons:
-                        return cur
+            found = driver.find_elements(By.XPATH, xp)
+            for el in found:
+                if el not in candidates:
+                    candidates.append(el)
         except Exception:
-            continue
+            pass
+
+    log(f"[DEBUG] candidate count = {len(candidates)}")
+
+    for i, card in enumerate(candidates, start=1):
+        try:
+            txt = card.text or ""
+        except Exception:
+            txt = ""
+
+        txt_norm = normalize_resident_name_for_match(txt)
+
+        if i <= 15:
+            log(f"[DEBUG] candidate {i}: {txt_norm[:200]}")
+
+        # 名前が行本文に含まれていたらOK
+        if target and target in txt_norm:
+            log(f"[STEP] matched candidate {i}")
+            try:
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", card)
+                time.sleep(0.3)
+            except Exception:
+                pass
+            return card
 
     return None
 
