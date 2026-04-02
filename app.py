@@ -14779,7 +14779,7 @@ def render_secret_home_eval_auto_page():
                 return
 
             support_record_text = fetch_home_eval_support_record_text(
-                resident_name=resident_name_loop,
+                resident_name=resident_name,
                 create_year=create_year,
                 create_month=create_month,
                 driver=driver,
