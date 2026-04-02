@@ -5914,7 +5914,7 @@ def process_secret_command():
 
 
 # ===== メインメニュー =====
-for p in main_page_options:
+for p in document_page_options:
     is_selected = (st.session_state.current_page == p)
 
     if st.session_state.get("heart_mode", False):
