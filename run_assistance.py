@@ -3300,8 +3300,9 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
 def goto_support_record_month(driver, target_year: int, target_month: int) -> bool:
     """
     支援記録ページに入ったあと、URLの /support/YYYY/M を対象月へ差し替えて移動する
+    Knowbe側がSPAで、URL変更だけでは再描画しないことがあるため refresh をかける
     """
-    # まず支援記録URLになるまで少し待つ
+    # まず /support/ URL になるまで待つ
     for _ in range(30):
         cur = driver.current_url or ""
         log(f"[DEBUG] goto_support_record_month current_url = {cur}")
@@ -3327,7 +3328,13 @@ def goto_support_record_month(driver, target_year: int, target_month: int) -> bo
 
     log(f"[DEBUG] goto_support_record_month new_url = {new_url}")
 
+    # URL変更
     driver.get(new_url)
+    time.sleep(1.0)
+
+    # ★これが重要：URL変更だけでは月表示が切り替わらないので refresh
+    driver.refresh()
+    time.sleep(2.0)
 
     try:
         WebDriverWait(driver, 15).until(
@@ -3336,6 +3343,7 @@ def goto_support_record_month(driver, target_year: int, target_month: int) -> bo
     except Exception:
         log(f"[DEBUG] target month url not confirmed. current_url = {driver.current_url}")
 
+    # 支援記録ページの主要文字が見えるまで待つ
     WebDriverWait(driver, 15).until(
         EC.presence_of_element_located(
             (By.XPATH, "//*[contains(normalize-space(.), '支援記録')]")
@@ -3344,7 +3352,6 @@ def goto_support_record_month(driver, target_year: int, target_month: int) -> bo
 
     time.sleep(1.0)
     return True
-
 
 def extract_support_record_text(driver) -> str:
     """
