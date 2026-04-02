@@ -1119,7 +1119,7 @@ def get_support_record_page_text(driver) -> str:
     log(f"[DEBUG] support record text length={len(text)}")
     return text
 
-
+""""
 def fetch_support_record_text_for_month(driver, resident_name: str, year: int, month: int) -> str:
     log("[STEP] fetch_support_record_text_for_month start")
 
@@ -1154,6 +1154,7 @@ def fetch_support_record_text_for_month(driver, resident_name: str, year: int, m
 
     log("[STEP] fetch_support_record_text_for_month done")
     return text
+"""
 
 # =========================
 # 支援記録 → 利用形態一覧化（期間一括）
@@ -3508,14 +3509,19 @@ def fetch_user_support_record_text_from_app(
     driver = build_chrome_driver()
 
     try:
-        log("[STEP] goto users summary")
-        goto_users_summary(driver)
+        log("[STEP] open base url")
+        driver.get("https://mgr.knowbe.jp/v2/")
+        time.sleep(1.0)
 
         log("[STEP] login")
         manual_login_wait(driver, login_username, login_password)
 
-        # ログイン後は再度一覧へ
-        goto_users_summary(driver)
+        # ログイン後に一覧へ行く
+        log("[STEP] goto users summary")
+        ok = goto_users_summary(driver)
+        if not ok:
+            dump_debug(driver, "goto_users_summary_fail")
+            raise RuntimeError("[FATAL] 利用者ごと一覧へ戻れません")
 
         log(f"[STEP] find resident: {resident_name}")
         ok = open_support_record_for_resident(driver, resident_name)
@@ -3523,11 +3529,21 @@ def fetch_user_support_record_text_from_app(
             dump_debug(driver, "resident_not_found_in_users_summary")
             raise RuntimeError(f"[FATAL] 対象利用者カードは見つかったが支援記録ボタンを押せませんでした: {resident_name}")
 
+        cur = driver.current_url or ""
+        if "support_plan" in cur or "assessment" in cur or (not _is_real_support_record_url(cur)):
+            dump_debug(driver, "wrong_page_after_open_support_record")
+            raise RuntimeError(f"[FATAL] 支援記録ではないページに遷移しました: {cur}")
+
         log("[STEP] goto support target month")
         ok = goto_support_record_month(driver, int(target_year), int(target_month))
         if not ok:
             dump_debug(driver, "goto_support_record_month_fail")
             raise RuntimeError(f"[FATAL] 支援記録の対象月へ移動できません: {target_year}/{target_month}")
+
+        cur = driver.current_url or ""
+        if "support_plan" in cur or "assessment" in cur or (not _is_real_support_record_url(cur)):
+            dump_debug(driver, "wrong_page_after_month_jump")
+            raise RuntimeError(f"[FATAL] 月移動後に支援記録ページではありません: {cur}")
 
         WebDriverWait(driver, 15).until(
             EC.presence_of_element_located(
@@ -3536,7 +3552,7 @@ def fetch_user_support_record_text_from_app(
         )
 
         log("[STEP] extract support record text")
-        support_text = extract_support_record_text(driver)
+        support_text = get_support_record_page_text(driver)
 
         if not support_text.strip():
             dump_debug(driver, "support_record_text_empty")
