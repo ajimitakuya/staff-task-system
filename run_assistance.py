@@ -3315,8 +3315,8 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
             break
 
     xpaths = [
-        ".//span[normalize-space(.)='支援記録']/ancestor::button[1]",
-        ".//*[normalize-space(.)='支援記録']/ancestor::button[1]",
+        ".//span[normalize-space(.)='支援記録']/ancestor::*[@role='button'][1]",
+        ".//*[normalize-space(.)='支援記録']/ancestor::*[@role='button'][1]",
     ]
 
     for level, root in enumerate(search_roots, start=1):
@@ -3330,109 +3330,62 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
 
             log(f"[DEBUG] matched buttons level={level} xp={xp} count={len(buttons)}")
 
-            for i, btn in enumerate(buttons, start=1):
+            for i, el in enumerate(buttons, start=1):
                 try:
-                    if not btn.is_displayed():
+                    if not el.is_displayed():
                         continue
                 except Exception:
                     pass
 
-                old_url = driver.current_url or ""
-                log(f"[DEBUG] try support click level={level} index={i} old_url={old_url}")
-
-                clicked = False
-
-                # 1) まず通常クリック
+                href = ""
                 try:
-                    btn.click()
-                    clicked = True
+                    href = (el.get_attribute("href") or "").strip()
                 except Exception:
-                    pass
+                    href = ""
 
-                # 2) だめなら safe_click
-                if not clicked:
-                    try:
-                        clicked = safe_click(driver, btn)
-                    except Exception:
-                        clicked = False
+                log(f"[DEBUG] support href level={level} index={i} href={href}")
 
-                # 3) それでもだめなら JS で button を直接クリック
-                if not clicked:
-                    try:
-                        driver.execute_script("""
-                            arguments[0].scrollIntoView({block:'center'});
-                            arguments[0].click();
-                        """, btn)
-                        clicked = True
-                    except Exception:
-                        clicked = False
+                if href:
+                    driver.get(href)
+                    time.sleep(1.5)
 
-                # 4) さらに保険：button 内の span「支援記録」を直接 click
-                if not clicked:
-                    try:
-                        spans = btn.find_elements(By.XPATH, ".//span[normalize-space(.)='支援記録']")
-                    except Exception:
-                        spans = []
+                    cur_url = driver.current_url or ""
+                    log(f"[DEBUG] after href jump current_url = {cur_url}")
 
-                    for sp in spans:
-                        try:
-                            driver.execute_script("""
-                                arguments[0].scrollIntoView({block:'center'});
-                                arguments[0].click();
-                            """, sp)
-                            clicked = True
-                            break
-                        except Exception:
-                            pass
+                    if "assessment" in cur_url:
+                        continue
 
-                if not clicked:
-                    log(f"[DEBUG] click itself failed level={level} index={i}")
-                    continue
+                    if "support_plan" in cur_url:
+                        forced_url = re.sub(r"/support_plan(?:$|[/?#].*)", "/support", cur_url)
+                        if forced_url != cur_url:
+                            log(f"[DEBUG] force jump to support url = {forced_url}")
+                            driver.get(forced_url)
+                            time.sleep(1.5)
+                            cur_url = driver.current_url or ""
+                            log(f"[DEBUG] after force jump current_url = {cur_url}")
 
-                bad_url = ""
-                reached = False
+                    if _is_real_support_record_url(cur_url):
+                        log(f"[STEP] open_support_record_for_resident done resident={resident_name}")
+                        return True
 
-                t0 = time.time()
-                while time.time() - t0 < 15:
+                if safe_click(driver, el):
+                    time.sleep(1.5)
                     cur_url = driver.current_url or ""
 
-                    if cur_url != old_url:
-                        log(f"[DEBUG] after click current_url = {cur_url}")
-
-                    # assessment だけ失敗扱い
                     if "assessment" in cur_url:
-                        bad_url = cur_url
-                        break
+                        continue
 
-                    # support_plan は中継ページなので許可して待つ
                     if "support_plan" in cur_url:
-                        log(f"[DEBUG] intermediate page (support_plan) = {cur_url}")
+                        forced_url = re.sub(r"/support_plan(?:$|[/?#].*)", "/support", cur_url)
+                        if forced_url != cur_url:
+                            log(f"[DEBUG] force jump to support url = {forced_url}")
+                            driver.get(forced_url)
+                            time.sleep(1.5)
+                            cur_url = driver.current_url or ""
 
-                    # 本物の support URL に来たら成功
                     if _is_real_support_record_url(cur_url):
-                        reached = True
-                        break
-
-                    # URLがまだ support_plan でも、href が support_plan なら support に組み替えて直接飛ぶ
-                    if "support_plan" in cur_url:
-                        try:
-                            forced_url = re.sub(r"/support_plan(?:$|[/?#].*)", "/support", cur_url)
-                            if forced_url != cur_url:
-                                log(f"[DEBUG] force jump to support url = {forced_url}")
-                                driver.get(forced_url)
-                        except Exception as e:
-                            log(f"[DEBUG] force jump failed: {e}")
-
-                    time.sleep(0.3)
-
-                if bad_url:
-                    log(f"[DEBUG] wrong page reached = {bad_url}")
-                    continue
-
-                if reached:
-                    time.sleep(1.0)
-                    log(f"[STEP] open_support_record_for_resident done resident={resident_name}")
-                    return True
+                        log(f"[STEP] open_support_record_for_resident done resident={resident_name}")
+                        return True
 
 def goto_support_record_month(driver, target_year: int, target_month: int) -> bool:
     """
