@@ -434,34 +434,6 @@ def _click_by_visible_text(driver, tag_name: str, visible_text: str, timeout: in
     except Exception:
         return False
 
-
-def goto_support_record_page_by_text(driver) -> bool:
-    """
-    左メニューから
-    記録 → 利用者ごと → 支援記録
-    をテキストでたどる
-    """
-    log("[STEP] goto_support_record_page_by_text start")
-
-    # 記録
-    if not _click_by_visible_text(driver, "p", "記録", timeout=10):
-        dump_debug(driver, "click_record_fail")
-        return False
-
-    # 利用者ごと
-    if not _click_by_visible_text(driver, "p", "利用者ごと", timeout=10):
-        dump_debug(driver, "click_users_fail")
-        return False
-
-    # 支援記録
-    if not _click_by_visible_text(driver, "span", "支援記録", timeout=10):
-        dump_debug(driver, "click_support_record_fail")
-        return False
-
-    log("[STEP] goto_support_record_page_by_text done")
-    return True
-
-
 def parse_header_date_text(s: str) -> Optional[Tuple[int, int, int]]:
     m = re.search(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日", s)
     if not m:
@@ -1198,21 +1170,27 @@ def get_support_record_page_text(driver) -> str:
 def fetch_support_record_text_for_month(driver, resident_name: str, year: int, month: int) -> str:
     log("[STEP] fetch_support_record_text_for_month start")
 
-    # まず text ベースでページへ行く
-    ok = goto_support_record_page_by_text(driver)
+    # 毎回、必ず 利用者ごと一覧 へ戻る
+    ok = goto_users_summary(driver)
     if not ok:
-        raise RuntimeError("[FATAL] 記録→利用者ごと→支援記録 へ移動できません")
+        dump_debug(driver, "goto_users_summary_fail")
+        raise RuntimeError("[FATAL] 利用者ごと一覧へ戻れません")
 
+    time.sleep(1.0)
+
+    # 一覧から対象利用者を探して、支援記録へ入る
     ok = open_support_record_for_resident(driver, resident_name)
     if not ok:
         dump_debug(driver, "open_support_record_for_resident_fail")
         raise RuntimeError(f"[FATAL] 利用者一覧で対象利用者が見つかりません: {resident_name}")
 
+    # 対象月へ移動
     ok = goto_support_record_month(driver, int(year), int(month))
     if not ok:
         dump_debug(driver, "goto_support_record_month_fail")
         raise RuntimeError(f"[FATAL] 支援記録の対象月へ移動できません: {year}/{month}")
 
+    # 本文取得
     text = get_support_record_page_text(driver)
 
     log("[STEP] fetch_support_record_text_for_month done")
