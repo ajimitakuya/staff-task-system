@@ -14541,6 +14541,17 @@ def render_secret_home_eval_auto_page():
         st.warning("利用者情報がまだありません。")
         return
 
+    st.markdown("## 利用者選択（1人分作成用）")
+
+    selected_label = st.selectbox(
+        "利用者を選択",
+        resident_options,
+        key="secret_home_eval_resident_select"
+    )
+
+    selected_row = resident_map.get(selected_label, {})
+    resident_name = str(selected_row.get("resident_name", "")).strip()
+
     st.markdown("## 基本情報")
 
     base_cols = st.columns([2, 2, 3])
@@ -14583,7 +14594,114 @@ def render_secret_home_eval_auto_page():
 
     st.divider()
 
-    if st.button("🚀 Knowbeから在宅評価シートを全員分自動作成", key="secret_home_eval_auto_generate_all"):
+    btn_col1, btn_col2 = st.columns(2)
+
+    with btn_col1:
+        single_generate = st.button(
+            "🚀 Knowbeから在宅評価シートを1人分自動作成",
+            key="secret_home_eval_auto_generate_single",
+            use_container_width=True
+        )
+
+    with btn_col2:
+        all_generate = st.button(
+            "🚀 Knowbeから在宅評価シートを全員分自動作成",
+            key="secret_home_eval_auto_generate_all",
+            use_container_width=True
+        )
+
+    # ===== 1人分作成 =====
+    if single_generate:
+        if not resident_name:
+            st.error("利用者を選択してください。")
+            return
+
+        if not str(create_year).strip() or not str(create_month).strip():
+            st.error("作成年と作成月を入力してください。")
+            return
+
+        if not str(manager_name).strip():
+            st.error("月間評価のサビ管名を入力してください。")
+            return
+
+        weekly_visits = {
+            "1": visit_1,
+            "2": visit_2,
+            "3": visit_3,
+            "4": visit_4,
+            "5": visit_5,
+        }
+
+        driver = None
+
+        try:
+            login_username, login_password = get_knowbe_login_credentials()
+            if not login_username or not login_password:
+                st.error("Knowbeログイン情報が取得できませんでした。")
+                return
+
+            with st.spinner("Knowbeへ接続して支援記録を取得中..."):
+                driver = build_chrome_driver()
+                driver.get("https://mgr.knowbe.jp/v2/")
+                time.sleep(1.0)
+                manual_login_wait(driver, login_username, login_password)
+
+                support_record_text = fetch_support_record_text_for_month(
+                    driver=driver,
+                    resident_name=resident_name,
+                    year=int(str(create_year).strip()),
+                    month=int(str(create_month).strip()),
+                )
+
+            st.session_state["secret_home_eval_support_record_text"] = support_record_text
+
+            with st.spinner("Geminiで在宅評価を生成中..."):
+                home_eval_json = generate_json_with_gemini(
+                    build_home_eval_from_support_record_prompt(
+                        resident_name=resident_name,
+                        year_val=create_year,
+                        month_val=create_month,
+                        support_record_text=support_record_text,
+                    )
+                )
+
+            st.session_state["secret_home_eval_json"] = home_eval_json
+
+            goals = home_eval_json.get("goals", [])
+            monthly_evaluations = home_eval_json.get("monthly_evaluations", [])
+            weekly_reports = home_eval_json.get("weekly_reports", {})
+
+            cell_data = build_home_eval_cell_data(
+                resident_name=resident_name,
+                create_year=create_year,
+                create_month=create_month,
+                manager_name=manager_name,
+                goals=goals,
+                monthly_evaluations=monthly_evaluations,
+                weekly_dates=weekly_dates,
+                weekly_reports=weekly_reports,
+                weekly_visits=weekly_visits,
+            )
+
+            st.session_state["secret_home_eval_cell_data"] = cell_data
+
+            excel_buffer = create_excel_file("在宅評価シート", cell_data)
+            st.session_state["secret_home_eval_file"] = excel_buffer.getvalue()
+
+            st.success("在宅評価シートの1人分自動作成が完了しました。")
+
+        except Exception as e:
+            st.error(f"在宅評価シート1人分自動作成エラー: {e}")
+
+        finally:
+            try:
+                if driver is not None:
+                    driver.quit()
+            except Exception:
+                pass
+
+    # ===== 全員分作成 =====
+    if all_generate:
         if not str(create_year).strip() or not str(create_month).strip():
             st.error("作成年と作成月を入力してください。")
             return
@@ -14626,42 +14744,42 @@ def render_secret_home_eval_auto_page():
 
             for idx, selected_label in enumerate(resident_options, start=1):
                 selected_row = resident_map.get(selected_label, {})
-                resident_name = str(selected_row.get("resident_name", "")).strip()
+                resident_name_loop = str(selected_row.get("resident_name", "")).strip()
 
-                if not resident_name:
+                if not resident_name_loop:
                     failed_names.append(f"{selected_label}：利用者名取得失敗")
                     progress.progress(idx / total_count)
                     continue
 
                 try:
-                    status_box.info(f"{idx}/{total_count} 作成中: {resident_name}")
+                    status_box.info(f"{idx}/{total_count} 作成中: {resident_name_loop}")
 
                     support_record_text = fetch_support_record_text_for_month(
                         driver=driver,
-                        resident_name=resident_name,
+                        resident_name=resident_name_loop,
                         year=int(str(create_year).strip()),
                         month=int(str(create_month).strip()),
                     )
 
-                    support_record_map[resident_name] = support_record_text
+                    support_record_map[resident_name_loop] = support_record_text
 
                     home_eval_json = generate_json_with_gemini(
                         build_home_eval_from_support_record_prompt(
-                            resident_name=resident_name,
+                            resident_name=resident_name_loop,
                             year_val=create_year,
                             month_val=create_month,
                             support_record_text=support_record_text,
                         )
                     )
 
-                    home_eval_json_map[resident_name] = home_eval_json
+                    home_eval_json_map[resident_name_loop] = home_eval_json
 
                     goals = home_eval_json.get("goals", [])
                     monthly_evaluations = home_eval_json.get("monthly_evaluations", [])
                     weekly_reports = home_eval_json.get("weekly_reports", {})
 
                     cell_data = build_home_eval_cell_data(
-                        resident_name=resident_name,
+                        resident_name=resident_name_loop,
                         create_year=create_year,
                         create_month=create_month,
                         manager_name=manager_name,
@@ -14679,11 +14797,11 @@ def render_secret_home_eval_auto_page():
                     else:
                         excel_bytes = excel_buffer
 
-                    created_files.append((resident_name, excel_bytes))
-                    created_names.append(resident_name)
+                    created_files.append((resident_name_loop, excel_bytes))
+                    created_names.append(resident_name_loop)
 
                 except Exception as e:
-                    failed_names.append(f"{resident_name}：{e}")
+                    failed_names.append(f"{resident_name_loop}：{e}")
 
                 progress.progress(idx / total_count)
 
@@ -14716,6 +14834,35 @@ def render_secret_home_eval_auto_page():
             except Exception:
                 pass
 
+    # ===== 1人分プレビュー =====
+    if st.session_state.get("secret_home_eval_support_record_text"):
+        with st.expander("取得した支援記録本文（1人分確認用）"):
+            st.text_area(
+                "support_record_text",
+                st.session_state.get("secret_home_eval_support_record_text", ""),
+                height=300,
+                key="secret_home_eval_support_record_text_view"
+            )
+
+    if st.session_state.get("secret_home_eval_json"):
+        st.markdown("### 1人分の生成結果JSON")
+        st.text_area(
+            "home_eval_json",
+            json.dumps(st.session_state.get("secret_home_eval_json", {}), ensure_ascii=False, indent=2),
+            height=320,
+            key="secret_home_eval_json_view"
+        )
+
+    if st.session_state.get("secret_home_eval_file") is not None:
+        st.download_button(
+            label="📥 在宅評価シート（1人分）をダウンロード",
+            data=st.session_state["secret_home_eval_file"],
+            file_name=f"{resident_name}_{create_month}月在宅評価シート.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="secret_home_eval_download"
+        )
+
+    # ===== 全員分プレビュー =====
     created_names = st.session_state.get("secret_home_eval_all_created_names", [])
     failed_names = st.session_state.get("secret_home_eval_all_failed_names", [])
 
@@ -14737,7 +14884,6 @@ def render_secret_home_eval_auto_page():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="secret_home_eval_download_all"
         )
-
 # ==========================================
 # 利用者書類
 # ==========================================
