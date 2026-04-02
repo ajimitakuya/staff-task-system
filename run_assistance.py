@@ -73,24 +73,43 @@ def get_knowbe_login_credentials():
     return username, password
 
 def build_chrome_driver():
+    import platform
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service as ChromeService
+
     options = webdriver.ChromeOptions()
-    options.binary_location = "/usr/bin/chromium"
+    system_name = platform.system().lower()
 
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1400,900")
-    options.add_argument("--remote-debugging-port=9222")
-    options.add_argument("--disable-software-rasterizer")
-    options.add_argument("--disable-extensions")
+    # ===== Linux / Streamlit Cloud / GitHub側実行想定 =====
+    if system_name == "linux":
+        options.binary_location = "/usr/bin/chromium"
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1400,900")
+        options.add_argument("--remote-debugging-port=9222")
+        options.add_argument("--disable-software-rasterizer")
+        options.add_argument("--disable-extensions")
 
-    driver = webdriver.Chrome(
-        service=ChromeService("/usr/bin/chromedriver"),
-        options=options
-    )
-    driver.set_page_load_timeout(20)
-    driver.set_script_timeout(20)
+        driver = webdriver.Chrome(
+            service=ChromeService("/usr/bin/chromedriver"),
+            options=options
+        )
+
+    # ===== Windows / ローカル実行 =====
+    else:
+        # options.add_argument("--headless=new")
+        options.add_argument("--start-maximized")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-features=RendererCodeIntegrity")
+        options.add_argument("--disable-backgrounding-occluded-windows")
+
+        driver = webdriver.Chrome(options=options)
+
+    driver.set_page_load_timeout(60)
+    driver.set_script_timeout(60)
     driver.implicitly_wait(2)
     return driver
 
@@ -384,7 +403,7 @@ def wait_table_stable_after_date_change(driver, timeout=20):
 # =========================
 def goto_report_daily(driver):
     driver.get("https://mgr.knowbe.jp/v2/#/report/daily")
-    time.sleep(1.2)
+    time.sleep(3.0)
 
 def parse_header_date_text(s: str) -> Optional[Tuple[int, int, int]]:
     m = re.search(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日", s)

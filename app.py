@@ -1,8 +1,11 @@
+from common import now_jst, mask_secret_text, safe_text, heart_label, parse_time_range, _to_minutes, _normalize_weekday_label, is_time_overlap, get_saturday_dates_for_month, get_sheet_name_candidates, get_sheet_name, get_next_numeric_id, normalize_company_scoped_df, filter_by_company_id
+from data_access import load_db, save_db, get_companies_df, get_users_df, get_user_company_permissions_df, get_task_required_cols, get_tasks_df, get_urgent_tasks_df, get_resident_master_df, get_resident_schedule_df, get_resident_notes_df, get_attendance_logs_df, get_attendance_logs_df, get_attendance_display_settings_df
 import streamlit as st
 import pandas as pd
 import base64
 import time
 import random
+import streamlit.components.v1 as components
 import json
 from io import BytesIO
 from datetime import datetime, timedelta, timezone, date
@@ -23,10 +26,6 @@ from run_assistance import (
 )
 
 JST = timezone(timedelta(hours=9))
-def now_jst():
-    return datetime.now(JST)
-
-# st.caption("CHECK_COMPANIES_USERS_20260325")
 
 def get_genai_client():
     api_key = ""
@@ -95,13 +94,55 @@ COMPANY_SCOPED_SHEETS = {
 def render_attendance_page():
     st.header("勤怠管理")
 
-    # ===== データ読み込み =====
-    users_df = load_db("users")
-    permissions_df = load_db("user_company_permissions")
-    attendance_logs_df = load_db("attendance_logs")
-    settings_df = load_db("attendance_display_settings")
+    if "attendance_mode" not in st.session_state:
+        st.session_state["attendance_mode"] = False
+    if "attendance_users_df" not in st.session_state:
+        st.session_state["attendance_users_df"] = None
+    if "attendance_permissions_df" not in st.session_state:
+        st.session_state["attendance_permissions_df"] = None
+    if "attendance_logs_df" not in st.session_state:
+        st.session_state["attendance_logs_df"] = None
+    if "attendance_settings_df" not in st.session_state:
+        st.session_state["attendance_settings_df"] = None
+    if "attendance_companies_df" not in st.session_state:
+        st.session_state["attendance_companies_df"] = None
 
-    companies_df = get_companies_df()
+    top_reload_cols = st.columns([1, 1, 4])
+
+    with top_reload_cols[0]:
+        if st.button("勤怠管理表示", key="attendance_mode_button", use_container_width=True):
+            st.session_state["attendance_mode"] = True
+
+            st.session_state["attendance_users_df"] = get_users_df()
+            st.session_state["attendance_permissions_df"] = get_user_company_permissions_df()
+            st.session_state["attendance_logs_df"] = get_attendance_logs_df()
+            st.session_state["attendance_settings_df"] = get_attendance_display_settings_df()
+            st.session_state["attendance_companies_df"] = get_companies_df()
+
+            st.rerun()
+
+    with top_reload_cols[1]:
+        if st.button("再読込", key="attendance_reload_button", use_container_width=True):
+            st.session_state["attendance_users_df"] = get_users_df()
+            st.session_state["attendance_permissions_df"] = get_user_company_permissions_df()
+            st.session_state["attendance_logs_df"] = get_attendance_logs_df()
+            st.session_state["attendance_settings_df"] = get_attendance_display_settings_df()
+            st.session_state["attendance_companies_df"] = get_companies_df()
+            st.rerun()
+
+    if not st.session_state.get("attendance_mode", False):
+        st.info("「勤怠管理表示」を押すと読み込みます。")
+        return
+
+    users_df = st.session_state.get("attendance_users_df")
+    permissions_df = st.session_state.get("attendance_permissions_df")
+    attendance_logs_df = st.session_state.get("attendance_logs_df")
+    settings_df = st.session_state.get("attendance_settings_df")
+    companies_df = st.session_state.get("attendance_companies_df")
+
+    if users_df is None or permissions_df is None or attendance_logs_df is None or settings_df is None or companies_df is None:
+        st.warning("まだ勤怠データが読み込まれていません。『勤怠管理表示』を押してください。")
+        return
 
     # ===== 必須列補完 =====
     if settings_df is None or settings_df.empty:
@@ -136,7 +177,7 @@ def render_attendance_page():
             group_id = str(row.iloc[0]["group_id"]).strip()
 
     if not group_id:
-        st.error("group_id が取得できないある")
+        st.error("group_id が取得できません")
         return
 
     st.subheader("事業所登録（最大5件）")
@@ -193,7 +234,7 @@ def render_attendance_page():
                     ]
 
                     if comp.empty:
-                        st.error("認証失敗ある")
+                        st.error("認証失敗")
                     else:
                         cid = str(comp.iloc[0]["company_id"]).strip()
 
@@ -203,7 +244,7 @@ def render_attendance_page():
                             (settings_df["status"].astype(str).str.strip() == "active")
                         ]
                         if not same_active.empty:
-                            st.warning("その事業所はもう登録済みある")
+                            st.warning("その事業所はもう登録済みです")
                         else:
                             new_row = {
                                 "setting_id": f"ADS{len(settings_df) + 1:04}",
@@ -216,13 +257,8 @@ def render_attendance_page():
                             }
                             settings_df = pd.concat([settings_df, pd.DataFrame([new_row])], ignore_index=True)
                             save_db(settings_df, "attendance_display_settings")
-                            st.success(f"{cid} を登録したある")
+                            st.success(f"{cid} を登録しました。")
                             st.rerun()
-
-    st.markdown("---")
-
-    if st.button("勤怠管理表示", key="attendance_mode_button", use_container_width=True):
-        st.session_state["attendance_mode"] = True
 
     target_settings = settings_df[
         (settings_df["group_id"].astype(str).str.strip() == group_id) &
@@ -230,7 +266,7 @@ def render_attendance_page():
     ].copy()
 
     if target_settings.empty:
-        st.info("登録済み事業所がまだないある")
+        st.info("登録済み事業所がまだありません。")
         return
 
     target_settings["slot_no_num"] = pd.to_numeric(target_settings["slot_no"], errors="coerce").fillna(9999)
@@ -254,7 +290,7 @@ def render_attendance_page():
         key="attendance_selected_company"
     )
 
-    valid_users = users_df.copy()
+    valid_users = users_df
     if "attendance_enabled" in valid_users.columns:
         valid_users = valid_users[
             pd.to_numeric(valid_users["attendance_enabled"], errors="coerce").fillna(0).astype(int) == 1
@@ -269,9 +305,13 @@ def render_attendance_page():
         merged["company_id_perm"].astype(str).str.strip() == selected_company
     ].copy()
 
-    if "can_use" in merged.columns:
+    if "can_use_perm" in merged.columns:
         merged = merged[
-            pd.to_numeric(merged["can_use"], errors="coerce").fillna(0).astype(int) == 1
+            pd.to_numeric(merged["can_use_perm"], errors="coerce").fillna(0) == 1
+        ]
+    elif "can_use" in merged.columns:
+        merged = merged[
+            merged["can_use"].astype(str).str.strip().isin(["1", "TRUE", "True", "true"])
         ]
 
     if "display_order" in merged.columns:
@@ -440,10 +480,11 @@ def render_attendance_page():
                     )
                     try:
                         save_db(attendance_logs_df, "attendance_logs")
+                        st.session_state["attendance_logs_df"] = attendance_logs_df
                         st.success(f"{name} → {result_text_map.get(action, action)}")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"勤怠保存でエラーある: {e}")
+                        st.error(f"勤怠保存でエラーです: {e}")
 
                     result_text_map = {
                         "in": "出勤",
@@ -463,16 +504,16 @@ def render_support_record_audit_page():
         st.error("このページは管理者専用です。")
         return
 
-    company_id = get_current_company_id()
+    company_id = get_current_company_id() 
     master_df = get_resident_master_df(company_id)
 
     if master_df is None or master_df.empty:
-        st.warning("利用者マスタが見つからないある。")
+        st.warning("利用者マスタが見つかりません。")
         return
 
     work = master_df.copy()
     if "resident_name" not in work.columns:
-        st.error("resident_master に resident_name 列がないある。")
+        st.error("resident_master に resident_name 列がありません。")
         return
 
     if "status" in work.columns:
@@ -486,7 +527,7 @@ def render_support_record_audit_page():
     work = work[work["resident_name"] != ""].copy()
 
     if work.empty:
-        st.warning("選択できる利用者がいないある。")
+        st.warning("選択できる利用者がいません。")
         return
 
     resident_options = sorted(work["resident_name"].unique().tolist())
@@ -543,28 +584,28 @@ def render_support_record_audit_page():
 
     if st.button("過去日誌照合を実行", key="run_support_record_audit", use_container_width=True):
         if (int(start_year), int(start_month)) > (int(end_year), int(end_month)):
-            st.error("開始年月が終了年月より後になってるある。")
+            st.error("開始年月が終了年月より後になっています。")
             return
 
         api_key = get_gemini_api_key_from_app()
         if not api_key:
-            st.error("GEMINI_API_KEY が見つからないある。")
+            st.error("GEMINI_API_KEY が見つかりません。")
             return
 
         try:
             from google import genai
         except Exception as e:
-            st.error(f"google.genai の読み込みに失敗したある: {e}")
+            st.error(f"google.genai の読み込みに失敗しました: {e}")
             return
 
         try:
             client = genai.Client(api_key=api_key)
         except Exception as e:
-            st.error(f"Geminiクライアント作成に失敗したある: {e}")
+            st.error(f"Geminiクライアント作成に失敗しました: {e}")
             return
 
         try:
-            with st.spinner("Knowbeから支援記録を読み込み中ある。少し待ってほしいある…"):
+            with st.spinner("Knowbeから支援記録を読み込み中です。少し待ってください…"):
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
                 tmp_path = tmp.name
                 tmp.close()
@@ -589,7 +630,7 @@ def render_support_record_audit_page():
             st.success("照合が完了したある。")
 
         except Exception as e:
-            st.error(f"照合中にエラーが出たある: {e}")
+            st.error(f"照合中にエラーが出ました: {e}")
 
     rows = st.session_state.get("support_record_audit_rows", [])
     if rows:
@@ -662,6 +703,9 @@ def render_support_record_audit_page():
             key="download_support_record_audit_excel",
             use_container_width=True,
         )
+
+
+
 
 def generate_with_gemini(prompt: str):
     api_key = get_gemini_api_key_from_app()
@@ -1179,384 +1223,7 @@ def build_meeting_cell_data_from_json(
         "C14": meeting_json.get("conclusion", ""),
     }
 
-def get_sheet_name_candidates(file):
-    if file in COMMON_SHEETS:
-        return [file]
 
-    if file in COMPANY_SCOPED_SHEETS:
-        # 今は統合、将来分割可能にする
-        return [file]
-
-    raise ValueError(f"未対応のシート名です: {file}")
-
-def get_sheet_name(file):
-    candidates = get_sheet_name_candidates(file)
-    return candidates[0]
-
-
-def load_db(file, retries=3, delay=0.8):
-    sheet_candidates = get_sheet_name_candidates(file)
-
-    last_error = None
-
-    for s_name in sheet_candidates:
-        for attempt in range(retries):
-            try:
-                ttl_sec = 60
-                if file == "attendance_logs":
-                    ttl_sec = 2
-                elif file == "attendance_display_settings":
-                    ttl_sec = 5
-
-                df = conn.read(worksheet=s_name, ttl=ttl_sec)
-
-                if df is None:
-                    df = pd.DataFrame()
-
-                # record_status の列名補正
-                if file == "record_status" and not df.empty:
-                    cols = list(df.columns)
-                    fixed_cols = []
-                    current_year = None
-
-                    for col in cols:
-                        col_str = str(col).strip()
-
-                        if col_str == "resident_name":
-                            fixed_cols.append("resident_name")
-                            continue
-
-                        if "年" in col_str and "月" in col_str:
-                            current_year = col_str.split("年")[0]
-                            fixed_cols.append(col_str)
-                            continue
-
-                        if col_str.endswith("月") and current_year is not None:
-                            fixed_cols.append(f"{current_year}年{col_str}")
-                        else:
-                            fixed_cols.append(col_str)
-
-                    df.columns = fixed_cols
-
-                record_status_cols = ["resident_name"]
-                for year in range(2025, 2027):
-                    for month in range(1, 13):
-                        record_status_cols.append(f"{year}年{month}月")
-
-                calendar_cols = ["company_id", "id", "title", "start", "end", "user", "memo", "source_type", "source_task_id"]
-
-                expected_cols = {
-                    "task": ["company_id", "id", "task", "status", "user", "limit", "priority", "updated_at"],
-                    "chat": ["company_id", "date", "time", "user", "message", "image_data"],
-                    "manual": ["company_id", "id", "title", "content", "image_data", "created_at"],
-                    "record_status": ["company_id"] + record_status_cols,
-                    "calendar": calendar_cols,
-                    "active_users": ["user", "login_at", "last_seen"],
-                    "resident_master": [
-                        "company_id",
-                        "resident_id", "resident_name", "status", "public_assistance", 
-                        "disability_type",
-                        "consultant", "consultant_phone",
-                        "caseworker", "caseworker_phone",
-                        "hospital", "hospital_phone",
-                        "nurse", "nurse_phone",
-                        "care", "care_phone",
-                        "created_at", "updated_at"
-                    ],
-                    "resident_schedule": [
-                        "company_id",
-                        "id", "resident_id", "weekday", "service_type",
-                        "start_time", "end_time", "place", "phone", "person_in_charge", "memo"
-                    ],
-                    "resident_notes": [
-                        "company_id",
-                        "id", "resident_id", "date", "user", "note"
-                    ],
-                    "document_master": [
-                        "document_id", "category1", "category2", "category3",
-                        "title", "file_type", "url", "summary", "memo",
-                        "status", "updated_at", "created_at",
-                        "original_filename", "file_data_base64"
-                    ],
-                    "external_contacts": [
-                        "contact_id", "category1", "category2",
-                        "name", "organization", "phone", "memo"
-                    ],
-                    "resident_links": [
-                        "id", "resident_id", "contact_id", "role"
-                    ],
-                    "saved_documents": [
-                        "record_id",
-                        "resident_id",
-                        "resident_name",
-                        "doc_type",
-                        "created_at",
-                        "updated_at",
-                        "json_data"
-                    ],
-                    "diary_input_rules": [
-                        "record_id", "company_id", "date", "resident_id", "resident_name",
-                        "start_time", "end_time", "work_start_time", "work_end_time", "work_break_time",
-                        "meal_flag", "note",
-                        "start_memo", "end_memo", "staff_name",
-                        "generated_status", "generated_support", "created_at",
-                        "service_type", "knowbe_target", "send_status", "sent_at", "send_error",
-                        "record_mode"
-                    ],
-                    "staff_examples": [
-                        "company_id",
-                        "staff_name",
-                        "home_start_example", "home_end_example",
-                        "day_start_example", "day_end_example",
-                        "outside_start_example", "outside_end_example",
-                        "updated_at"
-                    ],
-                    "personal_rules": [
-                        "company_id",
-                        "staff_name", "rule_text", "updated_at"
-                    ],
-                    "assistant_plans": [
-                        "company_id",
-                        "resident_id", "long_term_goal", "short_term_goal", "updated_at"
-                    ],
-                    "users": [
-                        "user_id",
-                        "company_id",
-                        "user_login_id",
-                        "user_login_password",
-                        "display_name",
-                        "is_admin",
-                        "role_type",
-                        "login_card_id",
-                        "last_login_at",
-                        "status",
-                        "created_at",
-                        "updated_at",
-                        "memo",
-                    ],
-                    "chat_rooms": [
-                        "room_id",
-                        "room_name",
-                        "room_type",
-                        "room_password",
-                        "created_by_user_id",
-                        "created_by_company_id",
-                        "description",
-                        "status",
-                        "created_at",
-                        "updated_at",
-                    ],
-                    "chat_messages": [
-                        "message_id",
-                        "room_id",
-                        "user_id",
-                        "display_name",
-                        "company_id",
-                        "message_text",
-                        "has_attachment",
-                        "attachment_type",
-                        "linked_file_id",
-                        "is_deleted",
-                        "created_at",
-                        "updated_at",
-                        "deleted_by_user_id",
-                        "deleted_at",
-                    ],
-                    "archive_files": [
-                        "archive_file_id",
-                        "company_id",
-                        "title",
-                        "description",
-                        "category_main",
-                        "category_sub",
-                        "tags",
-                        "file_name",
-                        "file_data",
-                        "file_type",
-                        "uploaded_by_user_id",
-                        "visibility_type",
-                        "download_password",
-                        "is_deleted",
-                        "created_at",
-                        "updated_at",
-                        "deleted_by_user_id",
-                        "deleted_at",
-                    ],
-                    "warehouse_files": [
-                        "file_id",
-                        "title",
-                        "description",
-                        "category_main",
-                        "category_sub",
-                        "tags",
-                        "file_name",
-                        "file_data",
-                        "file_type",
-                        "uploaded_by_user_id",
-                        "uploaded_by_company_id",
-                        "source_room_id",
-                        "visibility_type",
-                        "download_password",
-                        "is_searchable",
-                        "is_deleted",
-                        "created_at",
-                        "updated_at",
-                        "deleted_by_user_id",
-                        "deleted_at",
-                    ],   
-                    "admin_logs": [
-                        "log_id",
-                        "company_id",
-                        "acted_by_user_id",
-                        "acted_by_display_name",
-                        "action_type",
-                        "target_type",
-                        "target_id",
-                        "action_detail",
-                        "created_at",
-                    ],
-                    "user_company_permissions": [
-                        "permission_id",
-                        "user_id",
-                        "company_id",
-                        "can_use",
-                        "is_admin",
-                        "status",
-                        "created_at",
-                        "updated_at",
-                        "memo",
-                    ],
-                    "companies": [
-                        "company_id",
-                        "company_name",
-                        "company_code",
-                        "company_login_id",
-                        "company_login_password",
-                        "knowbe_login_username",
-                        "knowbe_login_password",
-                        "status",
-                        "created_at",
-                        "updated_at",
-                        "memo",
-                    ],      
-                    "contact_messages": [
-                        "id",
-                        "company_id",
-                        "company_name",
-                        "user_id",
-                        "user_name",
-                        "contact_type",
-                        "message",
-                        "status",
-                        "created_at",
-                    ],
-                    "piecework_master": [
-                        "company_id",
-                        "piecework_id",
-                        "piecework_name",
-                        "status",
-                        "unit",
-                        "note",
-                        "created_at",
-                        "updated_at",
-                        "is_deleted",
-                    ],
-                    "piecework_entries": [
-                        "company_id",
-                        "entry_id",
-                        "piecework_id",
-                        "entry_date",
-                        "defect_quantity",
-                        "final_delivery_quantity",
-                        "income",
-                        "created_at",
-                        "updated_at",
-                        "is_deleted",
-                    ],
-                    "piecework_production": [
-                        "company_id",
-                        "production_id",
-                        "piecework_id",
-                        "work_date",
-                        "user_id",
-                        "user_name",
-                        "quantity",
-                        "created_at",
-                        "updated_at",
-                        "is_deleted",
-                    ],
-                    "piecework_master": [
-                        "company_id",
-                        "piecework_id",
-                        "piecework_name",
-                        "client_name",
-                        "arrival_date",
-                        "delivery_date",
-                        "quantity",
-                        "unit_price",
-                        "purchase_price",
-                        "defect_quantity",
-                        "final_delivery_quantity",
-                        "income",
-                        "unit",
-                        "note",
-                        "status",
-                        "created_at",
-                        "updated_at",
-                        "is_deleted",
-                    ],
-                    "piecework_clients": [
-                        "company_id",
-                        "client_id",
-                        "client_name",
-                        "client_address",
-                        "contact_1",
-                        "contact_person_1",
-                        "contact_2",
-                        "contact_person_2",
-                        "created_at",
-                        "updated_at",
-                        "is_deleted",
-                    ],
-                    "attendance_logs": [
-                        "attendance_id",
-                        "date",
-                        "user_id",
-                        "company_id",
-                        "action",
-                        "timestamp",
-                        "device_name",
-                        "recorded_by",
-                    ],
-
-                    "attendance_display_settings": [
-                        "setting_id",
-                        "group_id",
-                        "slot_no",
-                        "company_id",
-                        "status",
-                        "created_at",
-                        "registered_by",
-                    ],                                                                     
-                }
-
-                for col in expected_cols[file]:
-                    if col not in df.columns:
-                        df[col] = ""
-
-                return df
-
-            except Exception as e:
-                last_error = e
-                if attempt < retries - 1:
-                    time.sleep(delay + random.random() * 0.5)
-                else:
-                    pass
-
-    if last_error is not None:
-        raise last_error
-
-    return pd.DataFrame()
 
 def sync_resident_master_from_assessment(resident_id: str, welfare_status: str):
     master_df = load_db("resident_master")
@@ -1576,45 +1243,6 @@ def sync_resident_master_from_assessment(resident_id: str, welfare_status: str):
     master_df.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
     save_db(master_df, "resident_master")
-
-@st.cache_data(ttl=60)
-def get_companies_df_cached():
-    df = load_db("companies")
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "company_id",
-            "company_name",
-            "company_code",
-            "company_login_id",
-            "company_login_password",
-            "knowbe_login_username",
-            "knowbe_login_password",
-            "status",
-            "created_at",
-            "updated_at",
-            "memo",
-        ])
-    else:
-        for col in [
-            "company_id",
-            "company_name",
-            "company_code",
-            "company_login_id",
-            "company_login_password",
-            "knowbe_login_username",
-            "knowbe_login_password",
-            "status",
-            "created_at",
-            "updated_at",
-            "memo",
-        ]:
-            if col not in df.columns:
-                df[col] = ""
-    return df.fillna("")
-
-
-def get_companies_df():
-    return get_companies_df_cached().copy()
 
 @st.cache_data(ttl=60)
 def get_chat_rooms_df_cached():
@@ -3583,43 +3211,6 @@ def render_company_knowbe_settings_page():
                         st.error("保存に失敗しました。")
 
 @st.cache_data(ttl=60)
-def get_user_company_permissions_df_cached():
-    df = load_db("user_company_permissions")
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "permission_id",
-            "user_id",
-            "company_id",
-            "can_use",
-            "is_admin",
-            "status",
-            "created_at",
-            "updated_at",
-            "memo",
-        ])
-    else:
-        for col in [
-            "permission_id",
-            "user_id",
-            "company_id",
-            "can_use",
-            "is_admin",
-            "status",
-            "created_at",
-            "updated_at",
-            "memo",
-        ]:
-            if col not in df.columns:
-                df[col] = ""
-    return df.fillna("")
-
-
-def get_user_company_permissions_df():
-    return get_user_company_permissions_df_cached().copy()
-
-
-
-
 def get_company_permissions_df(company_id: str):
     df = get_user_company_permissions_df()
 
@@ -3732,49 +3323,6 @@ def get_next_permission_id():
     return f"P{next_num:04d}"
 
 @st.cache_data(ttl=60)
-def get_users_df_cached():
-    df = load_db("users")
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "user_id",
-            "company_id",
-            "user_login_id",
-            "user_login_password",
-            "display_name",
-            "is_admin",
-            "role_type",
-            "login_card_id",
-            "last_login_at",
-            "status",
-            "created_at",
-            "updated_at",
-            "memo",
-        ])
-    else:
-        for col in [
-            "user_id",
-            "company_id",
-            "user_login_id",
-            "user_login_password",
-            "display_name",
-            "is_admin",
-            "role_type",
-            "login_card_id",
-            "last_login_at",
-            "status",
-            "created_at",
-            "updated_at",
-            "memo",
-        ]:
-            if col not in df.columns:
-                df[col] = ""
-    return df.fillna("")
-
-
-def get_users_df():
-    return get_users_df_cached().copy()
-
-
 def authenticate_company_login(login_id: str, login_password: str):
     df = get_companies_df()
     if df is None or df.empty:
@@ -3799,51 +3347,12 @@ def authenticate_company_login(login_id: str, login_password: str):
 def get_current_company_id():
     return str(st.session_state.get("company_id", "")).strip()
 
-def normalize_company_scoped_df(df, required_cols):
-    if df is None or df.empty:
-        return pd.DataFrame(columns=required_cols)
-
-    work = df.copy()
-    for col in required_cols:
-        if col not in work.columns:
-            work[col] = ""
-
-    work["company_id"] = work["company_id"].fillna("").astype(str).str.strip()
-    return work.fillna("")
-
-def filter_by_company_id(df, company_id):
-    if df is None or df.empty:
-        return df
-
-    if "company_id" not in df.columns:
-        return df
-
-    return df[
-        df["company_id"].astype(str).str.strip() == str(company_id).strip()
-    ].copy()
-
-def get_task_required_cols():
-    return [
-        "company_id",
-        "id",
-        "task",
-        "status",
-        "user",
-        "limit",
-        "priority",
-        "updated_at",
-    ]
 
 
-def get_tasks_df(company_id=None):
-    if company_id is None:
-        company_id = get_current_company_id()
 
-    df = load_db("task")
-    required_cols = get_task_required_cols()
 
-    work = normalize_company_scoped_df(df, required_cols)
-    return filter_by_company_id(work, company_id)
+
+
 
 
 def get_next_task_id(task_df=None):
@@ -4109,27 +3618,6 @@ def reset_resident_edit_flags():
         "edit_links_mode",
     ]:
         st.session_state[k] = False
-
-
-def parse_time_range(raw_text: str):
-    raw = str(raw_text).strip()
-    if not raw:
-        return "", ""
-
-    raw = raw.replace("～", "〜").replace("~", "〜").replace("-", "〜")
-    if "〜" in raw:
-        start_time, end_time = [x.strip() for x in raw.split("〜", 1)]
-        return start_time, end_time
-
-    return raw, ""
-
-def mask_secret_text(value: str) -> str:
-    s = str(value).strip()
-    if not s:
-        return "未登録"
-    if len(s) <= 2:
-        return "●" * len(s)
-    return s[:1] + ("●" * max(len(s) - 2, 1)) + s[-1:]
 
 
 def resolve_bee_company_context(
@@ -4859,25 +4347,6 @@ def render_ic_card_manage_page():
         view_df.columns = ["表示名", "ログインID", "カードID", "状態"]
         st.dataframe(view_df, use_container_width=True)
 
-def get_resident_master_df(company_id=None):
-    if company_id is None:
-        company_id = get_current_company_id()
-
-    required_cols = [
-        "company_id",
-        "resident_id", "resident_name", "status",
-        "consultant", "consultant_phone",
-        "caseworker", "caseworker_phone",
-        "hospital", "hospital_phone",
-        "nurse", "nurse_phone",
-        "care", "care_phone",
-        "created_at", "updated_at"
-    ]
-
-    df = load_db("resident_master")
-    df = normalize_company_scoped_df(df, required_cols)
-    return filter_by_company_id(df, company_id)
-
 def get_document_master_df():
     return get_document_master_df_cached().copy()
 
@@ -5030,50 +4499,6 @@ def get_diary_input_rules_df(company_id=None):
 
     df["company_id"] = df["company_id"].fillna("").astype(str).str.strip()
     return df[df["company_id"] == str(company_id).strip()].copy()
-
-def _to_minutes(hhmm: str):
-    s = str(hhmm).strip()
-    if not s or ":" not in s:
-        return None
-    try:
-        h, m = s.split(":", 1)
-        return int(h) * 60 + int(m)
-    except Exception:
-        return None
-
-
-def _normalize_weekday_label(dt_value):
-    try:
-        if hasattr(dt_value, "weekday"):
-            wd = dt_value.weekday()
-        else:
-            wd = pd.to_datetime(dt_value).weekday()
-    except Exception:
-        return ""
-
-    weekday_map = {
-        0: "月",
-        1: "火",
-        2: "水",
-        3: "木",
-        4: "金",
-        5: "土",
-        6: "日",
-    }
-    return weekday_map.get(wd, "")
-
-
-def is_time_overlap(start1, end1, start2, end2):
-    s1 = _to_minutes(start1)
-    e1 = _to_minutes(end1)
-    s2 = _to_minutes(start2)
-    e2 = _to_minutes(end2)
-
-    if None in (s1, e1, s2, e2):
-        return False
-
-    return max(s1, s2) < min(e1, e2)
-
 
 def validate_bee_times(
     resident_id,
@@ -5321,11 +4746,6 @@ def get_latest_saved_document_json(resident_id, doc_type):
         return None
 
 
-def safe_text(v):
-    if v is None:
-        return ""
-    return str(v).strip()
-
 
 def build_plan_draft_generation_prompt(
     resident_name,
@@ -5493,7 +4913,8 @@ def get_reference_json_for_gemini(resident_id, doc_title):
 
 
 def get_resident_option_map():
-    master_df = get_resident_master_df()
+    company_id = get_current_company_id()
+    master_df = get_resident_master_df(company_id)
 
     if master_df is None or master_df.empty:
         return [], {}
@@ -5806,11 +5227,7 @@ def run_secret_gemini_generation(doc_title: str, resident_id, resident_name, new
 
     return call_gemini_json(prompt)
 
-def get_next_numeric_id(df, col_name="id", start=1):
-    if df is None or df.empty or col_name not in df.columns:
-        return start
-    ids = pd.to_numeric(df[col_name], errors="coerce").dropna()
-    return int(ids.max()) + 1 if not ids.empty else start
+
 
 
 def get_next_resident_id(master_df):
@@ -5828,53 +5245,7 @@ def get_next_resident_id(master_df):
     next_num = max(numbers) + 1 if numbers else 1
     return f"R{next_num:04d}"
 
-
 @st.cache_data(ttl=60)
-def get_resident_master_df_cached():
-    df = load_db("resident_master")
-
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "resident_id", "resident_name", "status",
-            "consultant", "consultant_phone",
-            "caseworker", "caseworker_phone",
-            "hospital", "hospital_phone",
-            "nurse", "nurse_phone",
-            "care", "care_phone",
-            "created_at", "updated_at"
-        ])
-    else:
-        for col in [
-            "resident_id", "resident_name", "status",
-            "consultant", "consultant_phone",
-            "caseworker", "caseworker_phone",
-            "hospital", "hospital_phone",
-            "nurse", "nurse_phone",
-            "care", "care_phone",
-            "created_at", "updated_at"
-        ]:
-            if col not in df.columns:
-                df[col] = ""
-
-    return df.fillna("")
-
-@st.cache_data(ttl=60)
-def get_resident_schedule_df_cached():
-    df = load_db("resident_schedule")
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "id", "resident_id", "weekday", "service_type",
-            "start_time", "end_time", "place", "phone", "person_in_charge", "memo"
-        ])
-    else:
-        for col in [
-            "id", "resident_id", "weekday", "service_type",
-            "start_time", "end_time", "place", "phone", "person_in_charge", "memo"
-        ]:
-            if col not in df.columns:
-                df[col] = ""
-    return df.fillna("")
-
 def save_uploaded_document(
     category1,
     category2,
@@ -5980,18 +5351,6 @@ def get_download_file_data(row):
     return file_bytes, original_filename, mime
 
 @st.cache_data(ttl=60)
-def get_resident_notes_df_cached():
-    df = load_db("resident_notes")
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=["id", "resident_id", "date", "user", "note"])
-    else:
-        for col in ["id", "resident_id", "date", "user", "note"]:
-            if col not in df.columns:
-                df[col] = ""
-    return df.fillna("")
-
-
-@st.cache_data(ttl=60)
 def get_external_contacts_df_cached():
     df = load_db("external_contacts")
     if df is None or df.empty:
@@ -6020,25 +5379,6 @@ def get_resident_links_df_cached():
                 df[col] = ""
     return df.fillna("")
 
-def save_db(df, file, retries=3, delay=1.0):
-    sheet_candidates = get_sheet_name_candidates(file)
-
-    last_error = None
-    for s_name in sheet_candidates:
-        for attempt in range(retries):
-            try:
-                conn.update(worksheet=s_name, data=df)
-                st.cache_data.clear()
-                return
-            except Exception as e:
-                last_error = e
-                if attempt < retries - 1:
-                    time.sleep(delay + random.random() * 0.7)
-                else:
-                    pass
-
-    if last_error is not None:
-        raise last_error
 
 def update_active_user():
     current_user = str(st.session_state.get("user", "")).strip()
@@ -6186,47 +5526,11 @@ def sync_task_events_to_calendar(company_id=None):
     merged_cal_df = normalize_company_scoped_df(merged_cal_df, required_cal_cols)
     save_db(merged_cal_df, "calendar")
 
-def get_urgent_tasks_df(company_id=None):
-    if company_id is None:
-        company_id = get_current_company_id()
-
-    df = get_tasks_df(company_id)
-    required_cols = get_task_required_cols()
-    df = normalize_company_scoped_df(df, required_cols)
-
-    if df.empty:
-        return pd.DataFrame(columns=required_cols)
-
-    urgent_df = df[
-        df["priority"].astype(str).str.strip().isin(["至急", "重要"]) &
-        (df["status"].astype(str).str.strip() != "完了")
-    ].copy()
-
-    if urgent_df.empty:
-        return urgent_df
-
-    prio_map = {"至急": 0, "重要": 1}
-    urgent_df["prio_sort"] = urgent_df["priority"].map(prio_map).fillna(9)
-
-    try:
-        urgent_df["limit_sort"] = pd.to_datetime(urgent_df["limit"], errors="coerce")
-    except Exception:
-        urgent_df["limit_sort"] = pd.NaT
-
-    urgent_df = urgent_df.sort_values(
-        ["prio_sort", "limit_sort", "updated_at"],
-        ascending=[True, True, False]
-    )
-    return urgent_df
-
 
 def start_task(task_id, company_id=None):
     if company_id is None:
         company_id = get_current_company_id()
-
-    df = load_db("task")
-    required_cols = get_task_required_cols()
-    df = normalize_company_scoped_df(df, required_cols)
+    df = get_tasks_df(company_id)
 
     if df.empty:
         return
@@ -6248,10 +5552,7 @@ def start_task(task_id, company_id=None):
 def complete_task(task_id, company_id=None):
     if company_id is None:
         company_id = get_current_company_id()
-
-    df = load_db("task")
-    required_cols = get_task_required_cols()
-    df = normalize_company_scoped_df(df, required_cols)
+    df = get_tasks_df(company_id)
 
     if df.empty:
         return
@@ -6275,7 +5576,8 @@ def go_to_page(page_name):
 
 
 def render_urgent_banner():
-    urgent_df = get_urgent_tasks_df()
+    company_id = get_current_company_id()
+    urgent_df = get_urgent_tasks_df(company_id)
 
     if urgent_df.empty:
         return
@@ -6558,22 +5860,6 @@ st.sidebar.markdown(
 
 
 
-def heart_label(text: str) -> str:
-    if not st.session_state.get("heart_mode", False):
-        return str(text)
-
-    s = str(text)
-
-    if len(s) >= 2 and s[1] == " ":
-        return f"💕 {s[2:]}"
-    if len(s) >= 3 and s[2] == " ":
-        return f"💕 {s[3:]}"
-
-    if "knowbe" in s:
-        return "💕knowbe日誌入力💕"
-
-    return f"💕 {s}"
-
 if "bee_menu_unlocked" not in st.session_state:
     st.session_state["bee_menu_unlocked"] = False
 if "other_office_register_unlocked" not in st.session_state:
@@ -6797,8 +6083,8 @@ def create_excel_file(template_name, cell_data):
 def render_plan_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
     st.caption("まずは入力しやすい形の試作ページです。まだ保存はしません。")
-
-    master_df = get_resident_master_df()
+    company_id = get_current_company_id()
+    master_df = get_resident_master_df(company_id)
 
     if master_df is None or master_df.empty:
         st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
@@ -7055,8 +6341,8 @@ def render_plan_form_page(doc_title: str):
 def render_meeting_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
     st.caption("サービス担当者会議の入力UIです。まだ保存はしません。")
-
-    master_df = get_resident_master_df()
+    company_id = get_current_company_id()
+    master_df = get_resident_master_df(company_id)
 
     if master_df is None or master_df.empty:
         st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
@@ -7301,8 +6587,8 @@ def render_meeting_form_page(doc_title: str):
 def render_monitoring_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
     st.caption("モニタリングの入力UIです。まだ保存はしません。")
-
-    master_df = get_resident_master_df()
+    company_id = get_current_company_id()
+    master_df = get_resident_master_df(company_id)
 
     if master_df is None or master_df.empty:
         st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
@@ -7445,23 +6731,11 @@ def render_monitoring_form_page(doc_title: str):
         cell_data=cell_data
     )
 
-def get_saturday_dates_for_month(year: int, month: int):
-    cal = py_calendar.monthcalendar(year, month)
-    saturdays = []
-
-    for week in cal:
-        sat_day = week[py_calendar.SATURDAY]
-        if sat_day != 0:
-            saturdays.append(date(year, month, sat_day))
-
-    return saturdays
-
-
 def render_home_evaluation_form_page(doc_title: str):
     st.title(f"📄 {doc_title}")
     st.caption("在宅評価シートの入力UIです。まだ保存はしません。")
-
-    master_df = get_resident_master_df()
+    company_id = get_current_company_id()
+    master_df = get_resident_master_df(company_id)
 
     if master_df is None or master_df.empty:
         st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
@@ -7696,8 +6970,8 @@ def render_assessment_form_page(doc_title: str):
     st.caption("フェイスシート入力ページです。入力とExcel出力までつなぐです。")
 
     st.markdown("## 基本情報")
-
-    master_df = get_resident_master_df()
+    company_id = get_current_company_id()
+    master_df = get_resident_master_df(company_id)
 
     if master_df is None or master_df.empty:
         st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
@@ -8735,8 +8009,8 @@ def render_basic_sheet_form_page(doc_title: str):
     st.caption("基本シート入力ページです。入力と保存とExcel出力までつなぐです。")
 
     st.markdown("## 基本情報")
-
-    master_df = get_resident_master_df()
+    company_id = get_current_company_id()
+    master_df = get_resident_master_df(company_id)
 
     if master_df is None or master_df.empty:
         st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
@@ -9002,8 +8276,8 @@ def render_work_sheet_form_page(doc_title: str):
     st.caption("就労分野シート入力ページです。入力・保存・呼び出し・Excel出力まで対応版です。")
 
     st.markdown("## 基本情報")
-
-    master_df = get_resident_master_df()
+    company_id = get_current_company_id()
+    master_df = get_resident_master_df(company_id)
 
     if master_df is None or master_df.empty:
         st.warning("利用者情報がまだ登録されていません。先に⑨ 利用者情報から利用者を登録してください。")
@@ -9971,16 +9245,13 @@ def render_bulk_knowbe_diary_page():
         return
 
     # 利用者一覧取得
-    residents_df = get_resident_master_df().copy()
+    residents_df = get_resident_master_df(current_company_id)
     if residents_df.empty:
         st.warning("利用者データがありません。")
         return
 
-    if "company_id" in residents_df.columns:
-        residents_df = residents_df[residents_df["company_id"] == current_company_id].copy()
-
     if "status" in residents_df.columns:
-        residents_df = residents_df[residents_df["status"].fillna("利用中") == "利用中"].copy()
+        residents_df = residents_df[residents_df["status"].fillna("利用中") == "利用中"]
 
     residents_df = residents_df.reset_index(drop=True)
 
@@ -10089,13 +9360,27 @@ def render_bulk_knowbe_diary_page():
                 "send_mode": "gemini" if send_mode == "Geminiで編集して送信" else "raw",
             })
 
-    st.markdown("## 一括送信")
-
     if st.button("knowbeへ送信する", type="primary", use_container_width=True):
         active_targets = [x for x in send_targets if x["enabled"]]
 
-        if not active_targets:
-            st.warning("送信対象が1人も選ばれていません。")
+        # --- 事前バリデーション ---
+        valid_targets = []
+        invalid_messages = []
+
+        for item in active_targets:
+            if not str(item.get("staff_name", "")).strip():
+                invalid_messages.append(f"{item['resident_name']}：日誌入力者が未入力")
+                continue
+
+            valid_targets.append(item)
+
+        if invalid_messages:
+            st.warning("一部送信されない利用者があります：")
+            for msg in invalid_messages:
+                st.warning(msg)
+
+        if not valid_targets:
+            st.warning("送信できる利用者が1人もいません。")
             return
 
         success_count = 0
@@ -10104,15 +9389,13 @@ def render_bulk_knowbe_diary_page():
         progress = st.progress(0)
         status_box = st.empty()
 
-        for i, item in enumerate(active_targets, start=1):
+        for i, item in enumerate(valid_targets, start=1):
             try:
-                status_box.info(f"{i}/{len(active_targets)} 送信中: {item['resident_name']}")
-
+                status_box.info(f"{i}/{len(valid_targets)} 送信中: {item['resident_name']}")
                 start_memo_to_send = item["start_memo"]
                 end_memo_to_send = item["end_memo"]
 
                 if item["send_mode"] == "gemini":
-                    # ここは既存のGemini整形関数名に置き換え
                     start_memo_to_send = edit_text_with_gemini_for_start_memo(
                         resident_name=item["resident_name"],
                         original_text=item["start_memo"],
@@ -10125,22 +9408,17 @@ def render_bulk_knowbe_diary_page():
                     )
 
                 # ここは既存のKnowbe送信関数に置き換え
-                send_to_knowbe_from_bee(
-                    target_date=item["target_date"],
-                    resident_id=item["resident_id"],
-                    resident_name=item["resident_name"],
-                    start_time=item["start_time"],
-                    end_time=item["end_time"],
-                    meal_flag=item["meal_flag"],
-                    service_type=item["service_type"],
-                    work_start_time=item["work_start_time"],
-                    work_end_time=item["work_end_time"],
-                    break_time=item["break_time"],
-                    start_memo=start_memo_to_send,
-                    end_memo=end_memo_to_send,
-                    staff_name=item["staff_name"],
-                    remark_text=item["remark_text"],
-                )
+                    send_to_knowbe_from_bee(
+                        target_date=item["target_date"],
+                        resident_name=item["resident_name"],
+                        start_time=item["start_time"],
+                        end_time=item["end_time"],
+                        meal_flag=item["meal_flag"],
+                        service_type=item["service_type"],
+                        work_start_time=item["work_start_time"],
+                        work_end_time=item["work_end_time"],
+                        staff_name=item["staff_name"],
+                    )
 
                 success_count += 1
 
@@ -10148,7 +9426,7 @@ def render_bulk_knowbe_diary_page():
                 error_count += 1
                 st.error(f"{item['resident_name']} の送信でエラー: {e}")
 
-            progress.progress(i / len(active_targets))
+            progress.progress(i / len(valid_targets))
 
         status_box.success(f"送信完了：成功 {success_count}件 / エラー {error_count}件")
 
@@ -10229,19 +9507,7 @@ def render_bee_journal_page():
                 st.warning("管理者以外は登録できません。管理者へ報告してください。")
     st.markdown("## 利用者選択")
 
-    master_df = load_db("resident_master")
-    if master_df is None or master_df.empty:
-        st.warning("利用者情報がまだ登録されていません。")
-        return
-
-    master_df = master_df.fillna("").copy()
-
-    if "company_id" not in master_df.columns:
-        st.error("resident_master に company_id 列がありません。")
-        return
-
-    master_df["company_id"] = master_df["company_id"].astype(str).str.strip()
-    master_df = master_df[master_df["company_id"] == target_company_id].copy()
+    master_df = get_resident_master_df(target_company_id)
 
     if master_df.empty:
         st.warning("この事業所に所属する利用者がまだ登録されていません。")
@@ -10801,38 +10067,7 @@ def render_bee_journal_page():
     st.markdown("## 入力内容確認")
     st.json(save_payload)
 
-def get_resident_schedule_df():
-    df = load_db("resident_schedule")
 
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    df = df.fillna("").copy()
-
-    if "company_id" not in df.columns:
-        df["company_id"] = ""
-
-    company_id = str(st.session_state.get("company_id", "")).strip()
-
-    df["company_id"] = df["company_id"].astype(str).str.strip()
-    return df[df["company_id"] == company_id]
-
-
-def get_resident_notes_df():
-    df = load_db("resident_schedule")
-
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    df = df.fillna("").copy()
-
-    if "company_id" not in df.columns:
-        df["company_id"] = ""
-
-    company_id = str(st.session_state.get("company_id", "")).strip()
-
-    df["company_id"] = df["company_id"].astype(str).str.strip()
-    return df[df["company_id"] == company_id]
 
 
 def get_external_contacts_df():
@@ -10896,7 +10131,8 @@ def get_contact_residents(contact_id, links_df=None, master_df=None):
     if links_df is None:
         links_df = get_resident_links_df()
     if master_df is None:
-        master_df = get_resident_master_df()
+        company_id = get_current_company_id()
+        master_df = get_resident_master_df(company_id)
 
     if links_df.empty or master_df.empty:
         return pd.DataFrame(columns=["resident_id", "resident_name", "status", "role"])
@@ -11077,7 +10313,7 @@ def render_resident_schedule_html(schedule_view):
 
     table_html += "</tr></table>"
 
-    st.markdown(legend_html + table_html, unsafe_allow_html=True)
+    components.html(legend_html + table_html, height=320)
 
 def go_resident_detail(resident_id):
     st.session_state.selected_resident_id = resident_id
@@ -11123,9 +10359,10 @@ else:
     else:
         st.sidebar.write("現在ログイン中の人はいありません。")
 
-# マイ状況
+## マイ状況
 try:
-    task_df = load_db("task").fillna("")
+    company_id = get_current_company_id()
+    task_df = get_tasks_df(company_id)
 except Exception:
     task_df = pd.DataFrame(columns=["id", "task", "status", "user", "limit", "priority", "updated_at"])
 
@@ -11204,11 +10441,10 @@ if page == "① 未着手の任務（掲示板）":
                     lines = [x.strip() for x in str(bulk_tasks).replace("\r\n", "\n").split("\n") if x.strip()]
 
                     if lines:
-                        df = load_db("task")
-                        required_cols = get_task_required_cols()
-                        df = normalize_company_scoped_df(df, required_cols)
+                        company_id = get_current_company_id()
+                        df = get_tasks_df(company_id)
 
-                        next_id = get_next_task_id(filter_by_company_id(df, current_company_id))
+                        next_id = get_next_task_id(df)
                         new_rows = []
                         now_str = now_jst().strftime("%Y-%m-%d %H:%M")
 
@@ -11785,7 +11021,9 @@ elif page == "⑦ タスクカレンダー":
 
         try:
             cal_df = load_db("calendar")
-            task_df = load_db("task")
+            company_id = get_current_company_id()
+            task_df = get_tasks_df(company_id)
+
         except Exception:
             st.warning("Googleスプレッドシートとの通信が一時的に不安定です。少し待って再読み込みしてください。")
             return
@@ -12071,7 +11309,8 @@ elif page == "⑧ 緊急一覧":
     def show_urgent_page():
         st.title("🚨 緊急一覧")
 
-        urgent_df = get_urgent_tasks_df()
+        company_id = get_current_company_id()
+        urgent_df = get_urgent_tasks_df(company_id)
 
         if urgent_df.empty:
             st.success("現在、至急・重要タスクはありません。")
@@ -12210,35 +11449,7 @@ elif page == "⑨ 利用者情報":
         if "selected_resident_id" not in st.session_state:
             st.session_state["selected_resident_id"] = ""
 
-        master_df = load_db("resident_master")
-        if master_df is None or master_df.empty:
-            master_df = pd.DataFrame(columns=[
-                "company_id",
-                "resident_id", "resident_name", "status",
-                "consultant", "consultant_phone",
-                "caseworker", "caseworker_phone",
-                "hospital", "hospital_phone",
-                "nurse", "nurse_phone",
-                "care", "care_phone",
-                "created_at", "updated_at"
-            ])
-        else:
-            master_df = master_df.fillna("").copy()
-            for col in [
-                "company_id",
-                "resident_id", "resident_name", "status",
-                "consultant", "consultant_phone",
-                "caseworker", "caseworker_phone",
-                "hospital", "hospital_phone",
-                "nurse", "nurse_phone",
-                "care", "care_phone",
-                "created_at", "updated_at"
-            ]:
-                if col not in master_df.columns:
-                    master_df[col] = ""
-
-        master_df["company_id"] = master_df["company_id"].astype(str).str.strip()
-        master_df = master_df[master_df["company_id"] == current_company_id].copy()
+        master_df = get_resident_master_df(current_company_id)
 
         # ------------------------------------------
         # 一覧モード
@@ -12626,17 +11837,8 @@ elif page == "⑨ 利用者情報":
         schedule_df = get_resident_schedule_df()
         notes_df = get_resident_notes_df()
 
-        try:
-            task_df_detail = load_db("task")
-            if task_df_detail is None or task_df_detail.empty:
-                task_df_detail = pd.DataFrame(columns=["id", "task", "status", "user", "limit", "priority", "updated_at"])
-            else:
-                for col in ["id", "task", "status", "user", "limit", "priority", "updated_at"]:
-                    if col not in task_df_detail.columns:
-                        task_df_detail[col] = ""
-                task_df_detail = task_df_detail.fillna("")
-        except Exception:
-            task_df_detail = pd.DataFrame(columns=["id", "task", "status", "user", "limit", "priority", "updated_at"])
+        company_id = get_current_company_id()
+        task_df_detail = get_tasks_df(company_id)
 
         back_cols = st.columns([1, 5])
         with back_cols[0]:
@@ -13493,7 +12695,8 @@ elif page == "⓪ 検索":
 
     contacts_df = get_external_contacts_df()
     links_df = get_resident_links_df()
-    master_df = get_resident_master_df()
+    company_id = get_current_company_id()
+    master_df = get_resident_master_df(company_id)
 
     if contacts_df.empty:
         st.info("関係者データはまだ登録されていません。")
@@ -13594,58 +12797,8 @@ elif page == "⓪ 検索":
     # ------------------------------------------
     st.markdown("## 👤 利用者検索")
 
-    resident_df = load_db("resident_master")
-
-    if resident_df is None or resident_df.empty:
-        resident_df = pd.DataFrame(columns=[
-            "company_id",
-            "resident_id",
-            "resident_name",
-            "status",
-            "public_assistance",
-            "consultant",
-            "consultant_phone",
-            "caseworker",
-            "caseworker_phone",
-            "hospital",
-            "hospital_phone",
-            "nurse",
-            "nurse_phone",
-            "care",
-            "care_phone",
-            "created_at",
-            "updated_at",
-        ])
-    else:
-        for col in [
-            "company_id",
-            "resident_id",
-            "resident_name",
-            "status",
-            "public_assistance",
-            "consultant",
-            "consultant_phone",
-            "caseworker",
-            "caseworker_phone",
-            "hospital",
-            "hospital_phone",
-            "nurse",
-            "nurse_phone",
-            "care",
-            "care_phone",
-            "created_at",
-            "updated_at",
-        ]:
-            if col not in resident_df.columns:
-                resident_df[col] = ""
-
-    resident_df = resident_df.fillna("").copy()
-
-    current_company_id = str(st.session_state.get("company_id", "")).strip()
-    if current_company_id:
-        resident_df = resident_df[
-            resident_df["company_id"].astype(str).str.strip() == current_company_id
-        ].copy()
+    current_company_id = get_current_company_id()
+    resident_df = get_resident_master_df(current_company_id)
 
     resident_search_cols = st.columns([2, 2, 2, 3])
 
@@ -14463,7 +13616,8 @@ def render_piecework_page():
 
         st.markdown("### 👤 利用者ごとの作成数登録")
 
-        resident_df = get_resident_master_df()
+        company_id = get_current_company_id()
+        master_df = get_resident_master_df(company_id)
         if resident_df is None:
             resident_df = pd.DataFrame()
 
@@ -15262,6 +14416,83 @@ def render_bulk_documents_page():
             except Exception as e:
                 st.error(f"ZIP作成エラー: {e}")
 
+from copy import copy
+from io import BytesIO
+from openpyxl import load_workbook, Workbook
+
+
+def sanitize_excel_sheet_name(name: str) -> str:
+    invalid_chars = ['\\', '/', '*', '?', ':', '[', ']']
+    safe = str(name or "").strip()
+
+    for ch in invalid_chars:
+        safe = safe.replace(ch, " ")
+
+    safe = safe.strip()
+    if not safe:
+        safe = "sheet"
+
+    return safe[:31]
+
+
+def build_home_eval_multi_workbook(resident_files: list[tuple[str, bytes]]) -> bytes:
+    """
+    resident_files:
+      [
+        ("荒木和也", <xlsx bytes>),
+        ("石田愛子", <xlsx bytes>),
+        ...
+      ]
+    """
+    if not resident_files:
+        raise RuntimeError("結合する在宅評価シートがありません。")
+
+    master_name, master_bytes = resident_files[0]
+    master_wb = load_workbook(BytesIO(master_bytes))
+    master_ws = master_wb.active
+    master_ws.title = sanitize_excel_sheet_name(master_name)
+
+    for resident_name, file_bytes in resident_files[1:]:
+        src_wb = load_workbook(BytesIO(file_bytes))
+        src_ws = src_wb.active
+
+        new_ws = master_wb.create_sheet(title=sanitize_excel_sheet_name(resident_name))
+
+        # 列幅コピー
+        for col_key, dim in src_ws.column_dimensions.items():
+            new_ws.column_dimensions[col_key].width = dim.width
+
+        # 行高さコピー
+        for row_key, dim in src_ws.row_dimensions.items():
+            new_ws.row_dimensions[row_key].height = dim.height
+
+        # セル値・書式コピー
+        for row in src_ws.iter_rows():
+            for cell in row:
+                new_cell = new_ws[cell.coordinate]
+                new_cell.value = cell.value
+
+                if cell.has_style:
+                    new_cell.font = copy(cell.font)
+                    new_cell.fill = copy(cell.fill)
+                    new_cell.border = copy(cell.border)
+                    new_cell.alignment = copy(cell.alignment)
+                    new_cell.number_format = copy(cell.number_format)
+                    new_cell.protection = copy(cell.protection)
+
+        # 結合セルコピー
+        for merged_range in src_ws.merged_cells.ranges:
+            new_ws.merge_cells(str(merged_range))
+
+        # シート表示設定
+        new_ws.sheet_view.zoomScale = src_ws.sheet_view.zoomScale
+        new_ws.freeze_panes = src_ws.freeze_panes
+
+    out = BytesIO()
+    master_wb.save(out)
+    out.seek(0)
+    return out.getvalue()
+
 def render_secret_home_eval_auto_page():
     st.title("🤫在宅評価シート🤫")
     st.caption("Knowbeの支援記録を読み込み、在宅評価シートを自動作成する裏ページです。")
@@ -15273,16 +14504,6 @@ def render_secret_home_eval_auto_page():
         return
 
     st.markdown("## 基本情報")
-
-    selected_label = st.selectbox(
-        "利用者を選択",
-        resident_options,
-        key="secret_home_eval_resident_select"
-    )
-
-    selected_row = resident_map.get(selected_label, {})
-    resident_id = str(selected_row.get("resident_id", "")).strip()
-    resident_name = str(selected_row.get("resident_name", "")).strip()
 
     base_cols = st.columns([2, 2, 3])
 
@@ -15324,11 +14545,7 @@ def render_secret_home_eval_auto_page():
 
     st.divider()
 
-    if st.button("🚀 Knowbeから在宅評価シートを自動作成", key="secret_home_eval_auto_generate"):
-        if not resident_name:
-            st.error("利用者を選択してください。")
-            return
-
+    if st.button("🚀 Knowbeから在宅評価シートを全員分自動作成", key="secret_home_eval_auto_generate_all"):
         if not str(create_year).strip() or not str(create_month).strip():
             st.error("作成年と作成月を入力してください。")
             return
@@ -15337,7 +14554,20 @@ def render_secret_home_eval_auto_page():
             st.error("月間評価のサビ管名を入力してください。")
             return
 
+        weekly_visits = {
+            "1": visit_1,
+            "2": visit_2,
+            "3": visit_3,
+            "4": visit_4,
+            "5": visit_5,
+        }
+
         driver = None
+        created_files = []
+        created_names = []
+        failed_names = []
+        support_record_map = {}
+        home_eval_json_map = {}
 
         try:
             login_username, login_password = get_knowbe_login_credentials()
@@ -15345,67 +14575,101 @@ def render_secret_home_eval_auto_page():
                 st.error("Knowbeログイン情報が取得できませんでした。")
                 return
 
-            with st.spinner("Knowbeへ接続して支援記録を取得中..."):
+            with st.spinner("Knowbeへ接続中..."):
                 driver = build_chrome_driver()
                 driver.get("https://mgr.knowbe.jp/v2/")
                 time.sleep(1.0)
-
                 manual_login_wait(driver, login_username, login_password)
 
-                support_record_text = fetch_support_record_text_for_month(
-                    driver=driver,
-                    resident_name=resident_name,
-                    year=int(str(create_year).strip()),
-                    month=int(str(create_month).strip()),
-                )
+            progress = st.progress(0)
+            status_box = st.empty()
 
-            st.session_state["secret_home_eval_support_record_text"] = support_record_text
+            total_count = len(resident_options)
 
-            with st.spinner("Geminiで在宅評価を生成中..."):
-                home_eval_json = generate_json_with_gemini(
-                    build_home_eval_from_support_record_prompt(
+            for idx, selected_label in enumerate(resident_options, start=1):
+                selected_row = resident_map.get(selected_label, {})
+                resident_name = str(selected_row.get("resident_name", "")).strip()
+
+                if not resident_name:
+                    failed_names.append(f"{selected_label}：利用者名取得失敗")
+                    progress.progress(idx / total_count)
+                    continue
+
+                try:
+                    status_box.info(f"{idx}/{total_count} 作成中: {resident_name}")
+
+                    support_record_text = fetch_support_record_text_for_month(
+                        driver=driver,
                         resident_name=resident_name,
-                        year_val=create_year,
-                        month_val=create_month,
-                        support_record_text=support_record_text,
+                        year=int(str(create_year).strip()),
+                        month=int(str(create_month).strip()),
                     )
-                )
 
-            st.session_state["secret_home_eval_json"] = home_eval_json
+                    support_record_map[resident_name] = support_record_text
 
-            weekly_visits = {
-                "1": visit_1,
-                "2": visit_2,
-                "3": visit_3,
-                "4": visit_4,
-                "5": visit_5,
-            }
+                    home_eval_json = generate_json_with_gemini(
+                        build_home_eval_from_support_record_prompt(
+                            resident_name=resident_name,
+                            year_val=create_year,
+                            month_val=create_month,
+                            support_record_text=support_record_text,
+                        )
+                    )
 
-            goals = home_eval_json.get("goals", [])
-            monthly_evaluations = home_eval_json.get("monthly_evaluations", [])
-            weekly_reports = home_eval_json.get("weekly_reports", {})
+                    home_eval_json_map[resident_name] = home_eval_json
 
-            cell_data = build_home_eval_cell_data(
-                resident_name=resident_name,
-                create_year=create_year,
-                create_month=create_month,
-                manager_name=manager_name,
-                goals=goals,
-                monthly_evaluations=monthly_evaluations,
-                weekly_dates=weekly_dates,
-                weekly_reports=weekly_reports,
-                weekly_visits=weekly_visits,
-            )
+                    goals = home_eval_json.get("goals", [])
+                    monthly_evaluations = home_eval_json.get("monthly_evaluations", [])
+                    weekly_reports = home_eval_json.get("weekly_reports", {})
 
-            st.session_state["secret_home_eval_cell_data"] = cell_data
+                    cell_data = build_home_eval_cell_data(
+                        resident_name=resident_name,
+                        create_year=create_year,
+                        create_month=create_month,
+                        manager_name=manager_name,
+                        goals=goals,
+                        monthly_evaluations=monthly_evaluations,
+                        weekly_dates=weekly_dates,
+                        weekly_reports=weekly_reports,
+                        weekly_visits=weekly_visits,
+                    )
 
-            excel_buffer = create_excel_file("在宅評価シート", cell_data)
-            st.session_state["secret_home_eval_file"] = excel_buffer.getvalue()
+                    excel_buffer = create_excel_file("在宅評価シート", cell_data)
 
-            st.success("在宅評価シートの自動作成が完了しました。")
+                    if hasattr(excel_buffer, "getvalue"):
+                        excel_bytes = excel_buffer.getvalue()
+                    else:
+                        excel_bytes = excel_buffer
+
+                    created_files.append((resident_name, excel_bytes))
+                    created_names.append(resident_name)
+
+                except Exception as e:
+                    failed_names.append(f"{resident_name}：{e}")
+
+                progress.progress(idx / total_count)
+
+            if not created_files:
+                st.error("全員分の在宅評価シート作成に失敗しました。")
+                if failed_names:
+                    with st.expander("失敗一覧"):
+                        for msg in failed_names:
+                            st.write(msg)
+                return
+
+            merged_book_bytes = build_home_eval_multi_workbook(created_files)
+
+            st.session_state["secret_home_eval_all_book"] = merged_book_bytes
+            st.session_state["secret_home_eval_all_book_name"] = f"{create_year}年{create_month}月_在宅評価シート_全員分.xlsx"
+            st.session_state["secret_home_eval_all_created_names"] = created_names
+            st.session_state["secret_home_eval_all_failed_names"] = failed_names
+            st.session_state["secret_home_eval_support_record_map"] = support_record_map
+            st.session_state["secret_home_eval_json_map"] = home_eval_json_map
+
+            status_box.success(f"全員分作成完了：成功 {len(created_names)}名 / 失敗 {len(failed_names)}名")
 
         except Exception as e:
-            st.error(f"在宅評価シート自動作成エラー: {e}")
+            st.error(f"在宅評価シート全員分自動作成エラー: {e}")
 
         finally:
             try:
@@ -15414,31 +14678,26 @@ def render_secret_home_eval_auto_page():
             except Exception:
                 pass
 
-    if st.session_state.get("secret_home_eval_support_record_text"):
-        with st.expander("取得した支援記録本文（確認用）"):
-            st.text_area(
-                "support_record_text",
-                st.session_state.get("secret_home_eval_support_record_text", ""),
-                height=300,
-                key="secret_home_eval_support_record_text_view"
-            )
+    created_names = st.session_state.get("secret_home_eval_all_created_names", [])
+    failed_names = st.session_state.get("secret_home_eval_all_failed_names", [])
 
-    if st.session_state.get("secret_home_eval_json"):
-        st.markdown("### 生成結果JSON")
-        st.text_area(
-            "home_eval_json",
-            json.dumps(st.session_state.get("secret_home_eval_json", {}), ensure_ascii=False, indent=2),
-            height=320,
-            key="secret_home_eval_json_view"
-        )
+    if created_names:
+        st.markdown("### 作成できた利用者")
+        for name in created_names:
+            st.write(f"・{name}")
 
-    if st.session_state.get("secret_home_eval_file") is not None:
+    if failed_names:
+        with st.expander("作成できなかった利用者"):
+            for msg in failed_names:
+                st.write(f"・{msg}")
+
+    if st.session_state.get("secret_home_eval_all_book") is not None:
         st.download_button(
-            label="📥 在宅評価シートをダウンロード",
-            data=st.session_state["secret_home_eval_file"],
-            file_name=f"{resident_name}_{create_month}月在宅評価シート.xlsx",
+            label="📥 在宅評価シート（全員分1ブック）をダウンロード",
+            data=st.session_state["secret_home_eval_all_book"],
+            file_name=st.session_state.get("secret_home_eval_all_book_name", "在宅評価シート_全員分.xlsx"),
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="secret_home_eval_download"
+            key="secret_home_eval_download_all"
         )
 
 # ==========================================
