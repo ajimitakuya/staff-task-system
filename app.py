@@ -21,7 +21,7 @@ from run_assistance import (
     build_chrome_driver,
     get_knowbe_login_credentials,
     manual_login_wait,
-    fetch_support_record_text_for_month,
+    fetch_user_support_record_text_from_app,
     run_support_record_kind_export,
 )
 
@@ -14606,8 +14606,9 @@ def fetch_home_eval_support_record_text(
     driver=None,
 ):
     """
-    driver が渡されたらそのセッションを再利用する。
-    渡されなければ従来どおり自前でログインして取得する。
+    在宅評価シート用に Knowbe の支援記録本文を取得する
+    ※ 実際の取得は run_assistance.py の
+       fetch_user_support_record_text_from_app() を使う
     """
     ctx = resolve_bee_company_context(
         company_login_id="",
@@ -14625,31 +14626,15 @@ def fetch_home_eval_support_record_text(
     if not login_username or not login_password:
         raise RuntimeError("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
 
-    own_driver = False
+    support_record_text = fetch_user_support_record_text_from_app(
+        resident_name=resident_name,
+        target_year=int(str(create_year).strip()),
+        target_month=int(str(create_month).strip()),
+        login_username=login_username,
+        login_password=login_password,
+    )
 
-    try:
-        if driver is None:
-            driver = build_chrome_driver()
-            driver.get("https://mgr.knowbe.jp/v2/")
-            time.sleep(1.0)
-            manual_login_wait(driver, login_username, login_password)
-            own_driver = True
-
-        support_record_text = fetch_support_record_text_for_month(
-            driver=driver,
-            resident_name=resident_name,
-            year=int(str(create_year).strip()),
-            month=int(str(create_month).strip()),
-        )
-        return support_record_text
-
-    finally:
-        if own_driver:
-            try:
-                driver.quit()
-            except Exception:
-                pass
-
+    return support_record_text
 def render_secret_home_eval_auto_page():
     st.title("🤫在宅評価シート🤫")
     st.caption("Knowbeの支援記録を読み込み、在宅評価シートを自動作成する裏ページです。")
