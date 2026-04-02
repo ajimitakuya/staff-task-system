@@ -1027,53 +1027,6 @@ def wait_support_record_month_changed(driver, old_ym, timeout=10):
     return False
 
 
-def goto_support_record_month(driver, target_year: int, target_month: int):
-    """
-    支援記録ページで左右ボタンだけを使って対象年月へ移動する
-    """
-    log(f"[STEP] goto_support_record_month target={target_year}-{target_month:02d}")
-
-    for _ in range(24):  # 念のため2年分まで
-        cur = get_support_record_current_ym(driver)
-        if not cur:
-            dump_debug(driver, "support_record_current_ym_not_found")
-            raise RuntimeError("[FATAL] 支援記録ページの年月表示を読めなかったある")
-
-        cy, cm = cur
-        if (cy, cm) == (target_year, target_month):
-            log("[STEP] goto_support_record_month already matched")
-            return
-
-        left_btn, right_btn = get_support_record_month_nav_buttons(driver)
-        if left_btn is None or right_btn is None:
-            dump_debug(driver, "support_record_nav_buttons_not_found")
-            raise RuntimeError("[FATAL] 支援記録ページの左右月移動ボタンが見つからないある")
-
-        cur_idx = _month_index(cy, cm)
-        tgt_idx = _month_index(target_year, target_month)
-
-        old_ym = (cy, cm)
-
-        if tgt_idx < cur_idx:
-            log(f"[DEBUG] move left from {old_ym} to target")
-            if not safe_click(driver, left_btn):
-                dump_debug(driver, "support_record_left_click_fail")
-                raise RuntimeError("[FATAL] 左ボタンを押せなかったある")
-        else:
-            log(f"[DEBUG] move right from {old_ym} to target")
-            if not safe_click(driver, right_btn):
-                dump_debug(driver, "support_record_right_click_fail")
-                raise RuntimeError("[FATAL] 右ボタンを押せなかったある")
-
-        changed = wait_support_record_month_changed(driver, old_ym, timeout=10)
-        if not changed:
-            dump_debug(driver, "support_record_month_not_changed")
-            raise RuntimeError("[FATAL] 月移動後に年月表示が変わらなかったある")
-
-    dump_debug(driver, "support_record_month_loop_over")
-    raise RuntimeError("[FATAL] 対象年月へ移動できなかったある")
-
-
 # =========================
 # 支援記録本文の取得
 # =========================
