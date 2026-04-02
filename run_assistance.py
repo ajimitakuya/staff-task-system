@@ -3294,9 +3294,8 @@ def _is_real_support_record_url(url: str) -> bool:
 
 def open_support_record_for_resident(driver, resident_name: str) -> bool:
     """
-    名前一致済みのカードから、そのカード内の『支援記録』ボタンだけを押す
-    - 名前探索は find_user_card_by_name に任せる
-    - ここではボタン探索だけ担当
+    名前一致済みのカードから、そのカード内にある
+    <span>支援記録</span> を起点に button を押す
     """
     log(f"[STEP] open_support_record_for_resident start resident={resident_name}")
 
@@ -3305,76 +3304,72 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
         log(f"[DEBUG] user card not found: {resident_name}")
         return False
 
-    # card 自体が浅すぎる場合に備えて、少しだけ親にも広げる
     search_roots = [card]
     cur = card
-    for _ in range(4):
+    for _ in range(5):
         try:
             cur = cur.find_element(By.XPATH, "./..")
             search_roots.append(cur)
         except Exception:
             break
 
+    xpaths = [
+        ".//span[normalize-space(.)='支援記録']/ancestor::button[1]",
+        ".//*[normalize-space(.)='支援記録']/ancestor::button[1]",
+    ]
+
     for level, root in enumerate(search_roots, start=1):
         log(f"[DEBUG] search support button in container level {level}")
 
-        try:
-            buttons = root.find_elements(
-                By.XPATH,
-                ".//span[contains(normalize-space(.), '支援記録')]/ancestor::button[1]"
-            )
-        except Exception:
-            buttons = []
-
-        log(f"[DEBUG] button count level {level} = {len(buttons)}")
-
-        for i, btn in enumerate(buttons, start=1):
+        for xp in xpaths:
             try:
-                if not btn.is_displayed():
-                    continue
+                buttons = root.find_elements(By.XPATH, xp)
             except Exception:
-                pass
+                buttons = []
 
-            txt = _button_text_loose(btn)
-            log(f"[DEBUG] button {i} text={txt!r}")
+            log(f"[DEBUG] matched buttons level={level} xp={xp} count={len(buttons)}")
 
-            if txt != "支援記録":
-                continue
+            for i, btn in enumerate(buttons, start=1):
+                try:
+                    if not btn.is_displayed():
+                        continue
+                except Exception:
+                    pass
 
-            old_url = driver.current_url or ""
-            log(f"[DEBUG] try support click level={level} old_url={old_url}")
+                old_url = driver.current_url or ""
+                log(f"[DEBUG] try support click level={level} index={i} old_url={old_url}")
 
-            if not safe_click(driver, btn):
-                continue
+                if not safe_click(driver, btn):
+                    continue
 
-            bad_url = ""
-            reached = False
+                bad_url = ""
+                reached = False
 
-            t0 = time.time()
-            while time.time() - t0 < 15:
-                cur_url = driver.current_url or ""
+                t0 = time.time()
+                while time.time() - t0 < 15:
+                    cur_url = driver.current_url or ""
 
-                if cur_url != old_url:
-                    log(f"[DEBUG] after click current_url = {cur_url}")
+                    if cur_url != old_url:
+                        log(f"[DEBUG] after click current_url = {cur_url}")
 
-                if "support_plan" in cur_url or "assessment" in cur_url:
-                    bad_url = cur_url
-                    break
+                    if "support_plan" in cur_url or "assessment" in cur_url:
+                        bad_url = cur_url
+                        break
 
-                if _is_real_support_record_url(cur_url):
-                    reached = True
-                    break
+                    if _is_real_support_record_url(cur_url):
+                        reached = True
+                        break
 
-                time.sleep(0.2)
+                    time.sleep(0.2)
 
-            if bad_url:
-                log(f"[DEBUG] wrong page reached = {bad_url}")
-                continue
+                if bad_url:
+                    log(f"[DEBUG] wrong page reached = {bad_url}")
+                    continue
 
-            if reached:
-                time.sleep(1.0)
-                log(f"[STEP] open_support_record_for_resident done resident={resident_name}")
-                return True
+                if reached:
+                    time.sleep(1.0)
+                    log(f"[STEP] open_support_record_for_resident done resident={resident_name}")
+                    return True
 
     log(f"[DEBUG] strict support button click failed: {resident_name}")
     return False
@@ -3526,7 +3521,7 @@ def fetch_user_support_record_text_from_app(
         ok = open_support_record_for_resident(driver, resident_name)
         if not ok:
             dump_debug(driver, "resident_not_found_in_users_summary")
-            raise RuntimeError(f"[FATAL] 利用者一覧で対象利用者が見つかりません: {resident_name}")
+            raise RuntimeError(f"[FATAL] 対象利用者カードは見つかったが支援記録ボタンを押せませんでした: {resident_name}")
 
         log("[STEP] goto support target month")
         ok = goto_support_record_month(driver, int(target_year), int(target_month))
