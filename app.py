@@ -14635,6 +14635,7 @@ def fetch_home_eval_support_record_text(
     )
 
     return support_record_text
+
 def render_secret_home_eval_auto_page():
     st.title("🤫在宅評価シート🤫")
     st.caption("Knowbeの支援記録を読み込み、在宅評価シートを自動作成する裏ページです。")

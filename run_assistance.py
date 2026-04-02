@@ -3399,27 +3399,31 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
                     if cur_url != old_url:
                         log(f"[DEBUG] after click current_url = {cur_url}")
 
-                    if "support_plan" in cur_url or "assessment" in cur_url:
+                    # assessment だけ失敗扱い
+                    if "assessment" in cur_url:
                         bad_url = cur_url
                         break
 
+                    # support_plan は中継ページなので許可して待つ
+                    if "support_plan" in cur_url:
+                        log(f"[DEBUG] intermediate page (support_plan) = {cur_url}")
+
+                    # 本物の support URL に来たら成功
                     if _is_real_support_record_url(cur_url):
                         reached = True
                         break
 
-                    # URLが変わらなくても、支援記録ページの見出しが出れば成功扱い
-                    try:
-                        marker = driver.find_elements(
-                            By.XPATH,
-                            "//*[contains(normalize-space(.), '利用者状態') or contains(normalize-space(.), '職員考察')]"
-                        )
-                        if marker:
-                            reached = True
-                            break
-                    except Exception:
-                        pass
+                    # URLがまだ support_plan でも、href が support_plan なら support に組み替えて直接飛ぶ
+                    if "support_plan" in cur_url:
+                        try:
+                            forced_url = re.sub(r"/support_plan(?:$|[/?#].*)", "/support", cur_url)
+                            if forced_url != cur_url:
+                                log(f"[DEBUG] force jump to support url = {forced_url}")
+                                driver.get(forced_url)
+                        except Exception as e:
+                            log(f"[DEBUG] force jump failed: {e}")
 
-                    time.sleep(0.2)
+                    time.sleep(0.3)
 
                 if bad_url:
                     log(f"[DEBUG] wrong page reached = {bad_url}")
@@ -3429,10 +3433,6 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
                     time.sleep(1.0)
                     log(f"[STEP] open_support_record_for_resident done resident={resident_name}")
                     return True
-
-                    log(f"[DEBUG] strict support button click failed: {resident_name}")
-                    return False
-
 
 def goto_support_record_month(driver, target_year: int, target_month: int) -> bool:
     """
