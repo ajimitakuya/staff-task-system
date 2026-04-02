@@ -2043,9 +2043,105 @@ def _choose_option_from_open_menu(driver, value_text: str) -> bool:
     return False
 
 def _norm_name_for_match(s: str) -> str:
-    s = norm(s)
-    s = s.replace("　", "").replace(" ", "")
-    return s
+    s = "" if s is None else str(s)
+    return (
+        s.replace(" ", "")
+         .replace("　", "")
+         .replace("\n", "")
+         .replace("\t", "")
+         .strip()
+    )
+
+def find_user_card_by_name(driver, resident_name: str):
+    """
+    利用者ごと一覧で、対象利用者の表示ブロックを探す
+    方針:
+    1) まず画面上の短い名前候補を広く拾う
+    2) 空白除去して完全一致
+    3) 一致した要素から親をたどって「1人分のカード」を返す
+    """
+    target = _norm_name_for_match(resident_name)
+    log(f"[STEP] find_user_card_by_name target={target}")
+
+    # まず表示要素を広めに拾う
+    xpaths = [
+        "//span[normalize-space(.) != '']",
+        "//p[normalize-space(.) != '']",
+        "//div[normalize-space(.) != '']",
+        "//a[normalize-space(.) != '']",
+    ]
+
+    candidates = []
+
+    for xp in xpaths:
+        try:
+            elems = driver.find_elements(By.XPATH, xp)
+        except Exception:
+            elems = []
+
+        for el in elems:
+            try:
+                if not el.is_displayed():
+                    continue
+            except Exception:
+                pass
+
+            try:
+                txt = (el.text or "").strip()
+            except Exception:
+                txt = ""
+
+            if not txt:
+                continue
+
+            txt_norm = _norm_name_for_match(txt)
+
+            # 長すぎるブロックは除外
+            if len(txt_norm) == 0 or len(txt_norm) > 20:
+                continue
+
+            candidates.append((el, txt, txt_norm))
+
+    log(f"[DEBUG] candidate count = {len(candidates)}")
+
+    for i, (_, raw, normed) in enumerate(candidates[:50], start=1):
+        log(f"[DEBUG] candidate {i}: {normed}")
+
+    # 完全一致を最優先
+    for i, (el, raw, txt_norm) in enumerate(candidates, start=1):
+        if txt_norm != target:
+            continue
+
+        log(f"[STEP] matched candidate {i}: {txt_norm}")
+
+        # 親をたどって「その人のカード」を探す
+        cur = el
+        for _ in range(8):
+            try:
+                cur = cur.find_element(By.XPATH, "./..")
+            except Exception:
+                break
+
+            try:
+                block_text = _norm_name_for_match(cur.text or "")
+            except Exception:
+                block_text = ""
+
+            # 本人名を含み、かつ支援記録などの操作要素を持つ親をカード扱い
+            if target in block_text:
+                try:
+                    btns = cur.find_elements(By.XPATH, ".//button")
+                except Exception:
+                    btns = []
+
+                if btns:
+                    return cur
+
+        # 最後の保険
+        return el
+
+    log(f"[DEBUG] user card not found by exact short-text match: {resident_name}")
+    return None
 
 
 def select_dropdown_skip_if_same(driver, root, label_text: str, value_text: str) -> bool:
