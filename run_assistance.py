@@ -3283,7 +3283,15 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
                 pass
 
             if safe_click(driver, btn):
-                time.sleep(1.5)
+                try:
+                    WebDriverWait(driver, 15).until(
+                        lambda d: "/support/" in (d.current_url or "")
+                    )
+                except Exception:
+                    pass
+
+                log(f"[DEBUG] after click current_url = {driver.current_url}")
+                time.sleep(1.0)
                 return True
 
     return False
@@ -3293,10 +3301,22 @@ def goto_support_record_month(driver, target_year: int, target_month: int) -> bo
     """
     支援記録ページに入ったあと、URLの /support/YYYY/M を対象月へ差し替えて移動する
     """
+    # まず支援記録URLになるまで少し待つ
+    for _ in range(30):
+        cur = driver.current_url or ""
+        log(f"[DEBUG] goto_support_record_month current_url = {cur}")
+        if "/support/" in cur:
+            break
+        time.sleep(0.5)
+    else:
+        log("[DEBUG] support URL not reached")
+        return False
+
     cur = driver.current_url or ""
 
     m = re.search(r"/support/(\d{4})/(\d{1,2})(?:$|[/?#])", cur)
     if not m:
+        log(f"[DEBUG] support regex not matched. current_url = {cur}")
         return False
 
     new_url = re.sub(
@@ -3305,15 +3325,24 @@ def goto_support_record_month(driver, target_year: int, target_month: int) -> bo
         cur
     )
 
-    driver.get(new_url)
-    time.sleep(1.5)
+    log(f"[DEBUG] goto_support_record_month new_url = {new_url}")
 
-    # 支援記録ページが見えていることを確認
+    driver.get(new_url)
+
+    try:
+        WebDriverWait(driver, 15).until(
+            lambda d: f"/support/{target_year}/{target_month}" in (d.current_url or "")
+        )
+    except Exception:
+        log(f"[DEBUG] target month url not confirmed. current_url = {driver.current_url}")
+
     WebDriverWait(driver, 15).until(
         EC.presence_of_element_located(
             (By.XPATH, "//*[contains(normalize-space(.), '支援記録')]")
         )
     )
+
+    time.sleep(1.0)
     return True
 
 
