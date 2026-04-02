@@ -5930,7 +5930,7 @@ for p in main_page_options:
 st.sidebar.markdown("### 利用者書類")
 
 for page_key, page_label in document_page_options:
-    is_selected = (st.session_state.current_page == page_label)
+    is_selected = (st.session_state.current_page == page_key)
     display_label = page_label
 
     if is_selected:
@@ -5940,7 +5940,7 @@ for page_key, page_label in document_page_options:
         )
     else:
         if st.sidebar.button(display_label, key=f"doc_menu_{page_key}", use_container_width=True):
-            st.session_state.current_page = page_label
+            st.session_state.current_page = page_key
             st.rerun()
 
 
@@ -14820,76 +14820,108 @@ def render_secret_page(doc_title: str):
     else:
         render_plan_form_page(doc_title)
 
+import traceback
+
+def run_page_debug(page_name, fn):
+    try:
+        st.info(f"DEBUG: {page_name} に入りました")
+        fn()
+    except Exception as e:
+        st.error(f"{page_name} でエラーです: {e}")
+        st.code(traceback.format_exc())
+
 if page == "書類_個別支援計画案":
     if st.session_state.get("secret_doc_mode", False):
-        render_secret_page("個別支援計画案")
+        run_page_debug("書類_個別支援計画案", lambda: render_secret_page("個別支援計画案"))
     else:
-        render_plan_form_page("個別支援計画案")
+        run_page_debug("書類_個別支援計画案", lambda: render_plan_form_page("個別支援計画案"))
+
 elif page == "書類_サービス担当者会議":
     if st.session_state.get("secret_doc_mode", False):
-        render_secret_page("サービス担当者会議")
+        run_page_debug("書類_サービス担当者会議", lambda: render_secret_page("サービス担当者会議"))
     else:
-        render_meeting_form_page("サービス担当者会議")
+        run_page_debug("書類_サービス担当者会議", lambda: render_meeting_form_page("サービス担当者会議"))
+
 elif page == "書類_個別支援計画":
     if st.session_state.get("secret_doc_mode", False):
-        render_secret_page("個別支援計画")
+        run_page_debug("書類_個別支援計画", lambda: render_secret_page("個別支援計画"))
     else:
-        render_plan_form_page("個別支援計画")
+        run_page_debug("書類_個別支援計画", lambda: render_plan_form_page("個別支援計画"))
+
 elif page == "書類_モニタリング":
     if st.session_state.get("secret_doc_mode", False):
-        render_secret_page("モニタリング")
+        run_page_debug("書類_モニタリング", lambda: render_secret_page("モニタリング"))
     else:
-        render_monitoring_form_page("モニタリング")
+        run_page_debug("書類_モニタリング", lambda: render_monitoring_form_page("モニタリング"))
+
 elif page == "書類_在宅評価シート":
     if st.session_state.get("secret_doc_mode", False):
-        render_secret_home_eval_auto_page()
+        run_page_debug("書類_在宅評価シート", render_secret_home_eval_auto_page)
     else:
-        render_home_evaluation_form_page("在宅評価シート")
+        run_page_debug("書類_在宅評価シート", lambda: render_home_evaluation_form_page("在宅評価シート"))
+
 elif page == "書類_アセスメント":
-    render_assessment_form_page("アセスメント")
+    run_page_debug("書類_アセスメント", lambda: render_assessment_form_page("アセスメント"))
+
 elif page == "書類_基本シート":
-    render_basic_sheet_form_page("基本シート")
+    run_page_debug("書類_基本シート", lambda: render_basic_sheet_form_page("基本シート"))
+
 elif page == "書類_就労分野シート":
-    render_work_sheet_form_page("就労分野シート")
+    run_page_debug("書類_就労分野シート", lambda: render_work_sheet_form_page("就労分野シート"))
+
 elif page == "🐝knowbe日誌入力🐝":
-    render_bee_journal_page()
+    run_page_debug("🐝knowbe日誌入力🐝", render_bee_journal_page)
+
 elif page == "🐝knowbe日誌一括入力🐝":
-    render_bulk_knowbe_diary_page()
+    run_page_debug("🐝knowbe日誌一括入力🐝", render_bulk_knowbe_diary_page)
+
 elif page == "💻他事業所へ登録💻":
-    render_other_office_register_page()
-if page == "休憩室":
-    render_break_room_page()
+    run_page_debug("💻他事業所へ登録💻", render_other_office_register_page)
+
+elif page == "休憩室":
+    run_page_debug("休憩室", render_break_room_page)
+
 elif page == "休憩室_チャットルーム":
-    render_chat_room_page()
+    run_page_debug("休憩室_チャットルーム", render_chat_room_page)
+
 elif page == "休憩室_書類アップロード":
-    render_archive_page()
+    run_page_debug("休憩室_書類アップロード", render_archive_page)
+
 elif page == "⑩ 書類アップロード":
-    render_archive_page()
+    run_page_debug("⑩ 書類アップロード", render_archive_page)
+
 elif page == "休憩室_倉庫":
-    render_warehouse_page()
+    run_page_debug("休憩室_倉庫", render_warehouse_page)
+
 elif page == "内職管理":
-    render_piecework_page()
+    run_page_debug("内職管理", render_piecework_page)
+
 elif page == "スタッフ管理":
     if not st.session_state.get("is_admin", False):
         st.error("このページは管理者専用です。")
     else:
-        render_admin_staff_manage_block()
+        run_page_debug("スタッフ管理", render_admin_staff_manage_block)
+
 elif page == "ICカード管理":
-    render_ic_card_manage_page()
+    run_page_debug("ICカード管理", render_ic_card_manage_page)
+
 elif page == "Knowbe情報登録":
-    render_company_knowbe_settings_page()
+    run_page_debug("Knowbe情報登録", render_company_knowbe_settings_page)
+
 elif page == "お問い合わせ":
-    render_contact_page()
+    run_page_debug("お問い合わせ", render_contact_page)
+
 elif page == "書類_一括書類作成":
-    render_bulk_documents_page()
+    run_page_debug("書類_一括書類作成", render_bulk_documents_page)
+
 elif page == "勤怠管理":
     if not st.session_state.get("is_admin", False):
         st.error("このページは管理者専用です。")
     else:
-        render_attendance_page()
+        run_page_debug("勤怠管理", render_attendance_page)
 
 elif page == "過去日誌照合":
     if not st.session_state.get("is_admin", False):
         st.error("このページは管理者専用です。")
     else:
-        render_support_record_audit_page()
+        run_page_debug("過去日誌照合", render_support_record_audit_page)
