@@ -5907,20 +5907,14 @@ def process_secret_command():
         st.session_state["other_office_register_unlocked"] = True
     elif cmd == "🤫":
         st.session_state["secret_doc_mode"] = True
-    elif cmd == "💕":
-        st.session_state["heart_mode"] = True
 
     st.session_state["secret_bee_cmd"] = ""
 
 
 # ===== メインメニュー =====
-for page_key, page_label in document_page_options:
-    is_selected = (st.session_state.current_page == page_label)
-
-    if st.session_state.get("heart_mode", False):
-        display_p = heart_label(page_label)
-    else:
-        display_p = page_label
+for p in main_page_options:
+    is_selected = (st.session_state.current_page == p)
+    display_p = p
 
     if is_selected:
         st.sidebar.markdown(
@@ -5928,25 +5922,25 @@ for page_key, page_label in document_page_options:
             unsafe_allow_html=True
         )
     else:
-        if st.sidebar.button(display_p, key=f"menu_{page_key}", use_container_width=True):
-            st.session_state.current_page = page_label
+        if st.sidebar.button(display_p, key=f"menu_{p}", use_container_width=True):
+            st.session_state.current_page = p
             st.rerun()
 
 # ===== 利用者書類 =====
 st.sidebar.markdown("### 利用者書類")
 
-for page_key, label in document_page_options:
-    is_selected = (st.session_state.current_page == page_key)
-    display_label = heart_label(label)
+for page_key, page_label in document_page_options:
+    is_selected = (st.session_state.current_page == page_label)
+    display_label = page_label
 
     if is_selected:
         st.sidebar.markdown(
-            f'<div class="menu-selected-wrap"><div class="menu-selected-box">● {display_label}</div></div>',
+            f'<div class="menu-selected-wrap"><div class="menu-selected-box">• {display_label}</div></div>',
             unsafe_allow_html=True
         )
     else:
-        if st.sidebar.button(display_label, key=f"menu_{page_key}", use_container_width=True):
-            st.session_state.current_page = page_key
+        if st.sidebar.button(display_label, key=f"doc_menu_{page_key}", use_container_width=True):
+            st.session_state.current_page = page_label
             st.rerun()
 
 
