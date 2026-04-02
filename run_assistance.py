@@ -3201,36 +3201,104 @@ def open_support_record_for_resident(driver, resident_name: str) -> bool:
     if card is None:
         return False
 
+    # cardそのもの、親、さらに親…と範囲を広げて探す
+    containers = [card]
+
+    try:
+        parent1 = card.find_element(By.XPATH, "./..")
+        containers.append(parent1)
+    except Exception:
+        parent1 = None
+
+    try:
+        if parent1 is not None:
+            parent2 = parent1.find_element(By.XPATH, "./..")
+            containers.append(parent2)
+        else:
+            parent2 = None
+    except Exception:
+        parent2 = None
+
+    try:
+        if parent2 is not None:
+            parent3 = parent2.find_element(By.XPATH, "./..")
+            containers.append(parent3)
+    except Exception:
+        pass
+
     btn_xps = [
         ".//button[.//span[contains(normalize-space(.), '支援記録')]]",
         ".//button[contains(normalize-space(.), '支援記録')]",
         ".//*[self::span or self::p or self::div][contains(normalize-space(.), '支援記録')]/ancestor::button[1]",
     ]
 
-    for xp in btn_xps:
+    for idx, container in enumerate(containers, start=1):
         try:
-            btns = card.find_elements(By.XPATH, xp)
+            log(f"[DEBUG] search support button in container level {idx}")
         except Exception:
-            btns = []
+            pass
 
-        for btn in btns:
+        for xp in btn_xps:
             try:
-                if not btn.is_displayed():
-                    continue
+                btns = container.find_elements(By.XPATH, xp)
             except Exception:
-                pass
+                btns = []
 
-            if safe_click(driver, btn):
+            for btn in btns:
                 try:
-                    WebDriverWait(driver, 15).until(
-                        lambda d: "/support/" in (d.current_url or "")
-                    )
+                    txt = (btn.text or "").strip()
+                except Exception:
+                    txt = ""
+
+                try:
+                    if not btn.is_displayed():
+                        continue
                 except Exception:
                     pass
 
-                log(f"[DEBUG] after click current_url = {driver.current_url}")
-                time.sleep(1.0)
-                return True
+                log(f"[DEBUG] try click support button level={idx} text={txt}")
+
+                if safe_click(driver, btn):
+                    try:
+                        WebDriverWait(driver, 15).until(
+                            lambda d: "/support" in (d.current_url or "")
+                        )
+                    except Exception:
+                        pass
+
+                    log(f"[DEBUG] after click current_url = {driver.current_url}")
+                    time.sleep(1.0)
+                    return True
+
+    # 最後の保険：画面全体から resident名の近くの支援記録ボタンを探す
+    try:
+        target = normalize_resident_name_for_match(resident_name)
+        rows = driver.find_elements(By.XPATH, "//*[contains(normalize-space(.), '支援記録')]")
+        for el in rows:
+            try:
+                txt = (el.text or "").strip()
+            except Exception:
+                txt = ""
+            txt_norm = normalize_resident_name_for_match(txt)
+            if target in txt_norm:
+                btn = el
+                if el.tag_name.lower() != "button":
+                    try:
+                        btn = el.find_element(By.XPATH, "./ancestor::button[1]")
+                    except Exception:
+                        btn = el
+                if safe_click(driver, btn):
+                    try:
+                        WebDriverWait(driver, 15).until(
+                            lambda d: "/support" in (d.current_url or "")
+                        )
+                    except Exception:
+                        pass
+                    log(f"[DEBUG] fallback click current_url = {driver.current_url}")
+                    time.sleep(1.0)
+                    return True
+    except Exception:
+        pass
 
     return False
 
