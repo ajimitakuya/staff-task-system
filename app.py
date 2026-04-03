@@ -14892,6 +14892,7 @@ def render_secret_home_eval_auto_page():
                         resident_name=resident_name_loop,
                         create_year=create_year,
                         create_month=create_month,
+                        driver=driver,
                     )
 
                     support_record_map[resident_name_loop] = support_record_text
@@ -14936,7 +14937,8 @@ def render_secret_home_eval_auto_page():
                 except Exception as e:
                     current_url = ""
                     try:
-                        current_url = driver.current_url or ""
+                        if driver is not None:
+                            current_url = driver.current_url or ""
                     except Exception:
                         current_url = ""
 
@@ -14944,12 +14946,16 @@ def render_secret_home_eval_auto_page():
 
                 progress.progress(idx / total_count)
 
+            progress.empty()
+
             if not created_files:
-                st.error("全員分の在宅評価シート作成に失敗しました。")
-                if failed_names:
-                    with st.expander("失敗一覧"):
-                        for msg in failed_names:
-                            st.write(msg)
+                status_box.error("全員分の在宅評価シート作成に失敗しました。")
+                st.session_state["secret_home_eval_all_book"] = None
+                st.session_state["secret_home_eval_all_book_name"] = ""
+                st.session_state["secret_home_eval_all_created_names"] = created_names
+                st.session_state["secret_home_eval_all_failed_names"] = failed_names
+                st.session_state["secret_home_eval_support_record_map"] = support_record_map
+                st.session_state["secret_home_eval_json_map"] = home_eval_json_map
                 return
 
             merged_book_bytes = build_home_eval_multi_workbook(created_files)
@@ -15004,6 +15010,8 @@ def render_secret_home_eval_auto_page():
     # ===== 全員分プレビュー =====
     created_names = st.session_state.get("secret_home_eval_all_created_names", [])
     failed_names = st.session_state.get("secret_home_eval_all_failed_names", [])
+    all_json_map = st.session_state.get("secret_home_eval_json_map", {})
+    all_support_map = st.session_state.get("secret_home_eval_support_record_map", {})
 
     if created_names:
         st.markdown("### 作成できた利用者")
@@ -15023,6 +15031,24 @@ def render_secret_home_eval_auto_page():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="secret_home_eval_download_all"
         )
+
+    if all_json_map:
+        st.markdown("### 全員分の生成結果JSON")
+        for resident_name_key, json_data in all_json_map.items():
+            with st.expander(f"{resident_name_key} のJSON"):
+                st.json(json_data)
+
+    if all_support_map:
+        st.markdown("### 取得した支援記録本文（全員分確認用）")
+        for resident_name_key, support_text in all_support_map.items():
+            with st.expander(f"{resident_name_key} の支援記録本文"):
+                st.text_area(
+                    label=f"{resident_name_key}_support_text",
+                    value=str(support_text),
+                    height=220,
+                    key=f"bulk_support_text_{resident_name_key}",
+                )
+                
 # ==========================================
 # 利用者書類
 # ==========================================
