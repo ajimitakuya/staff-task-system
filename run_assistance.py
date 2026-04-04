@@ -169,7 +169,6 @@ def dump_debug(driver, tag: str):
             f.write(driver.page_source)
     except Exception:
         pass
-    log(f"[DEBUG] dump: {png}, {html}")
 
 
 # =========================
@@ -203,7 +202,6 @@ def read_treaty_check(excel_path: str):
     a1 = (ws["A1"].value or "")
     b1 = (ws["B1"].value or "")
     c1 = (ws["C1"].value or "")
-    log(f"[DEBUG] 条約シート確認: A1={a1} / B1={b1} / C1={c1}")
     wb.close()
 
 def normalize_hhmm(v) -> str:
@@ -646,13 +644,11 @@ def find_row_by_name(driver, name: str):
 
     row, visible = scan_rows()
 
-    log(f"[DEBUG] 探索対象名(normalized): {target}")
-
     # 先頭10件
     for i, txt in enumerate(visible[:10], 1):
         log(f"[DEBUG] visible row {i}: {txt}")
 
-    # 末尾5件（10件以上あるときだけ）
+    # 末尾5件（10件以上あるときだけ）Q
     if len(visible) > 10:
         for i, txt in enumerate(visible[-5:], 1):
             log(f"[DEBUG] tail row {i}: {txt}")

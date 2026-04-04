@@ -717,19 +717,30 @@ def generate_with_gemini(prompt: str):
     model_candidates = ["gemini-2.5-flash"]
     errors = []
 
+
     for model_name in model_candidates:
-        try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
-            text = str(getattr(response, "text", "")).strip()
+        for attempt in range(3):  # 最大3回
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                text = str(getattr(response, "text", "")).strip()
 
-            if text:
-                return text
+                if text:
+                    return text
 
-            errors.append(f"{model_name}: empty response")
+                errors.append(f"{model_name} attempt{attempt + 1}: empty response")
 
-        except Exception as e:
-            errors.append(f"{model_name}: {e}")
+            except Exception as e:
+                if "429" in str(e):
+                    wait = 10 + attempt * 5
+                    if attempt == 2:
+                        errors.append(f"{model_name} attempt{attempt + 1}: {e}")
+                        break
+                    time.sleep(wait)
+                    continue
+
+                errors.append(f"{model_name} attempt{attempt + 1}: {e}")
+                break
 
     raise RuntimeError("Gemini生成失敗: " + " | ".join(errors))
 
@@ -794,20 +805,30 @@ def generate_json_with_gemini(prompt: str):
     last_error = None
 
     for model_name in model_candidates:
-        try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
-            text = str(getattr(response, "text", "")).strip()
+        for attempt in range(3):  # 最大3回
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                text = str(getattr(response, "text", "")).strip()
 
-            if not text:
-                continue
+                if not text:
+                    last_error = RuntimeError(f"{model_name} empty response")
+                    continue
 
-            text = text.replace("```json", "").replace("```", "").strip()
-            return json.loads(text)
+                text = text.replace("```json", "").replace("```", "").strip()
+                return json.loads(text)
 
-        except Exception as e:
-            last_error = e
-            continue
+            except Exception as e:
+                last_error = e
+
+                if "429" in str(e):
+                    wait = 10 + attempt * 5
+                    if attempt == 2:
+                        break
+                    time.sleep(wait)
+                    continue
+
+                break
 
     raise RuntimeError(f"Gemini JSON生成失敗: {last_error}")
 
@@ -14772,6 +14793,7 @@ def render_secret_home_eval_auto_page():
             )
 
             st.session_state["secret_home_eval_support_record_text"] = support_record_text
+
 
             with st.spinner("Geminiで在宅評価を生成中..."):
                 home_eval_json = generate_json_with_gemini(
