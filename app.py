@@ -8055,10 +8055,6 @@ def render_basic_sheet_form_page(doc_title: str):
         cell_data=cell_data
     )
 
-def render_work_field_form_page(doc_title: str):
-    st.title(f"📄 {doc_title}")
-    st.info("就労分野シートはまだ作成中です。")
-
 def render_work_sheet_form_page(doc_title: str):
     st.title("📋 就労分野シート")
     st.caption("就労分野シート入力ページです。入力・保存・呼び出し・Excel出力まで対応版です。")
@@ -8208,19 +8204,68 @@ def render_work_sheet_form_page(doc_title: str):
     st.divider()
 
     # -----------------------------
-    # 3. 就労に関すること
+    # 3. 対人技能
     # -----------------------------
-    st.markdown("## ３．就労に関すること")
+    st.markdown("## ３．対人技能")
 
-    work_item1 = st.selectbox("①就労理解　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_work_item1")
-    work_item2 = st.selectbox("②就労意識　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_work_item2")
-    work_item3 = st.selectbox("③就労意欲　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_work_item3")
-    work_item4 = st.selectbox("④体力、精神力　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_work_item4")
-    work_item5 = st.selectbox("⑤家族の支援　支援の必要性", ["1", "2", "3", "4"], key=f"{doc_title}_work_item5")
+    interpersonal_item1 = st.selectbox(
+        "①意思伝達　支援の必要性",
+        ["1", "2", "3", "4"],
+        key=f"{doc_title}_interpersonal_item1"
+    )
+    interpersonal_item2 = st.selectbox(
+        "②意思疎通　支援の必要性",
+        ["1", "2", "3", "4"],
+        key=f"{doc_title}_interpersonal_item2"
+    )
+    interpersonal_item3 = st.selectbox(
+        "③感情コントロール　支援の必要性",
+        ["1", "2", "3", "4"],
+        key=f"{doc_title}_interpersonal_item3"
+    )
+    interpersonal_item4 = st.selectbox(
+        "④協調性　支援の必要性",
+        ["1", "2", "3", "4"],
+        key=f"{doc_title}_interpersonal_item4"
+    )
 
-    work_point = st.text_area(
+    interpersonal_point = st.text_area(
         "支援ポイント等記載欄",
-        key=f"{doc_title}_work_point",
+        key=f"{doc_title}_interpersonal_point",
+        height=180
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # 4. 就労準備
+    # -----------------------------
+    st.markdown("## ４．就労準備")
+
+    preparation_item1 = st.selectbox(
+        "①就労理解　支援の必要性",
+        ["1", "2", "3", "4"],
+        key=f"{doc_title}_preparation_item1"
+    )
+    preparation_item2 = st.selectbox(
+        "②就労意思　支援の必要性",
+        ["1", "2", "3", "4"],
+        key=f"{doc_title}_preparation_item2"
+    )
+    preparation_item3 = st.selectbox(
+        "③就労意欲　支援の必要性",
+        ["1", "2", "3", "4"],
+        key=f"{doc_title}_preparation_item3"
+    )
+    preparation_item4 = st.selectbox(
+        "④体力、精神力　支援の必要性",
+        ["1", "2", "3", "4"],
+        key=f"{doc_title}_preparation_item4"
+    )
+
+    preparation_point = st.text_area(
+        "支援ポイント等記載欄",
+        key=f"{doc_title}_preparation_point",
         height=180
     )
 
@@ -8243,7 +8288,6 @@ def render_work_sheet_form_page(doc_title: str):
     )
 
     st.divider()
-
     # -----------------------------
     # 6. 職業適性
     # -----------------------------
@@ -8358,27 +8402,43 @@ def render_work_sheet_form_page(doc_title: str):
         "hear_year": hear_year,
         "hear_month": hear_month,
         "hear_day": hear_day,
+
+        # 1. 健康管理
         "health_item1": health_item1,
         "health_item2": health_item2,
         "health_item3": health_item3,
         "health_point": health_point,
+
+        # 2. 日常生活管理
         "daily_item1": daily_item1,
         "daily_item2": daily_item2,
         "daily_item3": daily_item3,
         "daily_item4": daily_item4,
         "daily_item5": daily_item5,
         "daily_point": daily_point,
-        "work_item1": work_item1,
-        "work_item2": work_item2,
-        "work_item3": work_item3,
-        "work_item4": work_item4,
-        "work_item5": work_item5,
-        "work_point": work_point,
+
+        # 3. 対人技能
+        "interpersonal_item1": interpersonal_item1,
+        "interpersonal_item2": interpersonal_item2,
+        "interpersonal_item3": interpersonal_item3,
+        "interpersonal_item4": interpersonal_item4,
+        "interpersonal_point": interpersonal_point,
+
+        # 4. 就労準備
+        "preparation_item1": preparation_item1,
+        "preparation_item2": preparation_item2,
+        "preparation_item3": preparation_item3,
+        "preparation_item4": preparation_item4,
+        "preparation_point": preparation_point,
+
+        # 5. 基本的労働習慣
         "labor_item1": labor_item1,
         "labor_item2": labor_item2,
         "labor_item3": labor_item3,
         "labor_item4": labor_item4,
         "labor_point": labor_point,
+
+        # 6. 職業適性
         "aptitude_item1": aptitude_item1,
         "aptitude_item2": aptitude_item2,
         "aptitude_item3": aptitude_item3,
@@ -8386,8 +8446,12 @@ def render_work_sheet_form_page(doc_title: str):
         "aptitude_item5": aptitude_item5,
         "aptitude_item6": aptitude_item6,
         "aptitude_point": aptitude_point,
+
+        # 7. 利用経過及び就労歴
         "history_rows": history_rows,
         "hope_service": hope_service,
+
+        # 8. 総合所見
         "hope_work": hope_work,
         "readiness": readiness,
         "suitable_work": suitable_work,
@@ -8400,14 +8464,75 @@ def render_work_sheet_form_page(doc_title: str):
             "利用者名": resident_name,
             "聞き取り者名": interviewer_name,
             "聞き取り日": f"{hear_year}/{hear_month}/{hear_day}",
-            "健康管理": [health_item1, health_item2, health_item3, health_point],
-            "日常生活管理": [daily_item1, daily_item2, daily_item3, daily_item4, daily_item5, daily_point],
-            "就労に関すること": [work_item1, work_item2, work_item3, work_item4, work_item5, work_point],
-            "基本的労働習慣": [labor_item1, labor_item2, labor_item3, labor_item4, labor_point],
-            "職業適性": [aptitude_item1, aptitude_item2, aptitude_item3, aptitude_item4, aptitude_item5, aptitude_item6, aptitude_point],
+
+            # 1. 健康管理
+            "健康管理": [
+                health_item1,
+                health_item2,
+                health_item3,
+                health_point
+            ],
+
+            # 2. 日常生活管理
+            "日常生活管理": [
+                daily_item1,
+                daily_item2,
+                daily_item3,
+                daily_item4,
+                daily_item5,
+                daily_point
+            ],
+
+            # 3. 対人技能
+            "対人技能": [
+                interpersonal_item1,
+                interpersonal_item2,
+                interpersonal_item3,
+                interpersonal_item4,
+                interpersonal_point
+            ],
+
+            # 4. 就労準備
+            "就労準備": [
+                preparation_item1,
+                preparation_item2,
+                preparation_item3,
+                preparation_item4,
+                preparation_point
+            ],
+
+            # 5. 基本的労働習慣
+            "基本的労働習慣": [
+                labor_item1,
+                labor_item2,
+                labor_item3,
+                labor_item4,
+                labor_point
+            ],
+
+            # 6. 職業適性
+            "職業適性": [
+                aptitude_item1,
+                aptitude_item2,
+                aptitude_item3,
+                aptitude_item4,
+                aptitude_item5,
+                aptitude_item6,
+                aptitude_point
+            ],
+
+            # 7. 就労歴
             "就労歴": history_rows,
+
+            # 8. 希望・総合所見
             "サービス利用希望": hope_service,
-            "総合所見": [hope_work, readiness, suitable_work, opinion, direction],
+            "総合所見": [
+                hope_work,
+                readiness,
+                suitable_work,
+                opinion,
+                direction
+            ],
         })
 
     st.markdown("### 保存済みデータ呼び出し")
@@ -8485,13 +8610,19 @@ def render_work_sheet_form_page(doc_title: str):
             "M30": daily_item5,
             "P22": daily_point,
 
-            # 3. 就労に関すること
-            "M44": work_item1,
-            "M46": work_item2,
-            "M48": work_item3,
-            "M50": work_item4,
-            "M52": work_item5,
-            "P44": work_point,
+            # 3. 対人技能
+            "M36": interpersonal_item1,
+            "M38": interpersonal_item2,
+            "M40": interpersonal_item3,
+            "M42": interpersonal_item4,
+            "P36": interpersonal_point,
+
+            # 4. 就労準備
+            "M44": preparation_item1,
+            "M46": preparation_item2,
+            "M48": preparation_item3,
+            "M50": preparation_item4,
+            "P44": preparation_point,
 
             # 5. 基本的労働習慣
             "M58": labor_item1,
@@ -8537,7 +8668,7 @@ def render_work_sheet_form_page(doc_title: str):
             "J116": opinion,
             "J121": direction,
     }
-
+    
     template_name = doc_title
     file_name = f"{doc_title}.xlsx"
 
