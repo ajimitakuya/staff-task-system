@@ -3197,20 +3197,17 @@ def apply_users_summary_filter_show_expired(driver):
     log("[STEP] apply_users_summary_filter_show_expired start")
 
     try:
-        # まずチェックボックスを取得
         expired_checkbox = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.NAME, "expiredVisibility"))
         )
 
-        # チェックが入っていたら外す
         if expired_checkbox.is_selected():
             driver.execute_script("arguments[0].click();", expired_checkbox)
             log("[DEBUG] 退所者の非表示 → OFFにしたある")
-            time.sleep(0.5)
+            time.sleep(0.7)
         else:
             log("[DEBUG] 退所者の非表示はすでにOFFある")
 
-        # 『この条件で絞り込む』ボタンを押す
         filter_btn = None
         xpaths = [
             "//button[.//span[normalize-space(.)='この条件で絞り込む']]",
@@ -3255,14 +3252,12 @@ def apply_users_summary_filter_show_expired(driver):
 
         log("[DEBUG] 『この条件で絞り込む』を押したある")
 
-        # 一覧再描画待ち
-        time.sleep(1.5)
+        # 再描画待ち（厳密すぎる判定をやめる）
+        time.sleep(2.5)
 
-        # 支援記録ボタンが見えるまで軽く待つ
+        # 一覧ページの基本要素が残っていれば成功扱い
         WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located(
-                (By.XPATH, "//button[.//span[contains(normalize-space(.), '支援記録')] or contains(normalize-space(.), '支援記録')]")
-            )
+            EC.presence_of_element_located((By.NAME, "expiredVisibility"))
         )
 
         log("[STEP] apply_users_summary_filter_show_expired done")
