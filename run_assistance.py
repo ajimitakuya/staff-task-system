@@ -917,6 +917,20 @@ def open_support_record_page_for_user(driver, resident_name: str):
     """
     log("[STEP] open_support_record_page_for_user start")
 
+    # ===== ここ追加 =====
+    # 退所者の非表示チェックを外す
+    try:
+        expired_checkbox = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.NAME, "expiredVisibility"))
+        )
+        if expired_checkbox.is_selected():
+            driver.execute_script("arguments[0].click();", expired_checkbox)
+            log("[DEBUG] 退所者の非表示 → OFFにしたある")
+            time.sleep(1.0)  # 一覧更新待ち
+    except Exception:
+        log("[DEBUG] 退所者チェックボックス見つからない or そのままでOKある")
+    # ===== ここまで =====
+
     row = find_user_row_in_record_page(driver, resident_name)
     if row is None:
         dump_debug(driver, "support_record_user_not_found")
@@ -3492,6 +3506,25 @@ def extract_support_record_text(driver) -> str:
 
     return body_text
 
+def uncheck_expired_visibility_if_needed(driver):
+    """
+    利用者ごと一覧の『退所者の非表示』チェックを外して、
+    退所者も表示される状態にする
+    """
+    try:
+        expired_checkbox = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.NAME, "expiredVisibility"))
+        )
+
+        if expired_checkbox.is_selected():
+            driver.execute_script("arguments[0].click();", expired_checkbox)
+            log("[DEBUG] 退所者の非表示 → OFFにしたある")
+            time.sleep(1.5)  # 一覧の再描画待ち
+        else:
+            log("[DEBUG] 退所者の非表示はすでにOFFある")
+
+    except Exception as e:
+        log(f"[DEBUG] 退所者チェック操作スキップある: {e}")
 
 def fetch_user_support_record_text_from_app(
     resident_name: str,
@@ -3529,6 +3562,9 @@ def fetch_user_support_record_text_from_app(
         if not ok:
             dump_debug(driver, "goto_users_summary_fail")
             raise RuntimeError("[FATAL] 利用者ごと一覧へ戻れません")
+        
+        # 退所者も表示する
+        uncheck_expired_visibility_if_needed(driver)
 
         log(f"[STEP] find resident: {resident_name}")
         ok = open_support_record_for_resident(driver, resident_name)
