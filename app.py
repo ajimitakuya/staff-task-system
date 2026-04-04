@@ -478,13 +478,6 @@ def render_attendance_page():
                         [attendance_logs_df, pd.DataFrame([new_log])],
                         ignore_index=True
                     )
-                    try:
-                        save_db(attendance_logs_df, "attendance_logs")
-                        st.session_state["attendance_logs_df"] = attendance_logs_df
-                        st.success(f"{name} → {result_text_map.get(action, action)}")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"勤怠保存でエラーです: {e}")
 
                     result_text_map = {
                         "in": "出勤",
@@ -493,6 +486,13 @@ def render_attendance_page():
                         "break_end": "休憩終了",
                     }
 
+                    try:
+                        save_db(attendance_logs_df, "attendance_logs")
+                        st.session_state["attendance_logs_df"] = attendance_logs_df
+                        st.success(f"{name} → {result_text_map.get(action, action)}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"勤怠保存でエラーです: {e}")
                     st.success(f"{name} → {result_text_map.get(action, action)}")
                     st.rerun()
 
@@ -704,8 +704,23 @@ def render_support_record_audit_page():
             use_container_width=True,
         )
 
+def wait_for_gemini_slot(min_interval_sec=210):
+    """
+    Gemini無料枠対策。
+    前回のGemini呼び出しから min_interval_sec 秒空くまで待つ。
+    210秒 = 3分30秒
+    """
+    last_called = float(st.session_state.get("gemini_last_called_at", 0) or 0)
+    now_ts = time.time()
+    remain = min_interval_sec - (now_ts - last_called)
 
+    if remain > 0:
+        mins = int(remain // 60)
+        secs = int(remain % 60)
+        st.info(f"Gemini無料枠保護のため {mins}分{secs}秒 待機中です…")
+        time.sleep(remain)
 
+    st.session_state["gemini_last_called_at"] = time.time()
 
 def generate_with_gemini(prompt: str):
     api_key = get_gemini_api_key_from_app()
@@ -717,10 +732,12 @@ def generate_with_gemini(prompt: str):
     model_candidates = ["gemini-2.5-flash"]
     errors = []
 
-
     for model_name in model_candidates:
-        for attempt in range(3):  # 最大3回
+        for attempt in range(3):
             try:
+                # ★追加：毎回ゆっくり撃つ
+                wait_for_gemini_slot(min_interval_sec=210)
+
                 model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt)
                 text = str(getattr(response, "text", "")).strip()
@@ -731,12 +748,13 @@ def generate_with_gemini(prompt: str):
                 errors.append(f"{model_name} attempt{attempt + 1}: empty response")
 
             except Exception as e:
-                if "429" in str(e):
-                    wait = 10 + attempt * 5
-                    if attempt == 2:
-                        errors.append(f"{model_name} attempt{attempt + 1}: {e}")
-                        break
-                    time.sleep(wait)
+                msg = str(e)
+
+                if "429" in msg:
+                    # ★429が出たらさらに長めに待つ
+                    retry_wait = 600  # 10分
+                    st.warning(f"Gemini制限に当たりました。{retry_wait//60}分待って再試行します。")
+                    time.sleep(retry_wait)
                     continue
 
                 errors.append(f"{model_name} attempt{attempt + 1}: {e}")
@@ -798,15 +816,15 @@ def generate_json_with_gemini(prompt: str):
 
     genai.configure(api_key=api_key)
 
-    model_candidates = [
-        "gemini-2.5-flash",
-    ]
-
+    model_candidates = ["gemini-2.5-flash"]
     last_error = None
 
     for model_name in model_candidates:
-        for attempt in range(3):  # 最大3回
+        for attempt in range(3):
             try:
+                # ★追加
+                wait_for_gemini_slot(min_interval_sec=210)
+
                 model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt)
                 text = str(getattr(response, "text", "")).strip()
@@ -820,12 +838,12 @@ def generate_json_with_gemini(prompt: str):
 
             except Exception as e:
                 last_error = e
+                msg = str(e)
 
-                if "429" in str(e):
-                    wait = 10 + attempt * 5
-                    if attempt == 2:
-                        break
-                    time.sleep(wait)
+                if "429" in msg:
+                    retry_wait = 600  # 10分
+                    st.warning(f"Gemini制限に当たりました。{retry_wait//60}分待って再試行します。")
+                    time.sleep(retry_wait)
                     continue
 
                 break
