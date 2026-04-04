@@ -3601,8 +3601,8 @@ def fetch_user_support_record_text_from_app(
     login_password: str,
 ):
     """
-    app から呼ぶ用：
-    利用者ごと → 支援記録 → 対象月 の本文を文字列で返す
+    利用者ごと → 支援記録 → 対象月 の本文を取得する
+    ※ 支援記録が存在しない月（入院・未利用など）は空文字を返す
     """
     if not resident_name:
         raise RuntimeError("[FATAL] resident_name が空です")
@@ -3657,20 +3657,18 @@ def fetch_user_support_record_text_from_app(
             dump_debug(driver, "wrong_page_after_month_jump")
             raise RuntimeError(f"[FATAL] 月移動後に支援記録ページではありません: {cur}")
 
-        WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located(
-                (By.XPATH, "//*[contains(normalize-space(.), '利用者状態') or contains(normalize-space(.), '職員考察')]")
-            )
-        )
+        # ★ 記録ゼロ月では「利用者状態」「職員考察」が出ないので、ここで厳しい待機はしない
+        time.sleep(1.5)
 
         log("[STEP] extract support record text")
         support_text = get_support_record_page_text(driver)
 
-        if not support_text.strip():
-            dump_debug(driver, "support_record_text_empty")
-            raise RuntimeError("[FATAL] 支援記録本文の取得に失敗しました")
+        # ★ 入院・未利用などで支援記録が存在しない月は空文字をそのまま返す
+        if not support_text or not str(support_text).strip():
+            log("[DEBUG] support record text is empty (利用実績なし / 支援記録なし) ある")
+            return ""
 
-        return support_text
+        return str(support_text).strip()
 
     finally:
         try:
