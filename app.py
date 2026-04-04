@@ -7319,26 +7319,15 @@ def render_assessment_form_page(doc_title: str):
 
     housing_cols = st.columns(2)
     with housing_cols[0]:
-        housing_transport = st.selectbox(
-            "住居の状況（交通手段）",
-            ["電車", "バス", "自転車", "その他"],
-            key=f"{doc_title}_housing_transport"
+        housing_status = st.text_input(
+            "住居の状況",
+            key=f"{doc_title}_housing_status"
         )
     with housing_cols[1]:
-        housing_transport_other = st.text_input(
+        housing_status_other = st.text_input(
             "住居の状況（その他内容）",
-            key=f"{doc_title}_housing_transport_other"
+            key=f"{doc_title}_housing_status_other"
         )
-
-    housing_use_status = st.selectbox(
-        "住居の状況 利用する場合具体的な状況",
-        ["単独利用", "家族等の付き添い", "その他"],
-        key=f"{doc_title}_housing_use_status"
-    )
-    housing_use_status_other = st.text_input(
-        "住居の状況 利用状況（その他内容）",
-        key=f"{doc_title}_housing_use_status_other"
-    )
 
     transport_cols = st.columns(2)
     with transport_cols[0]:
@@ -7364,7 +7353,7 @@ def render_assessment_form_page(doc_title: str):
     )
 
     st.divider()
-
+    
     # -----------------------------
     # 生活歴
     # -----------------------------
