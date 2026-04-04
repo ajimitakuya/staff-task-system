@@ -704,6 +704,8 @@ def render_support_record_audit_page():
             use_container_width=True,
         )
 
+
+
 def wait_for_gemini_slot(min_interval_sec=210):
     """
     Gemini無料枠対策。
@@ -721,6 +723,20 @@ def wait_for_gemini_slot(min_interval_sec=210):
         time.sleep(remain)
 
     st.session_state["gemini_last_called_at"] = time.time()
+
+def apply_pending_document_load(doc_title: str):
+    """
+    保存済みデータ読み込みを、widget生成前に session_state へ反映する。
+    Streamlitの
+    'cannot be modified after the widget is instantiated'
+    対策。
+    """
+    pending_key = f"{doc_title}_pending_load_json"
+    pending_json = st.session_state.pop(pending_key, None)
+
+    if isinstance(pending_json, dict):
+        for k, v in pending_json.items():
+            st.session_state[f"{doc_title}_{k}"] = v
 
 def generate_with_gemini(prompt: str):
     api_key = get_gemini_api_key_from_app()
@@ -7049,6 +7065,13 @@ def render_assessment_form_page(doc_title: str):
     selected_row = resident_map[selected_label]
     resident_name = str(selected_row.get("resident_name", "")).strip()
 
+    # ★追加：pending読み込みをwidget生成前に適用
+    apply_pending_document_load(doc_title)
+
+    load_msg = st.session_state.pop(f"{doc_title}_load_message", "")
+    if load_msg:
+        st.success(load_msg)
+
     # -----------------------------
     # 聴き取り情報
     # P1 / Y1 / AD1 / AG1
@@ -7998,11 +8021,9 @@ def render_assessment_form_page(doc_title: str):
             saved_json = load_document_json(selected_record_id)
 
             if saved_json:
-                for k, v in saved_json.items():
-                    st.session_state[f"{doc_title}_{k}"] = v
-
+                st.session_state[f"{doc_title}_pending_load_json"] = saved_json
                 st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
-                st.success("保存済みデータを読み込んだです！")
+                st.session_state[f"{doc_title}_load_message"] = "保存済みデータを読み込んだです！"
                 st.rerun()
             else:
                 st.warning("保存データが見つからありません。")
@@ -8085,14 +8106,17 @@ def render_basic_sheet_form_page(doc_title: str):
         key=f"{doc_title}_resident_select"
     )
 
-    selected_row = resident_map[selected_label]
-    resident_id = str(selected_row.get("resident_id", "")).strip()
-    resident_name = str(selected_row.get("resident_name", "")).strip()
+    # ★追加：pending読み込みをwidget生成前に適用
+    apply_pending_document_load(doc_title)
+
+    load_msg = st.session_state.pop(f"{doc_title}_load_message", "")
+    if load_msg:
+        st.success(load_msg)
 
     # -----------------------------
-    # 保存済み一覧の準備
+    # 聞き取り情報
     # -----------------------------
-    saved_df = get_document_records("基本シート", resident_id)
+    st.markdown("### 聞き取り情報")
 
     saved_options = ["新規作成"]
     saved_map = {"新規作成": None}
@@ -8239,11 +8263,9 @@ def render_basic_sheet_form_page(doc_title: str):
             saved_json = load_document_json(selected_record_id)
 
             if saved_json:
-                for k, v in saved_json.items():
-                    st.session_state[f"{doc_title}_{k}"] = v
-
+                st.session_state[f"{doc_title}_pending_load_json"] = saved_json
                 st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
-                st.success("保存済みデータを読み込んだです！")
+                st.session_state[f"{doc_title}_load_message"] = "保存済みデータを読み込みました！"
                 st.rerun()
             else:
                 st.warning("保存データが見つからありません。")
@@ -8372,6 +8394,13 @@ def render_work_sheet_form_page(doc_title: str):
             saved_options.append(label)
             saved_map[label] = rid
 
+    # ★追加：保存済み読み込みを widget 作成前に反映
+    apply_pending_document_load(doc_title)
+
+    load_msg = st.session_state.pop(f"{doc_title}_load_message", "")
+    if load_msg:
+        st.success(load_msg)
+        
     # -----------------------------
     # 聞き取り情報
     # P1 / Y1 / AD1 / AG1
