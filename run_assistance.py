@@ -917,20 +917,6 @@ def open_support_record_page_for_user(driver, resident_name: str):
     """
     log("[STEP] open_support_record_page_for_user start")
 
-    # ===== ここ追加 =====
-    # 退所者の非表示チェックを外す
-    try:
-        expired_checkbox = WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.NAME, "expiredVisibility"))
-        )
-        if expired_checkbox.is_selected():
-            driver.execute_script("arguments[0].click();", expired_checkbox)
-            log("[DEBUG] 退所者の非表示 → OFFにしたある")
-            time.sleep(1.0)  # 一覧更新待ち
-    except Exception:
-        log("[DEBUG] 退所者チェックボックス見つからない or そのままでOKある")
-    # ===== ここまで =====
-
     row = find_user_row_in_record_page(driver, resident_name)
     if row is None:
         dump_debug(driver, "support_record_user_not_found")
@@ -3201,6 +3187,91 @@ def goto_users_summary(driver):
     )
     return True
 
+def apply_users_summary_filter_show_expired(driver):
+    """
+    利用者ごと一覧で
+    - 『退所者の非表示』のチェックを外す
+    - 『この条件で絞り込む』を押す
+    まで行う
+    """
+    log("[STEP] apply_users_summary_filter_show_expired start")
+
+    try:
+        # まずチェックボックスを取得
+        expired_checkbox = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.NAME, "expiredVisibility"))
+        )
+
+        # チェックが入っていたら外す
+        if expired_checkbox.is_selected():
+            driver.execute_script("arguments[0].click();", expired_checkbox)
+            log("[DEBUG] 退所者の非表示 → OFFにしたある")
+            time.sleep(0.5)
+        else:
+            log("[DEBUG] 退所者の非表示はすでにOFFある")
+
+        # 『この条件で絞り込む』ボタンを押す
+        filter_btn = None
+        xpaths = [
+            "//button[.//span[normalize-space(.)='この条件で絞り込む']]",
+            "//button[normalize-space(.)='この条件で絞り込む']",
+            "//*[self::button or self::div or self::span][contains(normalize-space(.), 'この条件で絞り込む')]",
+        ]
+
+        for xp in xpaths:
+            try:
+                elems = driver.find_elements(By.XPATH, xp)
+            except Exception:
+                elems = []
+
+            for el in elems:
+                try:
+                    if not el.is_displayed():
+                        continue
+                except Exception:
+                    pass
+
+                try:
+                    if el.tag_name.lower() == "button":
+                        filter_btn = el
+                    else:
+                        filter_btn = el.find_element(By.XPATH, "./ancestor::button[1]")
+                    break
+                except Exception:
+                    continue
+
+            if filter_btn:
+                break
+
+        if not filter_btn:
+            dump_debug(driver, "users_summary_filter_button_not_found")
+            raise RuntimeError("[FATAL] 『この条件で絞り込む』ボタンが見つからないある")
+
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", filter_btn)
+        time.sleep(0.2)
+
+        if not safe_click(driver, filter_btn):
+            driver.execute_script("arguments[0].click();", filter_btn)
+
+        log("[DEBUG] 『この条件で絞り込む』を押したある")
+
+        # 一覧再描画待ち
+        time.sleep(1.5)
+
+        # 支援記録ボタンが見えるまで軽く待つ
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located(
+                (By.XPATH, "//button[.//span[contains(normalize-space(.), '支援記録')] or contains(normalize-space(.), '支援記録')]")
+            )
+        )
+
+        log("[STEP] apply_users_summary_filter_show_expired done")
+        return True
+
+    except Exception as e:
+        dump_debug(driver, "apply_users_summary_filter_show_expired_fail")
+        log(f"[DEBUG] 利用者一覧の絞り込み更新で失敗ある: {e}")
+        return False
 
 def normalize_resident_name_for_match(name: str) -> str:
     s = str(name or "")
@@ -3562,9 +3633,11 @@ def fetch_user_support_record_text_from_app(
         if not ok:
             dump_debug(driver, "goto_users_summary_fail")
             raise RuntimeError("[FATAL] 利用者ごと一覧へ戻れません")
-        
-        # 退所者も表示する
-        uncheck_expired_visibility_if_needed(driver)
+
+        # 退所者も表示する条件で再絞り込み
+        ok = apply_users_summary_filter_show_expired(driver)
+        if not ok:
+            raise RuntimeError("[FATAL] 利用者ごと一覧の絞り込み更新に失敗したある")
 
         log(f"[STEP] find resident: {resident_name}")
         ok = open_support_record_for_resident(driver, resident_name)
