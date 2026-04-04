@@ -1029,13 +1029,20 @@ def wait_support_record_month_changed(driver, old_ym, timeout=10):
 def get_support_record_page_text(driver) -> str:
     """
     支援記録ページ本文を取得する
-    - body全体ではなく、中央本文の readonly textarea 群を優先取得
-    - aria-hidden=true は除外
-    - サイドバーやメニュー文字を拾わない
     """
     log("[STEP] get_support_record_page_text start")
 
     time.sleep(1.0)
+
+    # まず「利用実績なし」を確認
+    try:
+        body_text = driver.find_element(By.TAG_NAME, "body").text or ""
+    except Exception:
+        body_text = ""
+
+    if "利用実績がありません" in body_text and "利用実績を入力後、ご利用ください" in body_text:
+        log("[DEBUG] 支援記録なし（利用実績なし）ある")
+        return ""
 
     script = r"""
     function isVisible(el) {
@@ -1053,7 +1060,6 @@ def get_support_record_page_text(driver) -> str:
     const texts = [];
     const seen = new Set();
 
-    // ① まずは readonly textarea を最優先で拾う
     const areas = Array.from(document.querySelectorAll("textarea[readonly]"))
         .filter(el => isVisible(el))
         .filter(el => (el.getAttribute("aria-hidden") || "").toLowerCase() !== "true");
@@ -1061,33 +1067,25 @@ def get_support_record_page_text(driver) -> str:
     for (const ta of areas) {
         const v = norm(ta.value || ta.innerText || ta.textContent || "");
         if (!v) continue;
-
         if (!seen.has(v)) {
             seen.add(v);
             texts.push(v);
         }
     }
 
-    // ② textareaが拾えなかった時だけ保険で中央エリアの文字を拾う
     if (texts.length === 0) {
         const all = Array.from(document.querySelectorAll("body *"))
             .filter(el => isVisible(el));
 
         for (const el of all) {
             const tag = (el.tagName || "").toLowerCase();
-
-            // サイドバーやボタン類は除外
             if (["button", "svg", "path"].includes(tag)) continue;
 
             const rect = el.getBoundingClientRect();
-
-            // 左サイドバー除外（だいたい150pxより右）
             if (rect.left < 150) continue;
 
             const t = norm(el.innerText || el.textContent || "");
             if (!t) continue;
-
-            // 長すぎる重複ブロックは除外
             if (t.length < 20) continue;
 
             if (!seen.has(t)) {
@@ -1109,8 +1107,8 @@ def get_support_record_page_text(driver) -> str:
     text = "" if text is None else str(text).strip()
 
     if not text:
-        dump_debug(driver, "support_record_text_empty")
-        raise RuntimeError("[FATAL] 支援記録ページ本文を取得できなかったある")
+        log("[DEBUG] 支援記録本文なしある")
+        return ""
 
     log(f"[DEBUG] support record text length={len(text)}")
     return text

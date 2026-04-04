@@ -14998,6 +14998,10 @@ def fetch_home_eval_support_record_text(
         login_password=login_password,
     )
 
+    # ★ 利用実績なし・支援記録なしのときはここで止める
+    if not support_record_text or not str(support_record_text).strip():
+        return ""
+
     return support_record_text
 
 def render_secret_home_eval_auto_page():
@@ -15137,6 +15141,9 @@ def render_secret_home_eval_auto_page():
 
             st.session_state["secret_home_eval_support_record_text"] = support_record_text
 
+            if not support_record_text or not str(support_record_text).strip():
+                st.warning("この月は利用実績がないため、在宅評価シートは作成できませんでした（入院・未利用の可能性があります）。")
+                return
 
             with st.spinner("Geminiで在宅評価を生成中..."):
                 home_eval_json = generate_json_with_gemini(
