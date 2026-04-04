@@ -2478,18 +2478,17 @@ def process_report_edit(driver, it: PersonItem) -> bool:
             close_dialog_if_open(driver)
             return False
 
+        # モーダルが消えるのを"軽く"待つ（ガチ待機しない）
         try:
-            WebDriverWait(driver, 15).until(EC.invisibility_of_element(dlg))
+            time.sleep(0.8)  # 軽く待つだけ
+            if dlg:
+                try:
+                    if dlg.is_displayed():
+                        close_dialog_if_open(driver)
+                except Exception:
+                    pass
         except Exception:
-            close_dialog_if_open(driver)
-
-        return True
-
-    except Exception as e:
-        dump_debug(driver, f"exception_{it.name}")
-        log(f"⚠️ {it.name} 例外ある: {e} → モーダル閉じて次へ")
-        close_dialog_if_open(driver)
-        return False
+            pass
 
 # =========================
 # 日々の記録 + Gemini
