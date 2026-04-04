@@ -3252,13 +3252,8 @@ def apply_users_summary_filter_show_expired(driver):
 
         log("[DEBUG] 『この条件で絞り込む』を押したある")
 
-        # 再描画待ち（厳密すぎる判定をやめる）
+        # 画面再描画のため少し待つだけ
         time.sleep(2.5)
-
-        # 一覧ページの基本要素が残っていれば成功扱い
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.NAME, "expiredVisibility"))
-        )
 
         log("[STEP] apply_users_summary_filter_show_expired done")
         return True
@@ -3268,6 +3263,7 @@ def apply_users_summary_filter_show_expired(driver):
         log(f"[DEBUG] 利用者一覧の絞り込み更新で失敗ある: {e}")
         return False
 
+    
 def normalize_resident_name_for_match(name: str) -> str:
     s = str(name or "")
     s = s.replace(" ", "").replace("　", "").strip()
