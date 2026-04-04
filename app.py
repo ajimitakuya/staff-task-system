@@ -8106,12 +8106,15 @@ def render_basic_sheet_form_page(doc_title: str):
         key=f"{doc_title}_resident_select"
     )
 
-    # ★追加：pending読み込みをwidget生成前に適用
-    apply_pending_document_load(doc_title)
+    selected_label = st.selectbox(
+        "誰の書類を入力するか",
+        resident_options,
+        key=f"{doc_title}_resident_select"
+    )
 
-    load_msg = st.session_state.pop(f"{doc_title}_load_message", "")
-    if load_msg:
-        st.success(load_msg)
+    selected_row = resident_map[selected_label]
+    resident_id = str(selected_row.get("resident_id", "")).strip()
+    resident_name = str(selected_row.get("resident_name", "")).strip()
 
     # -----------------------------
     # 保存済みデータ一覧
@@ -8129,7 +8132,7 @@ def render_basic_sheet_form_page(doc_title: str):
             saved_options.append(label)
             saved_map[label] = rid
 
-    # ★追加：保存済み読み込みを widget 作成前に反映
+    # ★追加：pending読み込みをwidget生成前に適用
     apply_pending_document_load(doc_title)
 
     load_msg = st.session_state.pop(f"{doc_title}_load_message", "")
