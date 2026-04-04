@@ -2490,6 +2490,14 @@ def process_report_edit(driver, it: PersonItem) -> bool:
         except Exception:
             pass
 
+        return True
+
+    except Exception as e:
+        dump_debug(driver, f"exception_{it.name}")
+        log(f"⚠️ {it.name} 例外ある: {e} → モーダル閉じて次へ")
+        close_dialog_if_open(driver)
+        return False
+
 # =========================
 # 日々の記録 + Gemini
 # =========================
