@@ -7612,10 +7612,8 @@ def render_assessment_form_page(doc_title: str):
         "welfare_status": welfare_status,
         "public_support": public_support,
         "family_rows": family_rows,
-        "housing_transport": housing_transport,
-        "housing_transport_other": housing_transport_other,
-        "housing_use_status": housing_use_status,
-        "housing_use_status_other": housing_use_status_other,
+        "housing_status": housing_status,
+        "housing_status_other": housing_status_other,
         "available_transport": available_transport,
         "available_transport_other": available_transport_other,
         "available_use_status": available_use_status,
@@ -7644,11 +7642,23 @@ def render_assessment_form_page(doc_title: str):
     pension_value = "なし" if pension_status == "なし" else f"あり：{pension_detail}" if pension_detail.strip() else "あり"
     allowance_value = "なし" if allowance_status == "なし" else f"あり：{allowance_detail}" if allowance_detail.strip() else "あり"
 
-    housing_transport_value = housing_transport_other.strip() if housing_transport == "その他" and housing_transport_other.strip() else housing_transport
-    housing_status_value = housing_use_status_other.strip() if housing_use_status == "その他" and housing_use_status_other.strip() else housing_use_status
+    housing_status_value = (
+        housing_status_other.strip()
+        if housing_status == "その他" and housing_status_other.strip()
+        else housing_status
+    )
 
-    available_transport_value = available_transport_other.strip() if available_transport == "その他" and available_transport_other.strip() else available_transport
-    available_status_value = available_use_status_other.strip() if available_use_status == "その他" and available_use_status_other.strip() else available_use_status
+    available_transport_value = (
+        available_transport_other.strip()
+        if available_transport == "その他" and available_transport_other.strip()
+        else available_transport
+    )
+
+    available_status_value = (
+        available_use_status_other.strip()
+        if available_use_status == "その他" and available_use_status_other.strip()
+        else available_use_status
+    )
 
     cell_data = {
             "P1": interviewer_name,
@@ -7722,9 +7732,8 @@ def render_assessment_form_page(doc_title: str):
             "X39": family_rows[3]["live"],
             "AB39": family_rows[3]["note"],
 
-            "G43": housing_transport_value,
-            "G45": available_transport_value,
-
+            "G43": housing_status_value,
+            
             "A50": life_rows[0]["date"],
             "G50": life_rows[0]["history"],
             "A52": life_rows[1]["date"],
@@ -7978,14 +7987,8 @@ def render_assessment_form_page(doc_title: str):
         "welfare_status": welfare_status,
         "public_support": public_support,
         "family_rows": family_rows,
-        "housing_transport": housing_transport,
-        "housing_transport_other": housing_transport_other,
-        "housing_use_status": housing_use_status,
-        "housing_use_status_other": housing_use_status_other,
-        "available_transport": available_transport,
-        "available_transport_other": available_transport_other,
-        "available_use_status": available_use_status,
-        "available_use_status_other": available_use_status_other,
+        "housing_status": housing_status,
+        "housing_status_other": housing_status_other,
         "life_rows": life_rows,
         "disease_name": disease_name,
         "disease_symptom": disease_symptom,
