@@ -8114,9 +8114,9 @@ def render_basic_sheet_form_page(doc_title: str):
         st.success(load_msg)
 
     # -----------------------------
-    # 聞き取り情報
+    # 保存済みデータ一覧
     # -----------------------------
-    st.markdown("### 聞き取り情報")
+    saved_df = get_document_records("基本シート", resident_id)
 
     saved_options = ["新規作成"]
     saved_map = {"新規作成": None}
@@ -8129,9 +8129,15 @@ def render_basic_sheet_form_page(doc_title: str):
             saved_options.append(label)
             saved_map[label] = rid
 
+    # ★追加：保存済み読み込みを widget 作成前に反映
+    apply_pending_document_load(doc_title)
+
+    load_msg = st.session_state.pop(f"{doc_title}_load_message", "")
+    if load_msg:
+        st.success(load_msg)
+
     # -----------------------------
     # 聞き取り情報
-    # P1 / AB1 / AG1 / AJ1
     # -----------------------------
     st.markdown("### 聞き取り情報")
 
@@ -8400,7 +8406,7 @@ def render_work_sheet_form_page(doc_title: str):
     load_msg = st.session_state.pop(f"{doc_title}_load_message", "")
     if load_msg:
         st.success(load_msg)
-        
+
     # -----------------------------
     # 聞き取り情報
     # P1 / Y1 / AD1 / AG1
@@ -8701,8 +8707,10 @@ def render_work_sheet_form_page(doc_title: str):
             saved_json = load_document_json(selected_record_id)
 
             if saved_json:
-                for k, v in saved_json.items():
-                    st.session_state[f"{doc_title}_{k}"] = v
+                st.session_state[f"{doc_title}_pending_load_json"] = saved_json
+                st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
+                st.session_state[f"{doc_title}_load_message"] = "保存済みデータを読み込みました！"
+                st.rerun()
 
                 st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
                 st.success("保存済みデータを読み込みました！")
