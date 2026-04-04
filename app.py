@@ -7317,48 +7317,6 @@ def render_assessment_form_page(doc_title: str):
     # -----------------------------
     st.markdown("## 住居環境等")
 
-    housing_cols = st.columns(2)
-    with housing_cols[0]:
-        housing_status = st.text_input(
-            "住居の状況",
-            key=f"{doc_title}_housing_status"
-        )
-    with housing_cols[1]:
-        housing_status_other = st.text_input(
-            "住居の状況（その他内容）",
-            key=f"{doc_title}_housing_status_other"
-        )
-
-    transport_cols = st.columns(2)
-    with transport_cols[0]:
-        available_transport = st.selectbox(
-            "利用可能な交通手段",
-            ["電車", "バス", "自転車", "その他"],
-            key=f"{doc_title}_available_transport"
-        )
-    with transport_cols[1]:
-        available_transport_other = st.text_input(
-            "利用可能な交通手段（その他内容）",
-            key=f"{doc_title}_available_transport_other"
-        )
-
-    available_use_status = st.selectbox(
-        "利用可能交通手段 利用する場合具体的な状況",
-        ["単独利用", "家族等の付き添い", "その他"],
-        key=f"{doc_title}_available_use_status"
-    )
-    available_use_status_other = st.text_input(
-        "利用可能交通手段 利用状況（その他内容）",
-        key=f"{doc_title}_available_use_status_other"
-    )
-
-    st.divider()
-
-    # -----------------------------
-    # 住居環境等
-    # -----------------------------
-    st.markdown("## 住居環境等")
-
     # 住居の状況
     housing_status_options = [
         "一戸建て",
@@ -7417,6 +7375,30 @@ def render_assessment_form_page(doc_title: str):
 
     st.divider()
     
+    # -----------------------------
+    # 生活歴
+    # -----------------------------
+    st.markdown("## 生活歴")
+
+    life_rows = []
+    for i in range(3):
+        st.markdown(f"### 生活歴{i+1}")
+        cols = st.columns([1, 3])
+        with cols[0]:
+            life_date = st.text_input("西暦年月日", key=f"{doc_title}_life_date_{i}", placeholder="2000/04")
+        with cols[1]:
+            life_history = st.text_area(
+                "生活歴（学歴や転居等の経緯）",
+                key=f"{doc_title}_life_history_{i}",
+                height=80
+            )
+        life_rows.append({
+            "date": life_date,
+            "history": life_history
+        })
+
+    st.divider()
+
     # -----------------------------
     # 医療機関の受診状況等
     # -----------------------------
