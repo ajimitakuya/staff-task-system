@@ -930,6 +930,7 @@ def generate_json_with_gemini(prompt: str):
 
     model_candidates = ["gemini-2.5-flash"]
     last_error = None
+    last_text = ""
 
     for model_name in model_candidates:
         for attempt in range(3):
@@ -937,17 +938,36 @@ def generate_json_with_gemini(prompt: str):
                 model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt)
                 text = str(getattr(response, "text", "")).strip()
+                last_text = text
+
+                print("[DEBUG] Gemini raw text start", flush=True)
+                print(text, flush=True)
+                print("[DEBUG] Gemini raw text end", flush=True)
 
                 if not text:
                     last_error = RuntimeError(f"{model_name} empty response")
                     continue
 
+                # コードフェンス除去
                 text = text.replace("```json", "").replace("```", "").strip()
+
+                # 最初の { から最後の } だけを切り出す
+                start = text.find("{")
+                end = text.rfind("}")
+                if start != -1 and end != -1 and end > start:
+                    text = text[start:end + 1].strip()
+
+                print("[DEBUG] Gemini cleaned json text start", flush=True)
+                print(text, flush=True)
+                print("[DEBUG] Gemini cleaned json text end", flush=True)
+
                 return json.loads(text)
 
             except Exception as e:
                 last_error = e
                 msg = str(e)
+
+                print(f"[DEBUG] generate_json_with_gemini error: {e}", flush=True)
 
                 # 429でも長時間待たず、そのまま再試行だけ
                 if "429" in msg:
@@ -955,7 +975,11 @@ def generate_json_with_gemini(prompt: str):
 
                 break
 
-    raise RuntimeError(f"Gemini JSON生成失敗: {last_error}")
+    preview = (last_text or "")[:1000]
+    raise RuntimeError(
+        f"Gemini JSON生成失敗: {last_error}\n"
+        f"--- Gemini raw preview start ---\n{preview}\n--- Gemini raw preview end ---"
+    )
 
 def build_home_eval_from_support_record_prompt(resident_name: str, year_val: str, month_val: str, support_record_text: str):
     return f"""
