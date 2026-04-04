@@ -8384,10 +8384,28 @@ def render_work_sheet_form_page(doc_title: str):
     resident_id = str(selected_row.get("resident_id", "")).strip()
     resident_name = str(selected_row.get("resident_name", "")).strip()
 
-    # ---------------------------------
+    # -----------------------------
     # 保存済みデータ一覧
-    # ---------------------------------
-    saved_df = get_document_records("就労分野シート", resident_id)
+    # -----------------------------
+    saved_df = get_document_records("基本シート", resident_id)
+
+    saved_options = ["新規作成"]
+    saved_map = {"新規作成": None}
+
+    if saved_df is not None and not saved_df.empty:
+        for _, row in saved_df.iterrows():
+            rid = str(row.get("record_id", "")).strip()
+            updated_at = str(row.get("updated_at", "")).strip()
+            label = f"{rid} / {updated_at}"
+            saved_options.append(label)
+            saved_map[label] = rid
+
+    # ★保存済み読み込みを widget 作成前に反映
+    apply_pending_document_load(doc_title)
+
+    load_msg = st.session_state.pop(f"{doc_title}_load_message", "")
+    if load_msg:
+        st.success(load_msg)
 
     saved_options = ["新規作成"]
     saved_map = {"新規作成": None}
