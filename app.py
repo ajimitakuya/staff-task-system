@@ -8729,12 +8729,8 @@ def render_work_sheet_form_page(doc_title: str):
                 st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
                 st.session_state[f"{doc_title}_load_message"] = "保存済みデータを読み込みました！"
                 st.rerun()
-
-                st.session_state[f"{doc_title}_loaded_record_id"] = selected_record_id
-                st.success("保存済みデータを読み込みました！")
-                st.rerun()
             else:
-                st.warning("保存データが見つからありません。")
+                st.warning("保存データが見つかりません。")
         else:
             st.info("まだ保存済みデータがないので、新規保存してください。")
 
