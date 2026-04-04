@@ -704,6 +704,127 @@ def render_support_record_audit_page():
             use_container_width=True,
         )
 
+def get_knowbe_diary_saved_records(resident_id: str):
+    """
+    saved_documents から、Knowbe日誌下書きの保存済み一覧を取得する
+    """
+    resident_id = str(resident_id or "").strip()
+    if not resident_id:
+        return pd.DataFrame()
+
+    df = get_document_records("knowbe日誌下書き", resident_id)
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    return df.copy()
+
+
+def build_knowbe_diary_form_data(
+    target_company_id,
+    target_company_name,
+    resident_id,
+    resident_name,
+    target_date,
+    start_time,
+    end_time,
+    meal_flag,
+    service_type,
+    work_start_time,
+    work_end_time,
+    work_break_time,
+    staff_name,
+    note_mode,
+    preview_note,
+    start_memo,
+    end_memo,
+):
+    return {
+        "company_id": str(target_company_id).strip(),
+        "company_name": str(target_company_name).strip(),
+        "target_date": str(target_date),
+        "resident_id": str(resident_id).strip(),
+        "resident_name": str(resident_name).strip(),
+
+        "start_time": str(start_time).strip(),
+        "end_time": str(end_time).strip(),
+        "meal_flag": str(meal_flag).strip(),
+        "service_type": str(service_type).strip(),
+
+        "work_start_time": str(work_start_time).strip(),
+        "work_end_time": str(work_end_time).strip(),
+        "work_break_time": str(work_break_time).strip(),
+
+        "staff_name": str(staff_name).strip(),
+        "note_mode": str(note_mode).strip(),
+        "note_text": str(preview_note).strip(),
+
+        "start_memo_raw": str(start_memo).strip(),
+        "end_memo_raw": str(end_memo).strip(),
+
+        "start_memo_generated": str(st.session_state.get("bee_generated_status", "")).strip(),
+        "end_memo_generated": str(st.session_state.get("bee_generated_support", "")).strip(),
+
+        "use_plan": bool(st.session_state.get("knowbe_bee_use_plan", False)),
+        "save_stage": "draft",
+    }
+
+
+def apply_pending_bee_journal_load():
+    """
+    Knowbe日誌下書き読込用。
+    widget生成前に session_state へ戻す。
+    """
+    pending_json = st.session_state.pop("bee_journal_pending_load_json", None)
+
+    if not isinstance(pending_json, dict):
+        return
+
+    # 日付
+    target_date_str = str(pending_json.get("target_date", "")).strip()
+    if target_date_str:
+        try:
+            st.session_state["bee_target_date"] = pd.to_datetime(target_date_str).date()
+        except Exception:
+            pass
+
+    # 基本入力
+    st.session_state["start_time"] = str(pending_json.get("start_time", "")).strip()
+    st.session_state["end_time"] = str(pending_json.get("end_time", "")).strip()
+    st.session_state["bee_meal_flag"] = str(pending_json.get("meal_flag", "なし")).strip() or "なし"
+    st.session_state["bee_service_type"] = str(pending_json.get("service_type", "在宅")).strip() or "在宅"
+
+    st.session_state["bee_work_start_time"] = str(pending_json.get("work_start_time", "")).strip()
+    st.session_state["bee_work_end_time"] = str(pending_json.get("work_end_time", "")).strip()
+    st.session_state["bee_work_break_time"] = str(pending_json.get("work_break_time", "")).strip()
+
+    st.session_state["bee_staff_name"] = str(pending_json.get("staff_name", "")).strip()
+
+    # 備考
+    note_mode = str(pending_json.get("note_mode", "候補から選ぶ")).strip()
+    if note_mode not in ["候補から選ぶ", "直接入力"]:
+        note_mode = "候補から選ぶ"
+    st.session_state["bee_note_mode"] = note_mode
+
+    note_text = str(pending_json.get("note_text", "")).strip()
+    st.session_state["bee_note_text"] = note_text
+    st.session_state["bee_note_select"] = note_text if note_text else "在宅利用"
+
+    # メモ
+    st.session_state["bee_start_memo"] = str(pending_json.get("start_memo_raw", "")).strip()
+    st.session_state["bee_end_memo"] = str(pending_json.get("end_memo_raw", "")).strip()
+
+    # Gemini生成文
+    st.session_state["bee_generated_status"] = str(pending_json.get("start_memo_generated", "")).strip()
+    st.session_state["bee_generated_support"] = str(pending_json.get("end_memo_generated", "")).strip()
+
+    # plan checkbox
+    st.session_state["knowbe_bee_use_plan"] = bool(pending_json.get("use_plan", False))
+
+
+def mark_bee_journal_generated_texts(generated_status: str, generated_support: str):
+    st.session_state["bee_generated_status"] = str(generated_status or "").strip()
+    st.session_state["bee_generated_support"] = str(generated_support or "").strip()
+
 def apply_pending_document_load(doc_title: str):
     """
     保存済みデータ読み込みを、widget生成前に session_state へ反映する。
@@ -9126,14 +9247,67 @@ from datetime import date
 def render_bulk_knowbe_diary_page():
     st.title("🐝 knowbe日誌入力（一括）")
 
-    current_company_id = st.session_state.get("company_id", "")
-    login_staff_name = st.session_state.get("display_name", "")
+    current_company_id = str(st.session_state.get("company_id", "")).strip()
+    login_staff_name = str(st.session_state.get("display_name", "")).strip()
 
     if not current_company_id:
         st.error("事業所情報が取得できません。")
         return
 
-    # ===== Knowbeログイン情報解決（単発ページに寄せる）=====
+    # ===== pending load 適用 =====
+    pending_bulk_json = st.session_state.pop("bulk_knowbe_pending_load_json", None)
+    if isinstance(pending_bulk_json, dict):
+        target_date_str = str(pending_bulk_json.get("target_date", "")).strip()
+        if target_date_str:
+            try:
+                st.session_state["bulk_target_date"] = pd.to_datetime(target_date_str).date()
+            except Exception:
+                pass
+
+        entries = pending_bulk_json.get("entries", [])
+        if isinstance(entries, list):
+            for item in entries:
+                resident_id = str(item.get("resident_id", "")).strip()
+                if not resident_id:
+                    continue
+
+                block_key = f"bulk_{resident_id}"
+
+                st.session_state[f"{block_key}_enabled"] = bool(item.get("enabled", True))
+                st.session_state[f"{block_key}_start_time"] = str(item.get("start_time", "")).strip()
+                st.session_state[f"{block_key}_end_time"] = str(item.get("end_time", "")).strip()
+                st.session_state[f"{block_key}_meal_flag"] = str(item.get("meal_flag", "なし")).strip() or "なし"
+                st.session_state[f"{block_key}_service_type"] = str(item.get("service_type", "在宅")).strip() or "在宅"
+                st.session_state[f"{block_key}_work_start_time"] = str(item.get("work_start_time", "")).strip()
+                st.session_state[f"{block_key}_work_end_time"] = str(item.get("work_end_time", "")).strip()
+                st.session_state[f"{block_key}_break_time"] = str(item.get("break_time", "")).strip()
+                st.session_state[f"{block_key}_staff_name"] = str(item.get("staff_name", "")).strip()
+
+                remark_mode = str(item.get("remark_mode", "候補から選ぶ")).strip()
+                if remark_mode not in ["候補から選ぶ", "直接入力"]:
+                    remark_mode = "候補から選ぶ"
+                st.session_state[f"{block_key}_remark_mode"] = remark_mode
+
+                remark_text = str(item.get("remark_text", "")).strip()
+                st.session_state[f"{block_key}_remark_text"] = remark_text
+                st.session_state[f"{block_key}_remark_text_select"] = remark_text if remark_text else "在宅利用"
+
+                st.session_state[f"{block_key}_start_memo"] = str(item.get("start_memo", "")).strip()
+                st.session_state[f"{block_key}_end_memo"] = str(item.get("end_memo", "")).strip()
+
+                send_mode = str(item.get("send_mode", "raw")).strip()
+                st.session_state[f"{block_key}_send_mode"] = (
+                    "Geminiで編集して送信" if send_mode == "gemini" else "入力文のまま送信"
+                )
+
+                st.session_state[f"{block_key}_generated_start_memo"] = str(item.get("generated_start_memo", "")).strip()
+                st.session_state[f"{block_key}_generated_end_memo"] = str(item.get("generated_end_memo", "")).strip()
+
+    bulk_load_msg = st.session_state.pop("bulk_knowbe_load_message", "")
+    if bulk_load_msg:
+        st.success(bulk_load_msg)
+
+    # ===== Knowbeログイン情報解決 =====
     ctx = resolve_bee_company_context(
         company_login_id="",
         company_login_password="",
@@ -9170,9 +9344,68 @@ def render_bulk_knowbe_diary_page():
     # ===== 共通日付 =====
     bulk_target_date = st.date_input(
         "対象日（全員共通）",
-        value=date.today(),
+        value=st.session_state.get("bulk_target_date", date.today()),
         key="bulk_target_date"
     )
+
+    # ===== 保存済み呼び出し =====
+    st.markdown("### 保存済みデータ呼び出し")
+
+    bulk_saved_df = get_document_records("knowbe日誌一括下書き", "BULK")
+
+    bulk_load_options = ["新規作成"]
+    bulk_load_map = {"新規作成": None}
+
+    if bulk_saved_df is not None and not bulk_saved_df.empty:
+        try:
+            if "updated_at" in bulk_saved_df.columns:
+                bulk_saved_df = bulk_saved_df.sort_values("updated_at", ascending=False)
+        except Exception:
+            pass
+
+        for _, r in bulk_saved_df.head(30).iterrows():
+            record_id = str(r.get("record_id", "")).strip()
+            updated_at = str(r.get("updated_at", "")).strip()
+
+            saved_json = load_document_json(record_id)
+            if not isinstance(saved_json, dict):
+                continue
+
+            saved_company_id = str(saved_json.get("company_id", "")).strip()
+            if saved_company_id != current_company_id:
+                continue
+
+            saved_date = str(saved_json.get("target_date", "")).strip()
+            label = f"{saved_date} / ID:{record_id}"
+            if updated_at:
+                label += f" / {updated_at}"
+
+            bulk_load_options.append(label)
+            bulk_load_map[label] = record_id
+
+    bulk_load_col1, bulk_load_col2 = st.columns([5, 1])
+
+    with bulk_load_col1:
+        selected_bulk_saved_label = st.selectbox(
+            "過去の保存データ",
+            bulk_load_options,
+            key="bulk_knowbe_saved_record_select"
+        )
+
+    with bulk_load_col2:
+        st.write("")
+        st.write("")
+        if st.button("呼び出す", key="bulk_knowbe_load_saved_record", use_container_width=True):
+            selected_record_id = bulk_load_map.get(selected_bulk_saved_label)
+            if selected_record_id:
+                saved_json = load_document_json(selected_record_id)
+                if isinstance(saved_json, dict):
+                    st.session_state["bulk_knowbe_pending_load_json"] = saved_json
+                    st.session_state["bulk_knowbe_loaded_record_id"] = selected_record_id
+                    st.session_state["bulk_knowbe_load_message"] = "一括下書きを呼び出しました！"
+                    st.rerun()
+                else:
+                    st.warning("保存データの読み込みに失敗しました。")
 
     st.markdown("---")
 
@@ -9192,35 +9425,65 @@ def render_bulk_knowbe_diary_page():
 
             enabled = st.checkbox(
                 "この利用者を送信対象にする",
-                value=True,
+                value=st.session_state.get(f"{block_key}_enabled", True),
                 key=f"{block_key}_enabled"
             )
 
             c1, c2, c3, c4 = st.columns(4)
             with c1:
-                start_time = st.text_input("開始時間", value="10:00", key=f"{block_key}_start_time")
+                start_time = st.text_input(
+                    "開始時間",
+                    value=st.session_state.get(f"{block_key}_start_time", "10:00"),
+                    key=f"{block_key}_start_time"
+                )
             with c2:
-                end_time = st.text_input("終了時間", value="10:50", key=f"{block_key}_end_time")
+                end_time = st.text_input(
+                    "終了時間",
+                    value=st.session_state.get(f"{block_key}_end_time", "10:50"),
+                    key=f"{block_key}_end_time"
+                )
             with c3:
-                meal_flag = st.selectbox("食事提供", ["なし", "あり"], key=f"{block_key}_meal_flag")
+                meal_flag = st.selectbox(
+                    "食事提供",
+                    ["なし", "あり"],
+                    index=0 if st.session_state.get(f"{block_key}_meal_flag", "なし") == "なし" else 1,
+                    key=f"{block_key}_meal_flag"
+                )
             with c4:
                 service_type = st.selectbox(
                     "サービス種別",
                     ["在宅", "通所", "施設外就労"],
+                    index=["在宅", "通所", "施設外就労"].index(
+                        st.session_state.get(f"{block_key}_service_type", "在宅")
+                        if st.session_state.get(f"{block_key}_service_type", "在宅") in ["在宅", "通所", "施設外就労"]
+                        else "在宅"
+                    ),
                     key=f"{block_key}_service_type"
                 )
 
             c5, c6, c7 = st.columns(3)
             with c5:
-                work_start_time = st.text_input("作業開始時間", value="", key=f"{block_key}_work_start_time")
+                work_start_time = st.text_input(
+                    "作業開始時間",
+                    value=st.session_state.get(f"{block_key}_work_start_time", ""),
+                    key=f"{block_key}_work_start_time"
+                )
             with c6:
-                work_end_time = st.text_input("作業終了時間", value="", key=f"{block_key}_work_end_time")
+                work_end_time = st.text_input(
+                    "作業終了時間",
+                    value=st.session_state.get(f"{block_key}_work_end_time", ""),
+                    key=f"{block_key}_work_end_time"
+                )
             with c7:
-                break_time = st.text_input("休憩時間", value="", key=f"{block_key}_break_time")
+                break_time = st.text_input(
+                    "休憩時間",
+                    value=st.session_state.get(f"{block_key}_break_time", ""),
+                    key=f"{block_key}_break_time"
+                )
 
             diary_input_staff = st.text_input(
                 "日誌入力者",
-                value=login_staff_name,
+                value=st.session_state.get(f"{block_key}_staff_name", login_staff_name),
                 key=f"{block_key}_staff_name"
             )
 
@@ -9233,19 +9496,38 @@ def render_bulk_knowbe_diary_page():
 
             if remark_mode == "候補から選ぶ":
                 remark_candidates = ["在宅利用", "食事摂取量 10/10", "施設外就労(実施報告書等添付)", "入院", ""]
+                default_remark = st.session_state.get(f"{block_key}_remark_text_select", "在宅利用")
+                if default_remark not in remark_candidates:
+                    default_remark = "在宅利用"
+
                 remark_text = st.selectbox(
                     "備考",
                     remark_candidates,
+                    index=remark_candidates.index(default_remark),
                     key=f"{block_key}_remark_text_select"
                 )
             else:
-                remark_text = st.text_input("備考", value="", key=f"{block_key}_remark_text")
+                remark_text = st.text_input(
+                    "備考",
+                    value=st.session_state.get(f"{block_key}_remark_text", ""),
+                    key=f"{block_key}_remark_text"
+                )
 
             c8, c9 = st.columns(2)
             with c8:
-                start_memo = st.text_area("開始メモ", height=140, key=f"{block_key}_start_memo")
+                start_memo = st.text_area(
+                    "開始メモ",
+                    value=st.session_state.get(f"{block_key}_start_memo", ""),
+                    height=140,
+                    key=f"{block_key}_start_memo"
+                )
             with c9:
-                end_memo = st.text_area("終了メモ", height=140, key=f"{block_key}_end_memo")
+                end_memo = st.text_area(
+                    "終了メモ",
+                    value=st.session_state.get(f"{block_key}_end_memo", ""),
+                    height=140,
+                    key=f"{block_key}_end_memo"
+                )
 
             send_mode = st.radio(
                 "送信方式",
@@ -9269,11 +9551,53 @@ def render_bulk_knowbe_diary_page():
                 "work_end_time": work_end_time,
                 "break_time": break_time,
                 "staff_name": diary_input_staff,
+                "remark_mode": remark_mode,
                 "remark_text": remark_text,
                 "start_memo": start_memo,
                 "end_memo": end_memo,
                 "send_mode": "gemini" if send_mode == "Geminiで編集して送信" else "raw",
+                "generated_start_memo": st.session_state.get(f"{block_key}_generated_start_memo", ""),
+                "generated_end_memo": st.session_state.get(f"{block_key}_generated_end_memo", ""),
             })
+
+    # ===== 一括保存用 form_data =====
+    bulk_form_data = {
+        "company_id": current_company_id,
+        "target_date": bulk_target_date.strftime("%Y-%m-%d"),
+        "staff_name": login_staff_name,
+        "entries": send_targets,
+        "save_stage": "draft",
+    }
+
+    st.markdown("## 一括下書き保存")
+
+    bulk_loaded_record_id = st.session_state.get("bulk_knowbe_loaded_record_id")
+
+    bulk_save_cols = st.columns([1, 1, 4])
+
+    with bulk_save_cols[0]:
+        if st.button("途中保存", key="bulk_knowbe_save_new", use_container_width=True):
+            new_id = save_document_record(
+                resident_id="BULK",
+                resident_name=f"{bulk_target_date.strftime('%Y-%m-%d')} 一括日誌",
+                doc_type="knowbe日誌一括下書き",
+                form_data=bulk_form_data
+            )
+            st.session_state["bulk_knowbe_loaded_record_id"] = new_id
+            st.success(f"途中保存しました！ record_id = {new_id}")
+
+    with bulk_save_cols[1]:
+        if st.button("上書き保存", key="bulk_knowbe_save_update", use_container_width=True):
+            if bulk_loaded_record_id:
+                ok = update_document_record(bulk_loaded_record_id, bulk_form_data)
+                if ok:
+                    st.success(f"上書き保存しました！ record_id = {bulk_loaded_record_id}")
+                else:
+                    st.warning("上書き対象が見つかりません。")
+            else:
+                st.warning("先に途中保存してください。")
+
+    st.markdown("## 送信")
 
     if st.button("knowbeへ送信する", type="primary", use_container_width=True):
         active_targets = [x for x in send_targets if x["enabled"]]
@@ -9322,6 +9646,9 @@ def render_bulk_knowbe_diary_page():
                         remark_text=item["remark_text"],
                     )
 
+                    st.session_state[f"bulk_{item['resident_id']}_generated_start_memo"] = start_memo_to_send
+                    st.session_state[f"bulk_{item['resident_id']}_generated_end_memo"] = end_memo_to_send
+
                 ok = send_to_knowbe_from_bee(
                     company_id=current_company_id,
                     target_date=item["target_date"],
@@ -9357,11 +9684,63 @@ def render_bulk_knowbe_diary_page():
 
             progress.progress(i / len(valid_targets))
 
-        status_box.success(f"送信完了：成功 {success_count}件 / エラー {error_count}件")
+        # ===== 送信後の状態で自動保存 =====
+        auto_entries = []
+        for item in send_targets:
+            rid = str(item.get("resident_id", "")).strip()
+            auto_entries.append({
+                "enabled": item.get("enabled", True),
+                "resident_id": rid,
+                "resident_name": item.get("resident_name", ""),
+                "target_date": item.get("target_date", ""),
+                "start_time": item.get("start_time", ""),
+                "end_time": item.get("end_time", ""),
+                "meal_flag": item.get("meal_flag", ""),
+                "service_type": item.get("service_type", ""),
+                "work_start_time": item.get("work_start_time", ""),
+                "work_end_time": item.get("work_end_time", ""),
+                "break_time": item.get("break_time", ""),
+                "staff_name": item.get("staff_name", ""),
+                "remark_mode": item.get("remark_mode", "候補から選ぶ"),
+                "remark_text": item.get("remark_text", ""),
+                "start_memo": item.get("start_memo", ""),
+                "end_memo": item.get("end_memo", ""),
+                "send_mode": item.get("send_mode", "raw"),
+                "generated_start_memo": st.session_state.get(f"bulk_{rid}_generated_start_memo", item.get("generated_start_memo", "")),
+                "generated_end_memo": st.session_state.get(f"bulk_{rid}_generated_end_memo", item.get("generated_end_memo", "")),
+            })
+
+        auto_bulk_form_data = {
+            "company_id": current_company_id,
+            "target_date": bulk_target_date.strftime("%Y-%m-%d"),
+            "staff_name": login_staff_name,
+            "entries": auto_entries,
+            "save_stage": "generated",
+        }
+
+        bulk_loaded_record_id = st.session_state.get("bulk_knowbe_loaded_record_id")
+        if bulk_loaded_record_id:
+            update_document_record(bulk_loaded_record_id, auto_bulk_form_data)
+        else:
+            new_id = save_document_record(
+                resident_id="BULK",
+                resident_name=f"{bulk_target_date.strftime('%Y-%m-%d')} 一括日誌",
+                doc_type="knowbe日誌一括下書き",
+                form_data=auto_bulk_form_data
+            )
+            st.session_state["bulk_knowbe_loaded_record_id"] = new_id
+
+        status_box.success(f"送信完了：成功 {success_count}件 / エラー {error_count}件 / 自動保存完了")
 
 def render_bee_journal_page():
     st.title("🐝knowbe日誌入力🐝")
     st.caption("Sue for Bee Assistance 専用の裏メニューです。")
+
+    apply_pending_bee_journal_load()
+
+    load_msg = st.session_state.pop("bee_journal_load_message", "")
+    if load_msg:
+        st.success(load_msg)
 
     current_company_name = str(st.session_state.get("company_name", "")).strip()
     current_staff_name = str(st.session_state.get("user", "")).strip()
@@ -9421,10 +9800,8 @@ def render_bee_journal_page():
     with info_cols[1]:
         if ctx.get("using_saved_knowbe", False):
             st.success(f"保存済みKnowbe情報を使用する：{mask_secret_text(resolved_knowbe_user)}")
-
         elif ctx.get("has_knowbe_credentials", False):
             st.success(f"入力されたKnowbe情報を使用する：{mask_secret_text(resolved_knowbe_user)}")
-
         else:
             st.error("Knowbe情報が未登録です。送信するには登録が必要です。")
 
@@ -9434,6 +9811,7 @@ def render_bee_journal_page():
                     st.rerun()
             else:
                 st.warning("管理者以外は登録できません。管理者へ報告してください。")
+
     st.markdown("## 利用者選択")
 
     master_df = get_resident_master_df(target_company_id)
@@ -9473,61 +9851,62 @@ def render_bee_journal_page():
     resident_id = str(selected_row.get("resident_id", "")).strip()
     resident_name = str(selected_row.get("resident_name", "")).strip()
 
-    st.markdown("### 保存データ呼び出し")
+    st.markdown("### 保存済みデータ呼び出し")
 
-    diary_df = get_diary_input_rules_df()
+    diary_df = get_knowbe_diary_saved_records(resident_id)
+
+    load_options = ["新規作成"]
+    load_map = {"新規作成": None}
 
     if diary_df is not None and not diary_df.empty:
-        df_user = diary_df[
-            diary_df["resident_name"].astype(str) == str(resident_name)
-        ].copy()
+        try:
+            if "updated_at" in diary_df.columns:
+                diary_df = diary_df.sort_values("updated_at", ascending=False)
+        except Exception:
+            pass
 
-        if not df_user.empty:
-            try:
-                df_user["record_id_num"] = pd.to_numeric(df_user["record_id"], errors="coerce")
-                df_user = df_user.sort_values("record_id_num", ascending=False)
-            except Exception:
-                pass
+        for _, r in diary_df.head(20).iterrows():
+            record_id = str(r.get("record_id", "")).strip()
+            updated_at = str(r.get("updated_at", "")).strip()
 
-            load_options = []
-            load_map = {}
+            saved_json = load_document_json(record_id)
+            if not isinstance(saved_json, dict):
+                continue
 
-            for _, r in df_user.head(10).iterrows():
-                label = f"{r.get('date', '')} / {r.get('start_time', '')}〜{r.get('end_time', '')} / ID:{r.get('record_id', '')}"
-                load_options.append(label)
-                load_map[label] = r.to_dict()
+            saved_date = str(saved_json.get("target_date", "")).strip()
+            saved_start = str(saved_json.get("start_time", "")).strip()
+            saved_end = str(saved_json.get("end_time", "")).strip()
 
-            load_col1, load_col2 = st.columns([5, 1])
+            label = f"{saved_date} / {saved_start}〜{saved_end} / ID:{record_id}"
+            if updated_at:
+                label += f" / {updated_at}"
 
-            with load_col1:
-                selected_saved_label = st.selectbox(
-                    "過去の保存データ",
-                    [""] + load_options,
-                    key="bee_saved_record_select"
-                )
+            load_options.append(label)
+            load_map[label] = record_id
 
-            with load_col2:
-                st.write("")
-                st.write("")
-                if st.button("呼び出す", key="bee_load_saved_record", use_container_width=True):
-                    if selected_saved_label:
-                        rec = load_map[selected_saved_label]
+    load_col1, load_col2 = st.columns([5, 1])
 
-                        st.session_state["bee_target_date"] = (
-                            pd.to_datetime(rec.get("date", "")).date()
-                            if str(rec.get("date", "")).strip()
-                            else now_jst().date()
-                        )
-                        st.session_state["start_time"] = str(rec.get("start_time", ""))
-                        st.session_state["end_time"] = str(rec.get("end_time", ""))
-                        st.session_state["bee_meal_flag"] = str(rec.get("meal_flag", "なし"))
-                        st.session_state["bee_note_text"] = str(rec.get("note", ""))
-                        st.session_state["bee_start_memo"] = str(rec.get("start_memo", ""))
-                        st.session_state["bee_end_memo"] = str(rec.get("end_memo", ""))
-                        st.session_state["bee_staff_name"] = str(rec.get("staff_name", current_staff_name))
-                        st.session_state["bee_service_type"] = str(rec.get("service_type", "在宅"))
-                        st.success("保存データを呼び出しました！")
-                        st.rerun()
+    with load_col1:
+        selected_saved_label = st.selectbox(
+            "過去の保存データ",
+            load_options,
+            key="bee_saved_record_select"
+        )
+
+    with load_col2:
+        st.write("")
+        st.write("")
+        if st.button("呼び出す", key="bee_load_saved_record", use_container_width=True):
+            selected_record_id = load_map.get(selected_saved_label)
+            if selected_record_id:
+                saved_json = load_document_json(selected_record_id)
+                if isinstance(saved_json, dict):
+                    st.session_state["bee_journal_pending_load_json"] = saved_json
+                    st.session_state["bee_journal_loaded_record_id"] = selected_record_id
+                    st.session_state["bee_journal_load_message"] = "保存データを呼び出しました！"
+                    st.rerun()
+                else:
+                    st.warning("保存データの読み込みに失敗しました。")
 
     st.divider()
     st.markdown("## 日誌入力")
@@ -9668,8 +10047,6 @@ def render_bee_journal_page():
     examples_text = build_examples_text(service_type, example_row)
     loaded_rule_text = rule_row.get("rule_text", "") if rule_row else ""
 
-    # st.caption(f"DEBUG 個人ルール読込: {loaded_rule_text!r}")
-
     preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
 
     memo_cols = st.columns(2)
@@ -9738,6 +10115,55 @@ def render_bee_journal_page():
         "use_plan": st.session_state.get("knowbe_bee_use_plan", False),
     }
 
+    form_data = build_knowbe_diary_form_data(
+        target_company_id=target_company_id,
+        target_company_name=target_company_name,
+        resident_id=resident_id,
+        resident_name=resident_name,
+        target_date=target_date,
+        start_time=start_time,
+        end_time=end_time,
+        meal_flag=meal_flag,
+        service_type=service_type,
+        work_start_time=work_start_time,
+        work_end_time=work_end_time,
+        work_break_time=work_break_time,
+        staff_name=staff_name,
+        note_mode=note_mode,
+        preview_note=preview_note,
+        start_memo=start_memo,
+        end_memo=end_memo,
+    )
+
+    st.divider()
+    st.markdown("## 下書き保存")
+
+    loaded_record_id = st.session_state.get("bee_journal_loaded_record_id")
+
+    save_cols = st.columns([1, 1, 4])
+
+    with save_cols[0]:
+        if st.button("途中保存", key="bee_journal_save_new", use_container_width=True):
+            new_id = save_document_record(
+                resident_id=resident_id,
+                resident_name=resident_name,
+                doc_type="knowbe日誌下書き",
+                form_data=form_data
+            )
+            st.session_state["bee_journal_loaded_record_id"] = new_id
+            st.success(f"途中保存しました！ record_id = {new_id}")
+
+    with save_cols[1]:
+        if st.button("上書き保存", key="bee_journal_save_update", use_container_width=True):
+            if loaded_record_id:
+                ok = update_document_record(loaded_record_id, form_data)
+                if ok:
+                    st.success(f"上書き保存しました！ record_id = {loaded_record_id}")
+                else:
+                    st.warning("上書き対象が見つかりません。")
+            else:
+                st.warning("先に途中保存してください。")
+
     st.divider()
     st.markdown("## 送信")
 
@@ -9766,10 +10192,6 @@ def render_bee_journal_page():
         for err in time_errors:
             st.error(err)
 
-    # st.caption(f"DEBUG 個人ルール読込: {loaded_rule_text!r}")
-    # st.caption(f"DEBUG start_memo: {start_memo!r}")
-    # st.caption(f"DEBUG end_memo: {end_memo!r}")
-
     send_cols = st.columns([1, 1])
 
     with send_cols[0]:
@@ -9790,9 +10212,6 @@ def render_bee_journal_page():
 
     if bulk_send_gemini:
         try:
-            st.session_state.pop("bee_generated_status", None)
-            st.session_state.pop("bee_generated_support", None)
-
             generated_status, generated_support = generate_bee_texts(
                 resident_name=resident_name,
                 service_type=service_type,
@@ -9806,8 +10225,10 @@ def render_bee_journal_page():
                 rule_text=loaded_rule_text,
             )
 
-            st.session_state["bee_generated_status"] = generated_status
-            st.session_state["bee_generated_support"] = generated_support
+            mark_bee_journal_generated_texts(
+                generated_status=generated_status,
+                generated_support=generated_support
+            )
 
             ok = send_to_knowbe_from_bee(
                 company_id=target_company_id,
@@ -9833,10 +10254,40 @@ def render_bee_journal_page():
             )
 
             if ok:
-                st.success("Gemini文で一気送信できました！")
-                st.session_state.pop("bee_generated_status", None)
-                st.session_state.pop("bee_generated_support", None)
+                # Gemini生成文を含めて自動保存
+                auto_save_form_data = build_knowbe_diary_form_data(
+                    target_company_id=target_company_id,
+                    target_company_name=target_company_name,
+                    resident_id=resident_id,
+                    resident_name=resident_name,
+                    target_date=target_date,
+                    start_time=start_time,
+                    end_time=end_time,
+                    meal_flag=meal_flag,
+                    service_type=service_type,
+                    work_start_time=work_start_time,
+                    work_end_time=work_end_time,
+                    work_break_time=work_break_time,
+                    staff_name=staff_name,
+                    note_mode=note_mode,
+                    preview_note=preview_note,
+                    start_memo=start_memo,
+                    end_memo=end_memo,
+                )
 
+                loaded_record_id = st.session_state.get("bee_journal_loaded_record_id")
+                if loaded_record_id:
+                    update_document_record(loaded_record_id, auto_save_form_data)
+                else:
+                    new_id = save_document_record(
+                        resident_id=resident_id,
+                        resident_name=resident_name,
+                        doc_type="knowbe日誌下書き",
+                        form_data=auto_save_form_data
+                    )
+                    st.session_state["bee_journal_loaded_record_id"] = new_id
+
+                st.success("Gemini文で一気送信できました！自動保存も完了しました。")
         except Exception as e:
             st.error(f"Gemini一気送信失敗です: {e}")
 
@@ -9995,8 +10446,6 @@ def render_bee_journal_page():
     st.divider()
     st.markdown("## 入力内容確認")
     st.json(save_payload)
-
-
 
 
 def get_external_contacts_df():
