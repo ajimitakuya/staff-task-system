@@ -704,26 +704,6 @@ def render_support_record_audit_page():
             use_container_width=True,
         )
 
-
-
-def wait_for_gemini_slot(min_interval_sec=210):
-    """
-    Gemini無料枠対策。
-    前回のGemini呼び出しから min_interval_sec 秒空くまで待つ。
-    210秒 = 3分30秒
-    """
-    last_called = float(st.session_state.get("gemini_last_called_at", 0) or 0)
-    now_ts = time.time()
-    remain = min_interval_sec - (now_ts - last_called)
-
-    if remain > 0:
-        mins = int(remain // 60)
-        secs = int(remain % 60)
-        st.info(f"Gemini無料枠保護のため {mins}分{secs}秒 待機中です…")
-        time.sleep(remain)
-
-    st.session_state["gemini_last_called_at"] = time.time()
-
 def apply_pending_document_load(doc_title: str):
     """
     保存済みデータ読み込みを、widget生成前に session_state へ反映する。
@@ -751,9 +731,6 @@ def generate_with_gemini(prompt: str):
     for model_name in model_candidates:
         for attempt in range(3):
             try:
-                # ★追加：毎回ゆっくり撃つ
-                wait_for_gemini_slot(min_interval_sec=210)
-
                 model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt)
                 text = str(getattr(response, "text", "")).strip()
@@ -766,11 +743,9 @@ def generate_with_gemini(prompt: str):
             except Exception as e:
                 msg = str(e)
 
+                # 429でも長時間待たず、そのまま再試行だけ
                 if "429" in msg:
-                    # ★429が出たらさらに長めに待つ
-                    retry_wait = 600  # 10分
-                    st.warning(f"Gemini制限に当たりました。{retry_wait//60}分待って再試行します。")
-                    time.sleep(retry_wait)
+                    errors.append(f"{model_name} attempt{attempt + 1}: {e}")
                     continue
 
                 errors.append(f"{model_name} attempt{attempt + 1}: {e}")
@@ -838,9 +813,6 @@ def generate_json_with_gemini(prompt: str):
     for model_name in model_candidates:
         for attempt in range(3):
             try:
-                # ★追加
-                wait_for_gemini_slot(min_interval_sec=210)
-
                 model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt)
                 text = str(getattr(response, "text", "")).strip()
@@ -856,10 +828,8 @@ def generate_json_with_gemini(prompt: str):
                 last_error = e
                 msg = str(e)
 
+                # 429でも長時間待たず、そのまま再試行だけ
                 if "429" in msg:
-                    retry_wait = 600  # 10分
-                    st.warning(f"Gemini制限に当たりました。{retry_wait//60}分待って再試行します。")
-                    time.sleep(retry_wait)
                     continue
 
                 break
