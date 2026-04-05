@@ -4146,7 +4146,7 @@ def render_ic_card_manage_page():
                 elif not card_id_to_save:
                     st.error("カードIDが空です。ICカードをタッチして『カードを読み取る』を押してください。")
                 else:
-                    ok, msg = set_user_login_card_id(target_user_id, card_id_to_save)
+                    ok, msg = save_login_card_id_to_user(target_user_id, card_id_to_save)
                     if ok:
                         create_admin_log(
                             action_type="ic_card_register",
@@ -4219,7 +4219,7 @@ def render_ic_card_manage_page():
                 elif not new_card_id:
                     st.error("新しいカードIDが空です。")
                 else:
-                    ok, msg = set_user_login_card_id(target_user_id, new_card_id)
+                    ok, msg = save_login_card_id_to_user(target_user_id, card_id_to_save)
                     if ok:
                         create_admin_log(
                             action_type="ic_card_change",
@@ -4266,7 +4266,7 @@ def render_ic_card_manage_page():
                 if not target_user_id:
                     st.error("削除対象スタッフの user_id が取得できません。")
                 else:
-                    ok, msg = set_user_login_card_id(target_user_id, "")
+                    ok, msg = save_login_card_id_to_user(target_user_id, "")
                     if ok:
                         create_admin_log(
                             action_type="ic_card_delete",
