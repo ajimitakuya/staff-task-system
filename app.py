@@ -326,7 +326,7 @@ def get_knowbe_diary_saved_records(resident_id: str):
     return df.copy()
 
 def get_ic_reader_bridge_df():
-    df = load_db("IC_READER_BRIDGE")
+    df = load_db("ic_reader_bridge")
     if df is None or df.empty:
         return pd.DataFrame(columns=["bridge_id", "device_name", "last_card_id", "last_seen_at", "status"])
     return df.fillna("")
@@ -4134,9 +4134,8 @@ def render_ic_card_manage_page():
 
             if st.button("新規登録する", key="ic_register_button", use_container_width=True):
 
-                # 👇 ここに追加！！
                 if selected_label == "スタッフを選択してください":
-                    st.error("スタッフを選択してください。")
+                    st.error("スタッフを選択してからICカードを登録してください。")
                     return
 
                 target_user_id = str(new_label_map.get(selected_label, "")).strip()
@@ -4160,7 +4159,7 @@ def render_ic_card_manage_page():
                         st.rerun()
                     else:
                         st.error(msg)
-                        
+                                    
     with tab2:
         st.subheader("登録変更")
 
@@ -4188,15 +4187,21 @@ def render_ic_card_manage_page():
 
             change_cols = st.columns([1, 2])
 
-            with change_cols[0]:
-                if st.button("新しいカードを読み取る", key="read_ic_card_change", use_container_width=True):
+            with read_cols[0]:
+                st.markdown("##### カード読取")
+                if st.button("カードを読み取る", key="read_ic_card", use_container_width=True):
+
+                    if selected_label == "スタッフを選択してください":
+                        st.error("スタッフを選択してからICカードを読み取ってください。")
+                        return
+
                     card_id, err = get_latest_ic_card_id_from_bridge("main_reader", 20)
 
                     if err:
                         st.error(err)
                     else:
-                        st.session_state["ic_change_card_id"] = str(card_id).strip().upper()
-                        st.success(f"読み取り成功: {st.session_state['ic_change_card_id']}")
+                        st.session_state["ic_new_card_id"] = str(card_id).strip().upper()
+                        st.success(f"読み取り成功: {st.session_state['ic_new_card_id']}")
 
             with change_cols[1]:
                 change_card_id_input = st.text_input(

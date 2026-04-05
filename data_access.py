@@ -351,7 +351,14 @@ def load_db(file, retries=3, delay=0.8):
                         "status",
                         "created_at",
                         "registered_by",
-                    ],                                                                     
+                    ],   
+                    "IC_READER_BRIDGE": [
+                        "bridge_id",
+                        "device_name",
+                        "last_card_id",
+                        "last_seen_at",
+                        "status",
+                    ],                                                                  
                 }
 
                 for col in expected_cols[file]:

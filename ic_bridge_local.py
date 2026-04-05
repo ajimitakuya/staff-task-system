@@ -8,7 +8,7 @@ from smartcard.System import readers
 # ===== 設定ここだけ =====
 SPREADSHEET_ID = "1UZ0O6Rtfu127YCIAYrAoU3us8aneudnO-gFVkjndtaQ"
 SERVICE_ACCOUNT_FILE = r"Y:\作業管理\service_account.json"
-SHEET_NAME = "ic_reader_bridge"
+SHEET_NAME = "IC_READER_BRIDGE"
 BRIDGE_ID = "main_reader"
 DEVICE_NAME = "front_desk"
 POLL_INTERVAL_SEC = 0.8
