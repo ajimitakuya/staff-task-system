@@ -119,8 +119,6 @@ def render_attendance_page():
             st.session_state["attendance_settings_df"] = get_attendance_display_settings_df()
             st.session_state["attendance_companies_df"] = get_companies_df()
 
-            st.rerun()
-
     with top_reload_cols[1]:
         if st.button("再読込", key="attendance_reload_button", use_container_width=True):
             st.session_state["attendance_users_df"] = get_users_df()
@@ -128,7 +126,6 @@ def render_attendance_page():
             st.session_state["attendance_logs_df"] = get_attendance_logs_df()
             st.session_state["attendance_settings_df"] = get_attendance_display_settings_df()
             st.session_state["attendance_companies_df"] = get_companies_df()
-            st.rerun()
 
     if not st.session_state.get("attendance_mode", False):
         st.info("「勤怠管理表示」を押すと読み込みます。")
@@ -381,7 +378,6 @@ def render_attendance_page():
             type="primary" if st.session_state["attendance_action_mode"] == "in" else "secondary",
         ):
             st.session_state["attendance_action_mode"] = "in"
-            st.rerun()
 
     with mode_cols[1]:
         if st.button(
@@ -391,7 +387,6 @@ def render_attendance_page():
             type="primary" if st.session_state["attendance_action_mode"] == "out" else "secondary",
         ):
             st.session_state["attendance_action_mode"] = "out"
-            st.rerun()
 
     with mode_cols[2]:
         if st.button(
@@ -401,7 +396,6 @@ def render_attendance_page():
             type="primary" if st.session_state["attendance_action_mode"] == "break_start" else "secondary",
         ):
             st.session_state["attendance_action_mode"] = "break_start"
-            st.rerun()
 
     with mode_cols[3]:
         if st.button(
@@ -411,7 +405,6 @@ def render_attendance_page():
             type="primary" if st.session_state["attendance_action_mode"] == "break_end" else "secondary",
         ):
             st.session_state["attendance_action_mode"] = "break_end"
-            st.rerun()
 
     mode_label_map = {
         "in": "出勤モード",
@@ -490,11 +483,8 @@ def render_attendance_page():
                         save_db(attendance_logs_df, "attendance_logs")
                         st.session_state["attendance_logs_df"] = attendance_logs_df
                         st.success(f"{name} → {result_text_map.get(action, action)}")
-                        st.rerun()
                     except Exception as e:
                         st.error(f"勤怠保存でエラーです: {e}")
-                    st.success(f"{name} → {result_text_map.get(action, action)}")
-                    st.rerun()
 
 def render_support_record_audit_page():
     st.header("過去日誌照合")
@@ -627,7 +617,7 @@ def render_support_record_audit_page():
             st.session_state["support_record_audit_result_name"] = file_name
             st.session_state["support_record_audit_rows"] = rows
 
-            st.success("照合が完了したある。")
+            st.success(f"照合完了：{len(rows)}件処理しました。")
 
         except Exception as e:
             st.error(f"照合中にエラーが出ました: {e}")
@@ -9801,12 +9791,22 @@ def render_bee_journal_page():
             key="bee_knowbe_login_password"
         )
 
-    ctx = resolve_bee_company_context(
-        company_login_id=bee_company_login_id,
-        company_login_password=bee_company_login_password,
-        knowbe_login_username=bee_knowbe_login_username,
-        knowbe_login_password=bee_knowbe_login_password,
-    )
+    # ===== 事業所情報確定ボタン =====
+    if st.button("事業所情報を確定", key="bee_ctx_resolve"):
+        ctx = resolve_bee_company_context(
+            company_login_id=bee_company_login_id,
+            company_login_password=bee_company_login_password,
+            knowbe_login_username=bee_knowbe_login_username,
+            knowbe_login_password=bee_knowbe_login_password,
+        )
+        st.session_state["bee_ctx"] = ctx
+
+    # ===== ctx取得（確定後のみ使う）=====
+    ctx = st.session_state.get("bee_ctx", {})
+
+    if not ctx:
+        st.info("事業所情報を確定してください")
+        return
 
     if not ctx.get("ok", False):
         st.error(ctx.get("error", "事業所情報の確認に失敗しました。"))
@@ -9831,8 +9831,7 @@ def render_bee_journal_page():
 
             if bool(st.session_state.get("is_admin", False)):
                 if st.button("Knowbe情報登録ページへ", key="go_knowbe_settings_from_bee", use_container_width=True):
-                    st.session_state.current_page = "⑨管理者"
-                    st.rerun()
+                    st.session_state.current_page = "⑨管理者"                   
             else:
                 st.warning("管理者以外は登録できません。管理者へ報告してください。")
 
@@ -9928,7 +9927,6 @@ def render_bee_journal_page():
                     st.session_state["bee_journal_pending_load_json"] = saved_json
                     st.session_state["bee_journal_loaded_record_id"] = selected_record_id
                     st.session_state["bee_journal_load_message"] = "保存データを呼び出しました！"
-                    st.rerun()
                 else:
                     st.warning("保存データの読み込みに失敗しました。")
 
@@ -10445,7 +10443,6 @@ def render_bee_journal_page():
         if not is_editing:
             if st.button("編集", key="bee_rule_edit_open_btn", use_container_width=True):
                 st.session_state["bee_rule_edit_open"] = True
-                st.rerun()
         else:
             if st.button("登録", key="bee_save_examples_rules", use_container_width=True):
                 save_staff_examples_record(
@@ -10465,11 +10462,12 @@ def render_bee_journal_page():
                 )
                 st.success("スタッフ例文・個人ルールを登録しました！")
                 st.session_state["bee_rule_edit_open"] = False
-                st.rerun()
 
     st.divider()
     st.markdown("## 入力内容確認")
-    st.json(save_payload)
+
+    with st.expander("入力内容確認（開発用）"):
+            st.json(save_payload)
 
 
 def get_external_contacts_df():
