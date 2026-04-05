@@ -4079,16 +4079,27 @@ def render_ic_card_manage_page():
         if unregistered.empty:
             st.info("未登録スタッフはいません。")
         else:
-            new_label_map = {
-                f"{str(row.get('display_name', '')).strip()} ({str(row.get('user_login_id', '')).strip()})":
-                str(row.get("user_id", "")).strip()
-                for _, row in unregistered.iterrows()
-            }
+            new_label_map = {}
+
+            for _, row in unregistered.iterrows():
+                display_name = str(row.get("display_name", "")).strip()
+                user_login_id = str(row.get("user_login_id", "")).strip()
+                user_id = str(row.get("user_id", "")).strip()
+
+                if user_login_id:
+                    label = f"{display_name} ({user_login_id})"
+                else:
+                    label = display_name
+
+                new_label_map[label] = user_id
+
             new_labels = list(new_label_map.keys())
+
+            staff_choices = ["スタッフを選択してください"] + list(new_label_map.keys())
 
             selected_label = st.selectbox(
                 "登録するスタッフ",
-                new_labels,
+                staff_choices,
                 key="ic_new_user"
             )
 
@@ -4122,6 +4133,12 @@ def render_ic_card_manage_page():
                 st.caption(f"現在の読取結果: {preview_card_id}")
 
             if st.button("新規登録する", key="ic_register_button", use_container_width=True):
+
+                # 👇 ここに追加！！
+                if selected_label == "スタッフを選択してください":
+                    st.error("スタッフを選択してください。")
+                    return
+
                 target_user_id = str(new_label_map.get(selected_label, "")).strip()
                 card_id_to_save = str(card_id_input or "").strip().upper()
 
@@ -4143,7 +4160,7 @@ def render_ic_card_manage_page():
                         st.rerun()
                     else:
                         st.error(msg)
-
+                        
     with tab2:
         st.subheader("登録変更")
 
