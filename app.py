@@ -91,8 +91,78 @@ COMPANY_SCOPED_SHEETS = {
     "piecework_clients",
 }
 
+def init_attendance_runtime_state():
+    if "attendance_pending_logs" not in st.session_state:
+        st.session_state["attendance_pending_logs"] = []
+
+    if "attendance_last_flush_at" not in st.session_state:
+        st.session_state["attendance_last_flush_at"] = None
+
+    if "attendance_flush_message" not in st.session_state:
+        st.session_state["attendance_flush_message"] = ""
+
+    if "attendance_last_action_message" not in st.session_state:
+        st.session_state["attendance_last_action_message"] = ""
+
+
+def flush_attendance_pending_logs(force: bool = False):
+    """
+    pending に積んだ勤怠ログをまとめて attendance_logs へ保存する。
+    force=False のときは、前回flushから5分以上経過した場合のみ保存。
+    """
+    pending_logs = st.session_state.get("attendance_pending_logs", [])
+    if not pending_logs:
+        return False
+
+    now_dt = now_jst()
+    last_flush_at = st.session_state.get("attendance_last_flush_at")
+
+    should_flush = force
+    if not should_flush:
+        if last_flush_at is None:
+            should_flush = True
+        else:
+            try:
+                delta = (now_dt - last_flush_at).total_seconds()
+                should_flush = delta >= 300
+            except Exception:
+                should_flush = True
+
+    if not should_flush:
+        return False
+
+    attendance_logs_df = st.session_state.get("attendance_logs_df")
+    if attendance_logs_df is None or attendance_logs_df.empty:
+        attendance_logs_df = pd.DataFrame(columns=[
+            "attendance_id", "date", "user_id", "company_id",
+            "action", "timestamp", "device_name", "recorded_by"
+        ])
+    else:
+        attendance_logs_df = attendance_logs_df.copy()
+
+    add_df = pd.DataFrame(pending_logs)
+    attendance_logs_df = pd.concat([attendance_logs_df, add_df], ignore_index=True)
+
+    save_db(attendance_logs_df, "attendance_logs")
+
+    st.session_state["attendance_logs_df"] = attendance_logs_df
+    st.session_state["attendance_pending_logs"] = []
+    st.session_state["attendance_last_flush_at"] = now_dt
+    st.session_state["attendance_flush_message"] = (
+        f"勤怠ログを {len(add_df)} 件まとめて保存しました（{now_dt.strftime('%H:%M:%S')}）"
+    )
+    return True
+
 def render_attendance_page():
     st.header("勤怠管理")
+
+    init_attendance_runtime_state()
+
+    # 5分経過後の「次の操作時」にまとめ保存
+    try:
+        flush_attendance_pending_logs(force=False)
+    except Exception as e:
+        st.warning(f"勤怠の自動保存判定でエラーです: {e}") 
 
     if "attendance_mode" not in st.session_state:
         st.session_state["attendance_mode"] = False
@@ -107,7 +177,7 @@ def render_attendance_page():
     if "attendance_companies_df" not in st.session_state:
         st.session_state["attendance_companies_df"] = None
 
-    top_reload_cols = st.columns([1, 1, 4])
+    top_reload_cols = st.columns([1, 1, 1, 3])
 
     with top_reload_cols[0]:
         if st.button("勤怠管理表示", key="attendance_mode_button", use_container_width=True):
@@ -121,11 +191,36 @@ def render_attendance_page():
 
     with top_reload_cols[1]:
         if st.button("再読込", key="attendance_reload_button", use_container_width=True):
+            # pendingがあるときは先に保存
+            try:
+                flush_attendance_pending_logs(force=True)
+            except Exception as e:
+                st.error(f"再読込前の保存に失敗しました: {e}")
+                return
+
             st.session_state["attendance_users_df"] = get_users_df()
             st.session_state["attendance_permissions_df"] = get_user_company_permissions_df()
             st.session_state["attendance_logs_df"] = get_attendance_logs_df()
             st.session_state["attendance_settings_df"] = get_attendance_display_settings_df()
             st.session_state["attendance_companies_df"] = get_companies_df()
+
+    with top_reload_cols[2]:
+        if st.button("今すぐ保存", key="attendance_force_flush", use_container_width=True):
+            try:
+                saved = flush_attendance_pending_logs(force=True)
+                if not saved:
+                    st.info("未保存の勤怠ログはありません。")
+            except Exception as e:
+                st.error(f"勤怠保存でエラーです: {e}")
+
+    with top_reload_cols[3]:
+        pending_count = len(st.session_state.get("attendance_pending_logs", []))
+        flush_msg = str(st.session_state.get("attendance_flush_message", "")).strip()
+
+        if pending_count > 0:
+            st.warning(f"未保存ログ: {pending_count}件")
+        elif flush_msg:
+            st.success(flush_msg)
 
     if not st.session_state.get("attendance_mode", False):
         st.info("「勤怠管理表示」を押すと読み込みます。")
@@ -479,12 +574,18 @@ def render_attendance_page():
                         "break_end": "休憩終了",
                     }
 
-                    try:
-                        save_db(attendance_logs_df, "attendance_logs")
-                        st.session_state["attendance_logs_df"] = attendance_logs_df
-                        st.success(f"{name} → {result_text_map.get(action, action)}")
-                    except Exception as e:
-                        st.error(f"勤怠保存でエラーです: {e}")
+                    # 画面用のローカル状態は即更新
+                    st.session_state["attendance_logs_df"] = attendance_logs_df
+
+                    # スプシ保存は後回し。pendingキューへ積む
+                    pending_logs = st.session_state.get("attendance_pending_logs", [])
+                    pending_logs.append(new_log)
+                    st.session_state["attendance_pending_logs"] = pending_logs
+
+                    st.session_state["attendance_last_action_message"] = (
+                        f"{name} → {result_text_map.get(action, action)}（内部保存済み / 未反映）"
+                    )
+                    st.success(st.session_state["attendance_last_action_message"])
 
 def render_support_record_audit_page():
     st.header("過去日誌照合")
