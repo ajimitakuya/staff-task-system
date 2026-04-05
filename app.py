@@ -4334,7 +4334,7 @@ def render_ic_card_manage_page():
                             st.rerun()
                         else:
                             st.error(msg)
-                            
+
 def get_document_master_df():
     return get_document_master_df_cached().copy()
 
@@ -9048,6 +9048,26 @@ def send_to_knowbe_from_bee(
     if not login_username or not login_password:
         raise RuntimeError("Knowbeアカウント名またはKnowbeパスワードが未設定です。")
 
+    start_time = str(start_time).strip()
+    end_time = str(end_time).strip()
+    work_start_time = str(work_start_time).strip()
+    work_end_time = str(work_end_time).strip()
+    work_break_time = str(work_break_time).strip()
+
+    # 作業時間は任意
+    # 片方だけ入っている場合は送らず空扱いにする
+    has_work_start = bool(work_start_time)
+    has_work_end = bool(work_end_time)
+
+    if has_work_start and has_work_end:
+        normalized_work_start_time = work_start_time
+        normalized_work_end_time = work_end_time
+        normalized_work_break_time = work_break_time
+    else:
+        normalized_work_start_time = ""
+        normalized_work_end_time = ""
+        normalized_work_break_time = ""
+
     try:
         from run_assistance import send_one_record_from_app  # type: ignore
 
@@ -9055,8 +9075,8 @@ def send_to_knowbe_from_bee(
             target_date=str(target_date).strip(),
             resident_name=str(resident_name).strip(),
             service_type=str(service_type).strip(),
-            start_time=str(start_time).strip(),
-            end_time=str(end_time).strip(),
+            start_time=start_time,
+            end_time=end_time,
             meal_flag=str(meal_flag).strip(),
             note_text=str(note_text).strip(),
             generated_status=str(generated_status).strip(),
@@ -9065,9 +9085,9 @@ def send_to_knowbe_from_bee(
             knowbe_target=str(knowbe_target).strip(),
             login_username=login_username,
             login_password=login_password,
-            work_start_time=str(work_start_time).strip(),
-            work_end_time=str(work_end_time).strip(),
-            work_break_time=str(work_break_time).strip(),
+            work_start_time=normalized_work_start_time,
+            work_end_time=normalized_work_end_time,
+            work_break_time=normalized_work_break_time,
             work_memo=str(work_memo).strip(),
             send_user_status=bool(send_user_status),
             send_staff_comment=bool(send_staff_comment),
@@ -9081,10 +9101,6 @@ def send_to_knowbe_from_bee(
         raise RuntimeError("run_assistance.send_one_record_from_app が False を返しました")
 
     return True
-
-import streamlit as st
-import pandas as pd
-from datetime import date
 
 def render_bulk_knowbe_diary_page():
     st.title("🐝 knowbe日誌入力（一括）")
@@ -9619,7 +9635,6 @@ def render_bee_journal_page():
             key="bee_knowbe_login_password"
         )
 
-    # ===== 事業所情報確定ボタン =====
     if st.button("事業所情報を確定", key="bee_ctx_resolve"):
         ctx = resolve_bee_company_context(
             company_login_id=bee_company_login_id,
@@ -9629,7 +9644,6 @@ def render_bee_journal_page():
         )
         st.session_state["bee_ctx"] = ctx
 
-    # ===== ctx取得（確定後のみ使う）=====
     ctx = st.session_state.get("bee_ctx", {})
 
     if not ctx:
@@ -9659,7 +9673,7 @@ def render_bee_journal_page():
 
             if bool(st.session_state.get("is_admin", False)):
                 if st.button("Knowbe情報登録ページへ", key="go_knowbe_settings_from_bee", use_container_width=True):
-                    go_page("⑨管理者")                   
+                    go_page("⑨管理者")
             else:
                 st.warning("管理者以外は登録できません。管理者へ報告してください。")
 
@@ -9810,23 +9824,28 @@ def render_bee_journal_page():
     with work_time_col1:
         work_start_time = st.text_input(
             "作業開始時間",
-            value=st.session_state.get("bee_work_start_time", start_time),
-            key="bee_work_start_time"
+            value=st.session_state.get("bee_work_start_time", ""),
+            key="bee_work_start_time",
+            placeholder="必要な事業所だけ入力"
         )
 
     with work_time_col2:
         work_end_time = st.text_input(
             "作業終了時間",
-            value=st.session_state.get("bee_work_end_time", end_time),
-            key="bee_work_end_time"
+            value=st.session_state.get("bee_work_end_time", ""),
+            key="bee_work_end_time",
+            placeholder="必要な事業所だけ入力"
         )
 
     with work_time_col3:
         work_break_time = st.text_input(
             "休憩時間",
             value=st.session_state.get("bee_work_break_time", ""),
-            key="bee_work_break_time"
+            key="bee_work_break_time",
+            placeholder="必要な事業所だけ入力"
         )
+
+    st.caption("※ 作業時間は任意です。入力しなくても送信できます。Knowbe側に欄がない事業所もあります。")
 
     staff_name = st.text_input(
         "日誌入力者",
@@ -10017,14 +10036,8 @@ def render_bee_journal_page():
     st.divider()
     st.markdown("## 送信")
 
-    show_time_errors = False
-    if (
-        str(start_time).strip()
-        or str(end_time).strip()
-        or str(work_start_time).strip()
-        or str(work_end_time).strip()
-    ):
-        show_time_errors = True
+    # 通常の利用時間だけをバリデーション対象にする
+    show_time_errors = bool(str(start_time).strip() or str(end_time).strip())
 
     if show_time_errors:
         time_errors = validate_bee_times(
@@ -10032,8 +10045,8 @@ def render_bee_journal_page():
             target_date=target_date,
             start_time=start_time,
             end_time=end_time,
-            work_start_time=work_start_time,
-            work_end_time=work_end_time,
+            work_start_time="",
+            work_end_time="",
         )
     else:
         time_errors = []
@@ -10104,7 +10117,6 @@ def render_bee_journal_page():
             )
 
             if ok:
-                # Gemini生成文を含めて自動保存
                 auto_save_form_data = build_knowbe_diary_form_data(
                     target_company_id=target_company_id,
                     target_company_name=target_company_name,
@@ -10295,7 +10307,7 @@ def render_bee_journal_page():
     st.markdown("## 入力内容確認")
 
     with st.expander("入力内容確認（開発用）"):
-            st.json(save_payload)
+        st.json(save_payload)
 
 
 def get_external_contacts_df():
