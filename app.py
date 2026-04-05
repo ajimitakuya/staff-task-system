@@ -15267,6 +15267,15 @@ def render_secret_home_eval_auto_page():
                         driver=driver,
                     )
 
+                    if not support_record_text or not str(support_record_text).strip():
+                        msg = "この月は利用実績がないため、在宅評価シートは作成できませんでした（入院・未利用の可能性があります）"
+                        
+                        failed_names.append(f"{resident_name_loop}：{msg}")
+                        
+                        st.warning(f"{resident_name_loop}：{msg}")
+                        
+                        continue
+
                     support_record_map[resident_name_loop] = support_record_text
 
                     home_eval_json = generate_json_with_gemini(
@@ -15278,11 +15287,23 @@ def render_secret_home_eval_auto_page():
                         )
                     )
 
-                    home_eval_json_map[resident_name_loop] = home_eval_json
-
                     goals = home_eval_json.get("goals", [])
                     monthly_evaluations = home_eval_json.get("monthly_evaluations", [])
                     weekly_reports = home_eval_json.get("weekly_reports", {})
+
+                    # ★ 追加：生成結果が実質空なら失敗扱いにする
+                    has_goals = any(str(x).strip() for x in goals)
+                    has_monthly = any(str(x).strip() for x in monthly_evaluations)
+                    has_weekly = any(str(v).strip() for v in weekly_reports.values())
+
+                    if not (has_goals or has_monthly or has_weekly):
+                        msg = "支援記録は取得できましたが、在宅評価シートの生成結果が空でした"
+                        failed_names.append(f"{resident_name_loop}：{msg}")
+                        st.warning(f"{resident_name_loop}：{msg}")
+                        continue
+
+                    # ★ これを追加
+                    home_eval_json_map[resident_name_loop] = home_eval_json
 
                     cell_data = build_home_eval_cell_data(
                         resident_name=resident_name_loop,
