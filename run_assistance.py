@@ -2348,17 +2348,17 @@ def process_report_edit(driver, it: PersonItem) -> bool:
 
     row = find_row_by_name(driver, it.name)
     if row is None:
-        log(f"⚠️ {it.name} 行が見つからないある")
+        log(f"⚠️ {it.name} 行が見つかりません")
         return False
 
     if not click_pencil_in_row(driver, row):
-        log(f"⚠️ {it.name} 編集(鉛筆)ボタンが押せないある")
+        log(f"⚠️ {it.name} 編集(鉛筆)ボタンが押せません")
         return False
 
     try:
         WebDriverWait(driver, 10).until(lambda d: get_top_dialog(d) is not None)
     except Exception:
-        log(f"⚠️ {it.name} モーダルが開かないある")
+        log(f"⚠️ {it.name} モーダルが開きません")
         return False
 
     dlg = get_top_dialog(driver)
@@ -2373,20 +2373,28 @@ def process_report_edit(driver, it: PersonItem) -> bool:
                 ok = select_dropdown_skip_if_same(driver, dlg, "サービス提供の状況 *", it.service)
             if not ok:
                 ok = select_dropdown_skip_if_same(driver, dlg, "サービス提供", it.service)
-            if not ok:
-                dump_debug(driver, f"service_dropdown_fail_{it.name}")
-                log(f"⚠️ {it.name} サービス提供の選択に失敗ある → dbg参照")
-                close_dialog_if_open(driver)
-                return False
 
-        # E: 食事提供
+            if not ok:
+                # すでに画面上にサービス名が含まれていれば続行
+                try:
+                    dlg_text = (dlg.text or "").replace("\n", " ")
+                except Exception:
+                    dlg_text = ""
+
+                if it.service in dlg_text:
+                    log(f"ℹ️ {it.name} サービス提供は画面上で確認できたため続行")
+                else:
+                    dump_debug(driver, f"service_dropdown_fail_{it.name}")
+                    log(f"⚠️ {it.name} サービス提供の選択に失敗しました")
+                    close_dialog_if_open(driver)
+                    return False
+
         meal = (it.meal or "").strip()
         if not meal:
-            log(f"⚠️ {it.name} 食事提供(E列)が空欄ある → 保存せず閉じるある")
+            log(f"⚠️ {it.name} 食事提供(E列)が空欄です")
             close_dialog_if_open(driver)
             return False
 
-        # C/D: 上側の開始/終了のみ
         has_start = bool((it.start or "").strip())
         has_end = bool((it.end or "").strip())
 
@@ -2396,7 +2404,7 @@ def process_report_edit(driver, it: PersonItem) -> bool:
 
             if not inp_start or not inp_end:
                 dump_debug(driver, f"time_input_not_found_{it.name}")
-                log(f"⚠️ {it.name} 上側の開始/終了inputが拾えないある → dbg参照")
+                log(f"⚠️ {it.name} 上側の開始/終了inputが取得できません")
                 close_dialog_if_open(driver)
                 return False
 
@@ -2406,32 +2414,31 @@ def process_report_edit(driver, it: PersonItem) -> bool:
             if has_end:
                 set_input_value(driver, inp_end, it.end)
 
-        # E: 食事提供
         ok = select_dropdown_skip_if_same(driver, dlg, "食事提供", meal)
         if not ok:
             dump_debug(driver, f"meal_dropdown_fail_{it.name}")
-            log(f"⚠️ {it.name} 食事提供の選択に失敗ある → dbg参照")
+            log(f"⚠️ {it.name} 食事提供の選択に失敗しました")
             close_dialog_if_open(driver)
             return False
 
-        # F: 備考
         note_src = (it.note or "").strip()
-        if s == "施設外就労":
-            final_note = "施設外就労(実施報告書等添付)"
-        else:
-            final_note = note_src
+        final_note = "施設外就労(実施報告書等添付)" if s == "施設外就労" else note_src
 
         area = _find_remark_area(dlg)
         if area:
             set_input_value(driver, area, final_note)
         else:
             dump_debug(driver, f"remark_not_found_{it.name}")
-            log(f"⚠️ {it.name} 備考欄が見つからないある → dbg参照")
+            log(f"⚠️ {it.name} 備考欄が見つかりません")
             close_dialog_if_open(driver)
             return False
 
-        # 作業時間（任意）
         has_work_time = bool((it.work_start or "").strip()) and bool((it.work_end or "").strip())
+        print(
+            f"[DEBUG] process_report_edit has_work_time={has_work_time} "
+            f"work_start={it.work_start!r} work_end={it.work_end!r}",
+            flush=True
+        )
 
         if has_work_time:
             print("[DEBUG] before fill_work_record_section in process_report_edit", flush=True)
@@ -2439,13 +2446,11 @@ def process_report_edit(driver, it: PersonItem) -> bool:
                 fill_work_record_section(driver, dlg, it)
                 print("[DEBUG] after fill_work_record_section in process_report_edit", flush=True)
             except Exception as e:
-                log(f"ℹ️ {it.name} 作業時間欄入力失敗 → スキップして続行ある: {e}")
+                log(f"ℹ️ {it.name} 作業時間欄入力失敗のためスキップして続行します: {e}")
         else:
-            log(f"ℹ️ {it.name} 作業時間未入力 → スキップある")
+            log(f"ℹ️ {it.name} 作業時間未入力のためスキップ")
 
-        # 保存
         save_btn = None
-
         for xp in [
             ".//button[contains(.,'保存する')]",
             ".//button[contains(.,'保存')]",
@@ -2460,7 +2465,7 @@ def process_report_edit(driver, it: PersonItem) -> bool:
 
         if not save_btn:
             dump_debug(driver, f"save_btn_not_found_{it.name}")
-            log(f"⚠️ {it.name} 保存ボタンが見つからないある → dbg参照")
+            log(f"⚠️ {it.name} 保存ボタンが見つかりません")
             close_dialog_if_open(driver)
             return False
 
@@ -2476,7 +2481,7 @@ def process_report_edit(driver, it: PersonItem) -> bool:
                 driver.execute_script("arguments[0].click();", save_btn)
             except Exception:
                 dump_debug(driver, f"save_click_fail_{it.name}")
-                log(f"⚠️ {it.name} 保存ボタンが押せないある → dbg参照")
+                log(f"⚠️ {it.name} 保存ボタンが押せません")
                 close_dialog_if_open(driver)
                 return False
 
@@ -2495,7 +2500,7 @@ def process_report_edit(driver, it: PersonItem) -> bool:
 
     except Exception as e:
         dump_debug(driver, f"exception_{it.name}")
-        log(f"⚠️ {it.name} 例外ある: {e} → モーダル閉じて次へ")
+        log(f"⚠️ {it.name} 例外: {e}")
         close_dialog_if_open(driver)
         return False
 
@@ -4034,6 +4039,11 @@ def fill_work_record_section(driver, root, it):
     print(f"[DEBUG] work_break={work_break!r}", flush=True)
     print(f"[DEBUG] work_memo={work_memo!r}", flush=True)
 
+    # 最優先防御：作業開始/終了が両方そろっていないなら絶対スキップ
+    if not work_start or not work_end:
+        print("[DEBUG] work time empty -> skip", flush=True)
+        return True
+
     def _find_break_input(dialog):
         try:
             el = dialog.find_element(By.CSS_SELECTOR, "input[name='workRecord.breakTime']")
@@ -4113,12 +4123,6 @@ def fill_work_record_section(driver, root, it):
 
         return None
 
-    # 作業時間未入力なら何もしない
-    if not (work_start and work_end):
-        print("[DEBUG] work time empty -> skip", flush=True)
-        return True
-
-    # 作業を実施した チェック
     try:
         worked_chk = root.find_element(By.CSS_SELECTOR, "input[name='workRecord.worked']")
         print(f"[DEBUG] worked checked before={worked_chk.is_selected()}", flush=True)
@@ -4131,7 +4135,6 @@ def fill_work_record_section(driver, root, it):
 
     time.sleep(0.3)
 
-    # 開始・終了
     try:
         start_el, end_el = _find_work_time_inputs(root)
     except Exception as e:
@@ -4148,40 +4151,24 @@ def fill_work_record_section(driver, root, it):
     try:
         set_input_value(driver, start_el, work_start)
         time.sleep(0.15)
-        try:
-            print(f"[DEBUG] start value after={start_el.get_attribute('value')!r}", flush=True)
-        except Exception:
-            pass
     except Exception as e:
         print(f"[DEBUG] start input error={e}", flush=True)
 
     try:
         set_input_value(driver, end_el, work_end)
         time.sleep(0.15)
-        try:
-            print(f"[DEBUG] end value after={end_el.get_attribute('value')!r}", flush=True)
-        except Exception:
-            pass
     except Exception as e:
         print(f"[DEBUG] end input error={e}", flush=True)
 
-    # 休憩
     try:
         break_el = _find_break_input(root)
         print(f"[DEBUG] break_el found={break_el is not None}", flush=True)
         if break_el is not None:
             set_input_value(driver, break_el, work_break or "0")
             time.sleep(0.15)
-            try:
-                print(f"[DEBUG] break value after={break_el.get_attribute('value')!r}", flush=True)
-            except Exception:
-                pass
-        else:
-            print("[DEBUG] break input not found -> skip", flush=True)
     except Exception as e:
         print(f"[DEBUG] break input error={e}", flush=True)
 
-    # メモ
     try:
         memo_el = _find_memo_area(root)
         print(f"[DEBUG] memo_el found={memo_el is not None}", flush=True)
@@ -4192,101 +4179,6 @@ def fill_work_record_section(driver, root, it):
         print(f"[DEBUG] memo input error={e}", flush=True)
 
     return True
-
-def process_one_daily_record_direct(
-    driver,
-    it: PersonItem,
-    recorder_name: str,
-    user_text: str,
-    staff_text: str
-) -> bool:
-
-    print("🔥 実行開始したある！！！", flush=True)
-
-    if not click_daily_edit_button(driver):
-        return False
-
-    row = find_row_by_name(driver, it.name)
-    if row is None:
-        log(f"⚠️ 日々の記録 行発見失敗ある: {it.name}")
-        return False
-
-    work_label = _daily_record_work_label(it)
-
-    if not _set_daily_work_for_row(driver, row, work_label):
-        log(f"⚠️ 作業欄の選択失敗ある: {it.name}")
-        return False
-
-    if not _set_daily_textareas_for_row(driver, row, user_text, staff_text):
-        log(f"⚠️ 日々の記録 textarea 入力失敗ある: {it.name}")
-        return False
-
-    if not _set_daily_recorder_for_row(driver, row, recorder_name):
-        log(f"⚠️ 記録者選択失敗ある: {it.name}")
-        return False
-
-    # =========================
-    # 作業時間（任意対応）
-    # =========================
-
-    has_work_time = bool(str(getattr(it, "work_start", "")).strip()) and bool(str(getattr(it, "work_end", "")).strip())
-
-    if has_work_time:
-
-        if not open_work_record_dialog_from_row(driver, row):
-            log(f"ℹ️ 作業時間ダイアログなし/開けない → スキップ: {it.name}")
-        else:
-            dialog = get_top_dialog(driver)
-
-            if dialog is None:
-                log(f"ℹ️ 作業時間ダイアログ取得不可 → スキップ: {it.name}")
-            else:
-                try:
-                    fill_work_record_section(driver, dialog, it)
-                except Exception as e:
-                    log(f"ℹ️ 作業時間入力失敗 → スキップ: {it.name} / {e}")
-
-                # 保存ボタン
-                work_save_btn = None
-                for xp in [
-                    ".//button[contains(.,'保存する')]",
-                    ".//button[contains(.,'保存')]",
-                    ".//button[contains(.,'登録')]",
-                    ".//button[contains(.,'更新')]",
-                ]:
-                    try:
-                        work_save_btn = dialog.find_element(By.XPATH, xp)
-                        break
-                    except Exception:
-                        continue
-
-                if work_save_btn:
-                    if not safe_click(driver, work_save_btn):
-                        try:
-                            driver.execute_script("arguments[0].click();", work_save_btn)
-                        except Exception:
-                            log(f"ℹ️ 作業時間保存押下不可 → スキップ: {it.name}")
-                else:
-                    log(f"ℹ️ 作業時間保存ボタンなし → スキップ: {it.name}")
-
-                try:
-                    WebDriverWait(driver, 10).until(EC.invisibility_of_element(dialog))
-                except Exception:
-                    pass
-    else:
-        log(f"ℹ️ 作業時間未入力 → スキップ: {it.name}")
-
-    # =========================
-    # 保存
-    # =========================
-
-    if not click_daily_save_button(driver):
-        log(f"⚠️ 日々の記録 保存失敗ある: {it.name}")
-        return False
-
-    log(f"✅ 日々の記録 保存成功ある: {it.name}")
-    return True
-
 
 def send_one_record_from_app(
     target_date,
