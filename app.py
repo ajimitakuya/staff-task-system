@@ -326,10 +326,10 @@ def get_knowbe_diary_saved_records(resident_id: str):
     return df.copy()
 
 def get_ic_reader_bridge_df():
-    df = load_db("ic_reader_bridge")
+    df = load_db("IC_READER_BRIDGE")
     if df is None or df.empty:
         return pd.DataFrame(columns=["bridge_id", "device_name", "last_card_id", "last_seen_at", "status"])
-    return df.fillna("").copy()
+    return df.fillna("")
 
 
 def get_latest_ic_card_id_from_bridge(bridge_id: str = "main_reader", max_age_seconds: int = 20):
