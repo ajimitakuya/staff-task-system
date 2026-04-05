@@ -205,7 +205,7 @@ def get_latest_ic_card_id_from_bridge_for_attendance(bridge_id: str = "main_read
     if not card_id:
         return "", "カードがまだ読まれていません"
 
-    if status not in ["ready", "idle"]:
+    if status != "ready":
         return "", f"reader status={status}"
 
     try:

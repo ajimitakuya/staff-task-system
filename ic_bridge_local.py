@@ -5,16 +5,18 @@ import gspread
 from google.oauth2.service_account import Credentials
 from smartcard.System import readers
 
+
 # ===== 設定ここだけ =====
 SPREADSHEET_ID = "1UZ0O6Rtfu127YCIAYrAoU3us8aneudnO-gFVkjndtaQ"
 SERVICE_ACCOUNT_FILE = r"Y:\作業管理\service_account.json"
 SHEET_NAME = "ic_reader_bridge"
 BRIDGE_ID = "main_reader"
 DEVICE_NAME = "front_desk"
+
 POLL_INTERVAL_SEC = 0.8
-DUPLICATE_GUARD_SEC = 3.0
-BRIDGE_ID = "main_reader"
-DEVICE_NAME = "front_desk"
+DUPLICATE_GUARD_SEC = 10.0          # 同じカードは10秒以内なら再送しない
+READY_HOLD_SEC = 10.0               # 読み取り後、readyを最低これだけ維持
+IDLE_WRITE_INTERVAL_SEC = 5.0       # idleを書き直すのは最短5秒ごと
 # ======================
 
 
@@ -56,12 +58,12 @@ def write_status(ws, row_no, card_id="", status="idle"):
         values=[[
             BRIDGE_ID,
             DEVICE_NAME,
-            card_id,
+            str(card_id).strip().upper(),
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             status
         ]],
         range_name=f"A{row_no}:E{row_no}"
-    )    
+    )
 
 
 def get_uid_from_first_reader():
@@ -73,7 +75,7 @@ def get_uid_from_first_reader():
     conn = r.createConnection()
     conn.connect()
 
-    # UID取得 APDU（多くのPC/SC環境で使える）
+    # UID取得 APDU
     cmd = [0xFF, 0xCA, 0x00, 0x00, 0x00]
     data, sw1, sw2 = conn.transmit(cmd)
 
@@ -92,34 +94,54 @@ def main():
     print(f"bridge_id={BRIDGE_ID} device={DEVICE_NAME}")
 
     last_card_id = ""
-    last_seen_ts = 0.0
+    last_card_sent_ts = 0.0
+    last_idle_write_ts = 0.0
+    ready_until_ts = 0.0
 
+    # 起動時だけ初期 idle
     write_status(ws, row_no, "", "idle")
+    last_idle_write_ts = time.time()
 
     while True:
+        now_ts = time.time()
+
         try:
             card_id = get_uid_from_first_reader()
-            now_ts = time.time()
+            card_id = str(card_id).strip().upper()
 
-            if card_id == last_card_id and (now_ts - last_seen_ts) < DUPLICATE_GUARD_SEC:
+            # 同じカードは10秒以内なら再送しない
+            if card_id == last_card_id and (now_ts - last_card_sent_ts) < DUPLICATE_GUARD_SEC:
+                # ready維持時間中は何もしない
                 time.sleep(POLL_INTERVAL_SEC)
                 continue
 
             last_card_id = card_id
-            last_seen_ts = now_ts
+            last_card_sent_ts = now_ts
+            ready_until_ts = now_ts + READY_HOLD_SEC
 
             print(f"[{now_str()}] card_id={card_id}")
             write_status(ws, row_no, card_id, "ready")
 
-            # 取りっぱなし連打防止
-            time.sleep(DUPLICATE_GUARD_SEC)
+            time.sleep(POLL_INTERVAL_SEC)
+            continue
 
-        except Exception as e:
-            # カード未タッチ中や一時失敗は idle 扱い
-            try:
-                write_status(ws, row_no, "", "idle")
-            except Exception:
-                pass
+        except Exception:
+            # カード未タッチや一時失敗時
+            # ただし、ready維持時間中は last_card_id を消さず、readyのまま保持
+            if now_ts < ready_until_ts:
+                time.sleep(POLL_INTERVAL_SEC)
+                continue
+
+            # idleは頻繁に書きすぎない
+            if (now_ts - last_idle_write_ts) >= IDLE_WRITE_INTERVAL_SEC:
+                try:
+                    # ここが重要:
+                    # card_id は空に戻さず、最後に読んだカードを残す
+                    write_status(ws, row_no, last_card_id, "idle")
+                    last_idle_write_ts = now_ts
+                except Exception:
+                    pass
+
             time.sleep(POLL_INTERVAL_SEC)
 
 
