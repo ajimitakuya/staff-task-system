@@ -352,7 +352,7 @@ def load_db(file, retries=3, delay=0.8):
                         "created_at",
                         "registered_by",
                     ],   
-                    "IC_READER_BRIDGE": [
+                    "ic_reader_bridge": [
                         "bridge_id",
                         "device_name",
                         "last_card_id",
