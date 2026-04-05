@@ -9108,10 +9108,6 @@ def render_bulk_knowbe_diary_page():
     current_company_id = str(st.session_state.get("company_id", "")).strip()
     login_staff_name = str(st.session_state.get("display_name", "")).strip()
 
-    if not current_company_id:
-        st.error("事業所情報が取得できません。")
-        return
-
     # ===== pending load 適用 =====
     pending_bulk_json = st.session_state.pop("bulk_knowbe_pending_load_json", None)
     if isinstance(pending_bulk_json, dict):
@@ -9165,430 +9161,487 @@ def render_bulk_knowbe_diary_page():
     if bulk_load_msg:
         st.success(bulk_load_msg)
 
-    # ===== Knowbeログイン情報解決 =====
-    ctx = resolve_bee_company_context(
-        company_login_id="",
-        company_login_password="",
-        knowbe_login_username="",
-        knowbe_login_password="",
-    )
+    if not current_company_id:
+        st.error("事業所情報が取得できません。")
+    else:
+        # ===== Knowbeログイン情報解決（キャッシュ） =====
+        cached_company_id = str(st.session_state.get("bulk_bee_ctx_company_id", "")).strip()
+        ctx = st.session_state.get("bulk_bee_ctx", {})
 
-    if not ctx.get("ok", False):
-        st.error(ctx.get("error", "事業所情報の確認に失敗しました。"))
-        return
-
-    resolved_knowbe_user = ctx["knowbe_login_username"]
-    resolved_knowbe_pw = ctx["knowbe_login_password"]
-
-    if not str(resolved_knowbe_user).strip() or not str(resolved_knowbe_pw).strip():
-        st.error("Knowbe情報が未登録です。送信するには登録が必要です。")
-        return
-
-    # ===== 利用者一覧取得 =====
-    residents_df = get_resident_master_df(current_company_id)
-    if residents_df.empty:
-        st.warning("利用者データがありません。")
-        return
-
-    if "status" in residents_df.columns:
-        residents_df = residents_df[residents_df["status"].fillna("利用中") == "利用中"]
-
-    residents_df = residents_df.reset_index(drop=True)
-
-    if residents_df.empty:
-        st.warning("この事業所の利用中利用者がいません。")
-        return
-
-    # ===== 共通日付 =====
-    bulk_target_date = st.date_input(
-        "対象日（全員共通）",
-        value=st.session_state.get("bulk_target_date", date.today()),
-        key="bulk_target_date"
-    )
-
-    # ===== 保存済み呼び出し =====
-    st.markdown("### 保存済みデータ呼び出し")
-
-    bulk_saved_df = get_document_records("knowbe日誌一括下書き", "BULK")
-
-    bulk_load_options = ["新規作成"]
-    bulk_load_map = {"新規作成": None}
-
-    if bulk_saved_df is not None and not bulk_saved_df.empty:
-        try:
-            if "updated_at" in bulk_saved_df.columns:
-                bulk_saved_df = bulk_saved_df.sort_values("updated_at", ascending=False)
-        except Exception:
-            pass
-
-        for _, r in bulk_saved_df.head(30).iterrows():
-            record_id = str(r.get("record_id", "")).strip()
-            updated_at = str(r.get("updated_at", "")).strip()
-
-            saved_json = load_document_json(record_id)
-            if not isinstance(saved_json, dict):
-                continue
-
-            saved_company_id = str(saved_json.get("company_id", "")).strip()
-            if saved_company_id != current_company_id:
-                continue
-
-            saved_date = str(saved_json.get("target_date", "")).strip()
-            label = f"{saved_date} / ID:{record_id}"
-            if updated_at:
-                label += f" / {updated_at}"
-
-            bulk_load_options.append(label)
-            bulk_load_map[label] = record_id
-
-    bulk_load_col1, bulk_load_col2 = st.columns([5, 1])
-
-    with bulk_load_col1:
-        selected_bulk_saved_label = st.selectbox(
-            "過去の保存データ",
-            bulk_load_options,
-            key="bulk_knowbe_saved_record_select"
-        )
-
-    with bulk_load_col2:
-        st.write("")
-        st.write("")
-        if st.button("呼び出す", key="bulk_knowbe_load_saved_record", use_container_width=True):
-            selected_record_id = bulk_load_map.get(selected_bulk_saved_label)
-            if selected_record_id:
-                saved_json = load_document_json(selected_record_id)
-                if isinstance(saved_json, dict):
-                    st.session_state["bulk_knowbe_pending_load_json"] = saved_json
-                    st.session_state["bulk_knowbe_loaded_record_id"] = selected_record_id
-                    st.session_state["bulk_knowbe_load_message"] = "一括下書きを呼び出しました！"
-                    st.rerun()
-                else:
-                    st.warning("保存データの読み込みに失敗しました。")
-
-    st.markdown("---")
-
-    send_targets = []
-
-    for idx, r in residents_df.iterrows():
-        resident_id = str(r.get("resident_id", "")).strip()
-        resident_name = str(r.get("resident_name", "")).strip()
-
-        if not resident_id or not resident_name:
-            continue
-
-        block_key = f"bulk_{resident_id}"
-
-        with st.container():
-            st.subheader(f"{resident_name}")
-
-            enabled = st.checkbox(
-                "この利用者を送信対象にする",
-                value=st.session_state.get(f"{block_key}_enabled", True),
-                key=f"{block_key}_enabled"
+        if (not isinstance(ctx, dict)) or (not ctx) or cached_company_id != current_company_id:
+            ctx = resolve_bee_company_context(
+                company_login_id="",
+                company_login_password="",
+                knowbe_login_username="",
+                knowbe_login_password="",
             )
+            st.session_state["bulk_bee_ctx"] = ctx
+            st.session_state["bulk_bee_ctx_company_id"] = current_company_id
 
-            c1, c2, c3, c4 = st.columns(4)
-            with c1:
-                start_time = st.text_input(
-                    "開始時間",
-                    value=st.session_state.get(f"{block_key}_start_time", "10:00"),
-                    key=f"{block_key}_start_time"
-                )
-            with c2:
-                end_time = st.text_input(
-                    "終了時間",
-                    value=st.session_state.get(f"{block_key}_end_time", "10:50"),
-                    key=f"{block_key}_end_time"
-                )
-            with c3:
-                meal_flag = st.selectbox(
-                    "食事提供",
-                    ["なし", "あり"],
-                    index=0 if st.session_state.get(f"{block_key}_meal_flag", "なし") == "なし" else 1,
-                    key=f"{block_key}_meal_flag"
-                )
-            with c4:
-                service_type = st.selectbox(
-                    "サービス種別",
-                    ["在宅", "通所", "施設外就労"],
-                    index=["在宅", "通所", "施設外就労"].index(
-                        st.session_state.get(f"{block_key}_service_type", "在宅")
-                        if st.session_state.get(f"{block_key}_service_type", "在宅") in ["在宅", "通所", "施設外就労"]
-                        else "在宅"
-                    ),
-                    key=f"{block_key}_service_type"
-                )
-
-            c5, c6, c7 = st.columns(3)
-            with c5:
-                work_start_time = st.text_input(
-                    "作業開始時間",
-                    value=st.session_state.get(f"{block_key}_work_start_time", ""),
-                    key=f"{block_key}_work_start_time"
-                )
-            with c6:
-                work_end_time = st.text_input(
-                    "作業終了時間",
-                    value=st.session_state.get(f"{block_key}_work_end_time", ""),
-                    key=f"{block_key}_work_end_time"
-                )
-            with c7:
-                break_time = st.text_input(
-                    "休憩時間",
-                    value=st.session_state.get(f"{block_key}_break_time", ""),
-                    key=f"{block_key}_break_time"
-                )
-
-            diary_input_staff = st.text_input(
-                "日誌入力者",
-                value=st.session_state.get(f"{block_key}_staff_name", login_staff_name),
-                key=f"{block_key}_staff_name"
-            )
-
-            remark_mode = st.radio(
-                "備考の入力方法",
-                ["候補から選ぶ", "直接入力"],
-                horizontal=True,
-                key=f"{block_key}_remark_mode"
-            )
-
-            if remark_mode == "候補から選ぶ":
-                remark_candidates = ["在宅利用", "食事摂取量 10/10", "施設外就労(実施報告書等添付)", "入院", ""]
-                default_remark = st.session_state.get(f"{block_key}_remark_text_select", "在宅利用")
-                if default_remark not in remark_candidates:
-                    default_remark = "在宅利用"
-
-                remark_text = st.selectbox(
-                    "備考",
-                    remark_candidates,
-                    index=remark_candidates.index(default_remark),
-                    key=f"{block_key}_remark_text_select"
-                )
-            else:
-                remark_text = st.text_input(
-                    "備考",
-                    value=st.session_state.get(f"{block_key}_remark_text", ""),
-                    key=f"{block_key}_remark_text"
-                )
-
-            c8, c9 = st.columns(2)
-            with c8:
-                start_memo = st.text_area(
-                    "開始メモ",
-                    value=st.session_state.get(f"{block_key}_start_memo", ""),
-                    height=140,
-                    key=f"{block_key}_start_memo"
-                )
-            with c9:
-                end_memo = st.text_area(
-                    "終了メモ",
-                    value=st.session_state.get(f"{block_key}_end_memo", ""),
-                    height=140,
-                    key=f"{block_key}_end_memo"
-                )
-
-            send_mode = st.radio(
-                "送信方式",
-                ["Geminiで編集して送信", "入力文のまま送信"],
-                horizontal=True,
-                key=f"{block_key}_send_mode"
-            )
-
-            st.markdown("---")
-
-            send_targets.append({
-                "enabled": enabled,
-                "resident_id": resident_id,
-                "resident_name": resident_name,
-                "target_date": bulk_target_date.strftime("%Y-%m-%d"),
-                "start_time": start_time,
-                "end_time": end_time,
-                "meal_flag": meal_flag,
-                "service_type": service_type,
-                "work_start_time": work_start_time,
-                "work_end_time": work_end_time,
-                "break_time": break_time,
-                "staff_name": diary_input_staff,
-                "remark_mode": remark_mode,
-                "remark_text": remark_text,
-                "start_memo": start_memo,
-                "end_memo": end_memo,
-                "send_mode": "gemini" if send_mode == "Geminiで編集して送信" else "raw",
-                "generated_start_memo": st.session_state.get(f"{block_key}_generated_start_memo", ""),
-                "generated_end_memo": st.session_state.get(f"{block_key}_generated_end_memo", ""),
-            })
-
-    # ===== 一括保存用 form_data =====
-    bulk_form_data = {
-        "company_id": current_company_id,
-        "target_date": bulk_target_date.strftime("%Y-%m-%d"),
-        "staff_name": login_staff_name,
-        "entries": send_targets,
-        "save_stage": "draft",
-    }
-
-    st.markdown("## 一括下書き保存")
-
-    bulk_loaded_record_id = st.session_state.get("bulk_knowbe_loaded_record_id")
-
-    bulk_save_cols = st.columns([1, 1, 4])
-
-    with bulk_save_cols[0]:
-        if st.button("途中保存", key="bulk_knowbe_save_new", use_container_width=True):
-            new_id = save_document_record(
-                resident_id="BULK",
-                resident_name=f"{bulk_target_date.strftime('%Y-%m-%d')} 一括日誌",
-                doc_type="knowbe日誌一括下書き",
-                form_data=bulk_form_data
-            )
-            st.session_state["bulk_knowbe_loaded_record_id"] = new_id
-            st.success(f"途中保存しました！ record_id = {new_id}")
-
-    with bulk_save_cols[1]:
-        if st.button("上書き保存", key="bulk_knowbe_save_update", use_container_width=True):
-            if bulk_loaded_record_id:
-                ok = update_document_record(bulk_loaded_record_id, bulk_form_data)
-                if ok:
-                    st.success(f"上書き保存しました！ record_id = {bulk_loaded_record_id}")
-                else:
-                    st.warning("上書き対象が見つかりません。")
-            else:
-                st.warning("先に途中保存してください。")
-
-    st.markdown("## 送信")
-
-    if st.button("knowbeへ送信する", type="primary", use_container_width=True):
-        active_targets = [x for x in send_targets if x["enabled"]]
-
-        valid_targets = []
-        invalid_messages = []
-
-        for item in active_targets:
-            if not str(item.get("staff_name", "")).strip():
-                invalid_messages.append(f"{item['resident_name']}：日誌入力者が未入力")
-                continue
-
-            valid_targets.append(item)
-
-        if invalid_messages:
-            st.warning("一部送信されない利用者があります：")
-            for msg in invalid_messages:
-                st.warning(msg)
-
-        if not valid_targets:
-            st.warning("送信できる利用者が1人もいません。")
-            return
-
-        success_count = 0
-        error_count = 0
-
-        progress = st.progress(0)
-        status_box = st.empty()
-
-        for i, item in enumerate(valid_targets, start=1):
-            try:
-                status_box.info(f"{i}/{len(valid_targets)} 送信中: {item['resident_name']}")
-
-                start_memo_to_send = item["start_memo"]
-                end_memo_to_send = item["end_memo"]
-
-                if item["send_mode"] == "gemini":
-                    start_memo_to_send = edit_text_with_gemini_for_start_memo(
-                        resident_name=item["resident_name"],
-                        original_text=item["start_memo"],
-                        remark_text=item["remark_text"],
-                    )
-                    end_memo_to_send = edit_text_with_gemini_for_end_memo(
-                        resident_name=item["resident_name"],
-                        original_text=item["end_memo"],
-                        remark_text=item["remark_text"],
-                    )
-
-                    st.session_state[f"bulk_{item['resident_id']}_generated_start_memo"] = start_memo_to_send
-                    st.session_state[f"bulk_{item['resident_id']}_generated_end_memo"] = end_memo_to_send
-
-                ok = send_to_knowbe_from_bee(
-                    company_id=current_company_id,
-                    target_date=item["target_date"],
-                    resident_name=item["resident_name"],
-                    service_type=item["service_type"],
-                    start_time=item["start_time"],
-                    end_time=item["end_time"],
-                    meal_flag=item["meal_flag"],
-                    note_text=item["remark_text"],
-                    generated_status=start_memo_to_send,
-                    generated_support=end_memo_to_send,
-                    staff_name=item["staff_name"],
-                    knowbe_target="bulk_gemini" if item["send_mode"] == "gemini" else "bulk_raw",
-                    work_start_time=item["work_start_time"],
-                    work_end_time=item["work_end_time"],
-                    work_break_time=item.get("break_time", ""),
-                    work_memo="",
-                    login_username=resolved_knowbe_user,
-                    login_password=resolved_knowbe_pw,
-                    send_user_status=True,
-                    send_staff_comment=True,
-                )
-
-                if ok:
-                    success_count += 1
-                else:
-                    error_count += 1
-                    st.error(f"{item['resident_name']} の送信で失敗しました（Knowbe未反映）")
-
-            except Exception as e:
-                error_count += 1
-                st.error(f"{item['resident_name']} の送信でエラー: {e}")
-
-            progress.progress(i / len(valid_targets))
-
-        # ===== 送信後の状態で自動保存 =====
-        auto_entries = []
-        for item in send_targets:
-            rid = str(item.get("resident_id", "")).strip()
-            auto_entries.append({
-                "enabled": item.get("enabled", True),
-                "resident_id": rid,
-                "resident_name": item.get("resident_name", ""),
-                "target_date": item.get("target_date", ""),
-                "start_time": item.get("start_time", ""),
-                "end_time": item.get("end_time", ""),
-                "meal_flag": item.get("meal_flag", ""),
-                "service_type": item.get("service_type", ""),
-                "work_start_time": item.get("work_start_time", ""),
-                "work_end_time": item.get("work_end_time", ""),
-                "break_time": item.get("break_time", ""),
-                "staff_name": item.get("staff_name", ""),
-                "remark_mode": item.get("remark_mode", "候補から選ぶ"),
-                "remark_text": item.get("remark_text", ""),
-                "start_memo": item.get("start_memo", ""),
-                "end_memo": item.get("end_memo", ""),
-                "send_mode": item.get("send_mode", "raw"),
-                "generated_start_memo": st.session_state.get(f"bulk_{rid}_generated_start_memo", item.get("generated_start_memo", "")),
-                "generated_end_memo": st.session_state.get(f"bulk_{rid}_generated_end_memo", item.get("generated_end_memo", "")),
-            })
-
-        auto_bulk_form_data = {
-            "company_id": current_company_id,
-            "target_date": bulk_target_date.strftime("%Y-%m-%d"),
-            "staff_name": login_staff_name,
-            "entries": auto_entries,
-            "save_stage": "generated",
-        }
-
-        bulk_loaded_record_id = st.session_state.get("bulk_knowbe_loaded_record_id")
-        if bulk_loaded_record_id:
-            update_document_record(bulk_loaded_record_id, auto_bulk_form_data)
+        if not ctx.get("ok", False):
+            st.error(ctx.get("error", "事業所情報の確認に失敗しました。"))
         else:
-            new_id = save_document_record(
-                resident_id="BULK",
-                resident_name=f"{bulk_target_date.strftime('%Y-%m-%d')} 一括日誌",
-                doc_type="knowbe日誌一括下書き",
-                form_data=auto_bulk_form_data
-            )
-            st.session_state["bulk_knowbe_loaded_record_id"] = new_id
+            resolved_knowbe_user = ctx["knowbe_login_username"]
+            resolved_knowbe_pw = ctx["knowbe_login_password"]
 
-        status_box.success(f"送信完了：成功 {success_count}件 / エラー {error_count}件 / 自動保存完了")
+            if not str(resolved_knowbe_user).strip() or not str(resolved_knowbe_pw).strip():
+                st.error("Knowbe情報が未登録です。送信するには登録が必要です。")
+            else:
+                # ===== 利用者一覧取得 =====
+                residents_df = get_resident_master_df(current_company_id)
+
+                if residents_df.empty:
+                    st.warning("利用者データがありません。")
+                else:
+                    if "status" in residents_df.columns:
+                        residents_df = residents_df[
+                            residents_df["status"].fillna("利用中") == "利用中"
+                        ]
+
+                    residents_df = residents_df.reset_index(drop=True)
+
+                    if residents_df.empty:
+                        st.warning("この事業所の利用中利用者がいません。")
+                    else:
+                        # ===== 共通日付 =====
+                        bulk_target_date = st.date_input(
+                            "対象日（全員共通）",
+                            value=st.session_state.get("bulk_target_date", date.today()),
+                            key="bulk_target_date"
+                        )
+
+                        # ===== 保存済み呼び出し =====
+                        st.markdown("### 保存済みデータ呼び出し")
+
+                        bulk_saved_df = get_document_records("knowbe日誌一括下書き", "BULK")
+
+                        bulk_load_options = ["新規作成"]
+                        bulk_load_map = {"新規作成": None}
+
+                        if bulk_saved_df is not None and not bulk_saved_df.empty:
+                            try:
+                                if "updated_at" in bulk_saved_df.columns:
+                                    bulk_saved_df = bulk_saved_df.sort_values("updated_at", ascending=False)
+                            except Exception:
+                                pass
+
+                            for _, r in bulk_saved_df.head(30).iterrows():
+                                record_id = str(r.get("record_id", "")).strip()
+                                updated_at = str(r.get("updated_at", "")).strip()
+
+                                saved_json = load_document_json(record_id)
+                                if not isinstance(saved_json, dict):
+                                    continue
+
+                                saved_company_id = str(saved_json.get("company_id", "")).strip()
+                                if saved_company_id != current_company_id:
+                                    continue
+
+                                saved_date = str(saved_json.get("target_date", "")).strip()
+                                label = f"{saved_date} / ID:{record_id}"
+                                if updated_at:
+                                    label += f" / {updated_at}"
+
+                                bulk_load_options.append(label)
+                                bulk_load_map[label] = record_id
+
+                        bulk_load_col1, bulk_load_col2 = st.columns([5, 1])
+
+                        with bulk_load_col1:
+                            selected_bulk_saved_label = st.selectbox(
+                                "過去の保存データ",
+                                bulk_load_options,
+                                key="bulk_knowbe_saved_record_select"
+                            )
+
+                        with bulk_load_col2:
+                            st.write("")
+                            st.write("")
+                            if st.button("呼び出す", key="bulk_knowbe_load_saved_record", use_container_width=True):
+                                selected_record_id = bulk_load_map.get(selected_bulk_saved_label)
+                                if selected_record_id:
+                                    saved_json = load_document_json(selected_record_id)
+                                    if isinstance(saved_json, dict):
+                                        target_date_str = str(saved_json.get("target_date", "")).strip()
+                                        if target_date_str:
+                                            try:
+                                                st.session_state["bulk_target_date"] = pd.to_datetime(target_date_str).date()
+                                            except Exception:
+                                                pass
+
+                                        entries = saved_json.get("entries", [])
+                                        if isinstance(entries, list):
+                                            for item in entries:
+                                                resident_id = str(item.get("resident_id", "")).strip()
+                                                if not resident_id:
+                                                    continue
+
+                                                block_key = f"bulk_{resident_id}"
+
+                                                st.session_state[f"{block_key}_enabled"] = bool(item.get("enabled", True))
+                                                st.session_state[f"{block_key}_start_time"] = str(item.get("start_time", "")).strip()
+                                                st.session_state[f"{block_key}_end_time"] = str(item.get("end_time", "")).strip()
+                                                st.session_state[f"{block_key}_meal_flag"] = str(item.get("meal_flag", "なし")).strip() or "なし"
+                                                st.session_state[f"{block_key}_service_type"] = str(item.get("service_type", "在宅")).strip() or "在宅"
+                                                st.session_state[f"{block_key}_work_start_time"] = str(item.get("work_start_time", "")).strip()
+                                                st.session_state[f"{block_key}_work_end_time"] = str(item.get("work_end_time", "")).strip()
+                                                st.session_state[f"{block_key}_break_time"] = str(item.get("break_time", "")).strip()
+                                                st.session_state[f"{block_key}_staff_name"] = str(item.get("staff_name", "")).strip()
+
+                                                remark_mode = str(item.get("remark_mode", "候補から選ぶ")).strip()
+                                                if remark_mode not in ["候補から選ぶ", "直接入力"]:
+                                                    remark_mode = "候補から選ぶ"
+                                                st.session_state[f"{block_key}_remark_mode"] = remark_mode
+
+                                                remark_text = str(item.get("remark_text", "")).strip()
+                                                st.session_state[f"{block_key}_remark_text"] = remark_text
+                                                st.session_state[f"{block_key}_remark_text_select"] = remark_text if remark_text else "在宅利用"
+
+                                                st.session_state[f"{block_key}_start_memo"] = str(item.get("start_memo", "")).strip()
+                                                st.session_state[f"{block_key}_end_memo"] = str(item.get("end_memo", "")).strip()
+
+                                                send_mode = str(item.get("send_mode", "raw")).strip()
+                                                st.session_state[f"{block_key}_send_mode"] = (
+                                                    "Geminiで編集して送信" if send_mode == "gemini" else "入力文のまま送信"
+                                                )
+
+                                                st.session_state[f"{block_key}_generated_start_memo"] = str(item.get("generated_start_memo", "")).strip()
+                                                st.session_state[f"{block_key}_generated_end_memo"] = str(item.get("generated_end_memo", "")).strip()
+
+                                        st.session_state["bulk_knowbe_loaded_record_id"] = selected_record_id
+                                        st.session_state["bulk_knowbe_load_message"] = "一括下書きを呼び出しました！"
+                                        st.success("一括下書きを呼び出しました！")
+                                    else:
+                                        st.warning("保存データの読み込みに失敗しました。")
+
+                        st.markdown("---")
+
+                        send_targets = []
+
+                        for _, r in residents_df.iterrows():
+                            resident_id = str(r.get("resident_id", "")).strip()
+                            resident_name = str(r.get("resident_name", "")).strip()
+
+                            if not resident_id or not resident_name:
+                                continue
+
+                            block_key = f"bulk_{resident_id}"
+
+                            with st.container():
+                                st.subheader(f"{resident_name}")
+
+                                enabled = st.checkbox(
+                                    "この利用者を送信対象にする",
+                                    value=st.session_state.get(f"{block_key}_enabled", True),
+                                    key=f"{block_key}_enabled"
+                                )
+
+                                c1, c2, c3, c4 = st.columns(4)
+                                with c1:
+                                    start_time = st.text_input(
+                                        "開始時間",
+                                        value=st.session_state.get(f"{block_key}_start_time", "10:00"),
+                                        key=f"{block_key}_start_time"
+                                    )
+                                with c2:
+                                    end_time = st.text_input(
+                                        "終了時間",
+                                        value=st.session_state.get(f"{block_key}_end_time", "10:50"),
+                                        key=f"{block_key}_end_time"
+                                    )
+                                with c3:
+                                    meal_flag = st.selectbox(
+                                        "食事提供",
+                                        ["なし", "あり"],
+                                        index=0 if st.session_state.get(f"{block_key}_meal_flag", "なし") == "なし" else 1,
+                                        key=f"{block_key}_meal_flag"
+                                    )
+                                with c4:
+                                    service_type = st.selectbox(
+                                        "サービス種別",
+                                        ["在宅", "通所", "施設外就労"],
+                                        index=["在宅", "通所", "施設外就労"].index(
+                                            st.session_state.get(f"{block_key}_service_type", "在宅")
+                                            if st.session_state.get(f"{block_key}_service_type", "在宅") in ["在宅", "通所", "施設外就労"]
+                                            else "在宅"
+                                        ),
+                                        key=f"{block_key}_service_type"
+                                    )
+
+                                c5, c6, c7 = st.columns(3)
+                                with c5:
+                                    work_start_time = st.text_input(
+                                        "作業開始時間",
+                                        value=st.session_state.get(f"{block_key}_work_start_time", ""),
+                                        key=f"{block_key}_work_start_time"
+                                    )
+                                with c6:
+                                    work_end_time = st.text_input(
+                                        "作業終了時間",
+                                        value=st.session_state.get(f"{block_key}_work_end_time", ""),
+                                        key=f"{block_key}_work_end_time"
+                                    )
+                                with c7:
+                                    break_time = st.text_input(
+                                        "休憩時間",
+                                        value=st.session_state.get(f"{block_key}_break_time", ""),
+                                        key=f"{block_key}_break_time"
+                                    )
+
+                                diary_input_staff = st.text_input(
+                                    "日誌入力者",
+                                    value=st.session_state.get(f"{block_key}_staff_name", login_staff_name),
+                                    key=f"{block_key}_staff_name"
+                                )
+
+                                remark_mode = st.radio(
+                                    "備考の入力方法",
+                                    ["候補から選ぶ", "直接入力"],
+                                    horizontal=True,
+                                    key=f"{block_key}_remark_mode"
+                                )
+
+                                if remark_mode == "候補から選ぶ":
+                                    remark_candidates = ["在宅利用", "食事摂取量 10/10", "施設外就労(実施報告書等添付)", "入院", ""]
+                                    default_remark = st.session_state.get(f"{block_key}_remark_text_select", "在宅利用")
+                                    if default_remark not in remark_candidates:
+                                        default_remark = "在宅利用"
+
+                                    remark_text = st.selectbox(
+                                        "備考",
+                                        remark_candidates,
+                                        index=remark_candidates.index(default_remark),
+                                        key=f"{block_key}_remark_text_select"
+                                    )
+                                else:
+                                    remark_text = st.text_input(
+                                        "備考",
+                                        value=st.session_state.get(f"{block_key}_remark_text", ""),
+                                        key=f"{block_key}_remark_text"
+                                    )
+
+                                c8, c9 = st.columns(2)
+                                with c8:
+                                    start_memo = st.text_area(
+                                        "開始メモ",
+                                        value=st.session_state.get(f"{block_key}_start_memo", ""),
+                                        height=140,
+                                        key=f"{block_key}_start_memo"
+                                    )
+                                with c9:
+                                    end_memo = st.text_area(
+                                        "終了メモ",
+                                        value=st.session_state.get(f"{block_key}_end_memo", ""),
+                                        height=140,
+                                        key=f"{block_key}_end_memo"
+                                    )
+
+                                send_mode = st.radio(
+                                    "送信方式",
+                                    ["Geminiで編集して送信", "入力文のまま送信"],
+                                    horizontal=True,
+                                    key=f"{block_key}_send_mode"
+                                )
+
+                                st.markdown("---")
+
+                                send_targets.append({
+                                    "enabled": enabled,
+                                    "resident_id": resident_id,
+                                    "resident_name": resident_name,
+                                    "target_date": bulk_target_date.strftime("%Y-%m-%d"),
+                                    "start_time": start_time,
+                                    "end_time": end_time,
+                                    "meal_flag": meal_flag,
+                                    "service_type": service_type,
+                                    "work_start_time": work_start_time,
+                                    "work_end_time": work_end_time,
+                                    "break_time": break_time,
+                                    "staff_name": diary_input_staff,
+                                    "remark_mode": remark_mode,
+                                    "remark_text": remark_text,
+                                    "start_memo": start_memo,
+                                    "end_memo": end_memo,
+                                    "send_mode": "gemini" if send_mode == "Geminiで編集して送信" else "raw",
+                                    "generated_start_memo": st.session_state.get(f"{block_key}_generated_start_memo", ""),
+                                    "generated_end_memo": st.session_state.get(f"{block_key}_generated_end_memo", ""),
+                                })
+
+                        bulk_form_data = {
+                            "company_id": current_company_id,
+                            "target_date": bulk_target_date.strftime("%Y-%m-%d"),
+                            "staff_name": login_staff_name,
+                            "entries": send_targets,
+                            "save_stage": "draft",
+                        }
+
+                        st.markdown("## 一括下書き保存")
+
+                        bulk_loaded_record_id = st.session_state.get("bulk_knowbe_loaded_record_id")
+
+                        bulk_save_cols = st.columns([1, 1, 4])
+
+                        with bulk_save_cols[0]:
+                            if st.button("途中保存", key="bulk_knowbe_save_new", use_container_width=True):
+                                new_id = save_document_record(
+                                    resident_id="BULK",
+                                    resident_name=f"{bulk_target_date.strftime('%Y-%m-%d')} 一括日誌",
+                                    doc_type="knowbe日誌一括下書き",
+                                    form_data=bulk_form_data
+                                )
+                                st.session_state["bulk_knowbe_loaded_record_id"] = new_id
+                                st.success(f"途中保存しました！ record_id = {new_id}")
+
+                        with bulk_save_cols[1]:
+                            if st.button("上書き保存", key="bulk_knowbe_save_update", use_container_width=True):
+                                if bulk_loaded_record_id:
+                                    ok = update_document_record(bulk_loaded_record_id, bulk_form_data)
+                                    if ok:
+                                        st.success(f"上書き保存しました！ record_id = {bulk_loaded_record_id}")
+                                    else:
+                                        st.warning("上書き対象が見つかりません。")
+                                else:
+                                    st.warning("先に途中保存してください。")
+
+                        st.markdown("## 送信")
+
+                        if st.button("knowbeへ送信する", type="primary", use_container_width=True):
+                            active_targets = [x for x in send_targets if x["enabled"]]
+
+                            valid_targets = []
+                            invalid_messages = []
+
+                            for item in active_targets:
+                                if not str(item.get("staff_name", "")).strip():
+                                    invalid_messages.append(f"{item['resident_name']}：日誌入力者が未入力")
+                                    continue
+                                valid_targets.append(item)
+
+                            if invalid_messages:
+                                st.warning("一部送信されない利用者があります：")
+                                for msg in invalid_messages:
+                                    st.warning(msg)
+
+                            if not valid_targets:
+                                st.warning("送信できる利用者が1人もいません。")
+                            else:
+                                success_count = 0
+                                error_count = 0
+
+                                progress = st.progress(0)
+                                status_box = st.empty()
+
+                                for i, item in enumerate(valid_targets, start=1):
+                                    try:
+                                        status_box.info(f"{i}/{len(valid_targets)} 送信中: {item['resident_name']}")
+
+                                        start_memo_to_send = item["start_memo"]
+                                        end_memo_to_send = item["end_memo"]
+
+                                        if item["send_mode"] == "gemini":
+                                            start_memo_to_send = edit_text_with_gemini_for_start_memo(
+                                                resident_name=item["resident_name"],
+                                                original_text=item["start_memo"],
+                                                remark_text=item["remark_text"],
+                                            )
+                                            end_memo_to_send = edit_text_with_gemini_for_end_memo(
+                                                resident_name=item["resident_name"],
+                                                original_text=item["end_memo"],
+                                                remark_text=item["remark_text"],
+                                            )
+
+                                            st.session_state[f"bulk_{item['resident_id']}_generated_start_memo"] = start_memo_to_send
+                                            st.session_state[f"bulk_{item['resident_id']}_generated_end_memo"] = end_memo_to_send
+
+                                        ok = send_to_knowbe_from_bee(
+                                            company_id=current_company_id,
+                                            target_date=item["target_date"],
+                                            resident_name=item["resident_name"],
+                                            service_type=item["service_type"],
+                                            start_time=item["start_time"],
+                                            end_time=item["end_time"],
+                                            meal_flag=item["meal_flag"],
+                                            note_text=item["remark_text"],
+                                            generated_status=start_memo_to_send,
+                                            generated_support=end_memo_to_send,
+                                            staff_name=item["staff_name"],
+                                            knowbe_target="bulk_gemini" if item["send_mode"] == "gemini" else "bulk_raw",
+                                            work_start_time=item["work_start_time"],
+                                            work_end_time=item["work_end_time"],
+                                            work_break_time=item.get("break_time", ""),
+                                            work_memo="",
+                                            login_username=resolved_knowbe_user,
+                                            login_password=resolved_knowbe_pw,
+                                            send_user_status=True,
+                                            send_staff_comment=True,
+                                        )
+
+                                        if ok:
+                                            success_count += 1
+                                        else:
+                                            error_count += 1
+                                            st.error(f"{item['resident_name']} の送信で失敗しました（Knowbe未反映）")
+
+                                    except Exception as e:
+                                        error_count += 1
+                                        st.error(f"{item['resident_name']} の送信でエラー: {e}")
+
+                                    progress.progress(i / len(valid_targets))
+
+                                auto_entries = []
+                                for item in send_targets:
+                                    rid = str(item.get("resident_id", "")).strip()
+                                    auto_entries.append({
+                                        "enabled": item.get("enabled", True),
+                                        "resident_id": rid,
+                                        "resident_name": item.get("resident_name", ""),
+                                        "target_date": item.get("target_date", ""),
+                                        "start_time": item.get("start_time", ""),
+                                        "end_time": item.get("end_time", ""),
+                                        "meal_flag": item.get("meal_flag", ""),
+                                        "service_type": item.get("service_type", ""),
+                                        "work_start_time": item.get("work_start_time", ""),
+                                        "work_end_time": item.get("work_end_time", ""),
+                                        "break_time": item.get("break_time", ""),
+                                        "staff_name": item.get("staff_name", ""),
+                                        "remark_mode": item.get("remark_mode", "候補から選ぶ"),
+                                        "remark_text": item.get("remark_text", ""),
+                                        "start_memo": item.get("start_memo", ""),
+                                        "end_memo": item.get("end_memo", ""),
+                                        "send_mode": item.get("send_mode", "raw"),
+                                        "generated_start_memo": st.session_state.get(
+                                            f"bulk_{rid}_generated_start_memo",
+                                            item.get("generated_start_memo", "")
+                                        ),
+                                        "generated_end_memo": st.session_state.get(
+                                            f"bulk_{rid}_generated_end_memo",
+                                            item.get("generated_end_memo", "")
+                                        ),
+                                    })
+
+                                auto_bulk_form_data = {
+                                    "company_id": current_company_id,
+                                    "target_date": bulk_target_date.strftime("%Y-%m-%d"),
+                                    "staff_name": login_staff_name,
+                                    "entries": auto_entries,
+                                    "save_stage": "generated",
+                                }
+
+                                bulk_loaded_record_id = st.session_state.get("bulk_knowbe_loaded_record_id")
+                                if bulk_loaded_record_id:
+                                    update_document_record(bulk_loaded_record_id, auto_bulk_form_data)
+                                else:
+                                    new_id = save_document_record(
+                                        resident_id="BULK",
+                                        resident_name=f"{bulk_target_date.strftime('%Y-%m-%d')} 一括日誌",
+                                        doc_type="knowbe日誌一括下書き",
+                                        form_data=auto_bulk_form_data
+                                    )
+                                    st.session_state["bulk_knowbe_loaded_record_id"] = new_id
+
+                                status_box.success(
+                                    f"送信完了：成功 {success_count}件 / エラー {error_count}件 / 自動保存完了"
+                                )
 
 def render_bee_journal_page():
     st.title("🐝knowbe日誌入力🐝")
@@ -9648,666 +9701,664 @@ def render_bee_journal_page():
 
     if not ctx:
         st.info("事業所情報を確定してください")
-        return
-
-    if not ctx.get("ok", False):
+    elif not ctx.get("ok", False):
         st.error(ctx.get("error", "事業所情報の確認に失敗しました。"))
-        return
+    else:
 
-    target_company_id = ctx["target_company_id"]
-    target_company_name = ctx["target_company_name"]
-    resolved_knowbe_user = ctx["knowbe_login_username"]
-    resolved_knowbe_pw = ctx["knowbe_login_password"]
+        target_company_id = ctx["target_company_id"]
+        target_company_name = ctx["target_company_name"]
+        resolved_knowbe_user = ctx["knowbe_login_username"]
+        resolved_knowbe_pw = ctx["knowbe_login_password"]
 
-    info_cols = st.columns(2)
-    with info_cols[0]:
-        st.info(f"対象事業所: {target_company_name or current_company_name}")
+        info_cols = st.columns(2)
+        with info_cols[0]:
+            st.info(f"対象事業所: {target_company_name or current_company_name}")
 
-    with info_cols[1]:
-        if ctx.get("using_saved_knowbe", False):
-            st.success(f"保存済みKnowbe情報を使用する：{mask_secret_text(resolved_knowbe_user)}")
-        elif ctx.get("has_knowbe_credentials", False):
-            st.success(f"入力されたKnowbe情報を使用する：{mask_secret_text(resolved_knowbe_user)}")
-        else:
-            st.error("Knowbe情報が未登録です。送信するには登録が必要です。")
-
-            if bool(st.session_state.get("is_admin", False)):
-                if st.button("Knowbe情報登録ページへ", key="go_knowbe_settings_from_bee", use_container_width=True):
-                    go_page("⑨管理者")
+        with info_cols[1]:
+            if ctx.get("using_saved_knowbe", False):
+                st.success(f"保存済みKnowbe情報を使用する：{mask_secret_text(resolved_knowbe_user)}")
+            elif ctx.get("has_knowbe_credentials", False):
+                st.success(f"入力されたKnowbe情報を使用する：{mask_secret_text(resolved_knowbe_user)}")
             else:
-                st.warning("管理者以外は登録できません。管理者へ報告してください。")
+                st.error("Knowbe情報が未登録です。送信するには登録が必要です。")
 
-    st.markdown("## 利用者選択")
+                if bool(st.session_state.get("is_admin", False)):
+                    if st.button("Knowbe情報登録ページへ", key="go_knowbe_settings_from_bee", use_container_width=True):
+                        go_page("⑨管理者")
+                else:
+                    st.warning("管理者以外は登録できません。管理者へ報告してください。")
 
-    master_df = get_resident_master_df(target_company_id)
+        st.markdown("## 利用者選択")
 
-    if master_df.empty:
-        st.warning("この事業所に所属する利用者がまだ登録されていません。")
-        return
+        master_df = get_resident_master_df(target_company_id)
 
-    resident_options = []
-    resident_map = {}
+        if master_df.empty:
+            st.warning("この事業所に所属する利用者がまだ登録されていません。")
+            return
 
-    for _, row in master_df.iterrows():
-        rid = str(row.get("resident_id", "")).strip()
-        rname = str(row.get("resident_name", "")).strip()
+        resident_options = []
+        resident_map = {}
 
-        if not rname:
-            continue
+        for _, row in master_df.iterrows():
+            rid = str(row.get("resident_id", "")).strip()
+            rname = str(row.get("resident_name", "")).strip()
 
-        label = f"{rname}"
-        if rid:
-            label += f" ({rid})"
-
-        resident_options.append(label)
-        resident_map[label] = row.to_dict()
-
-    if not resident_options:
-        st.warning("この事業所に所属する利用者がまだ登録されていません。")
-        return
-
-    selected_label = st.selectbox(
-        "利用者を選ぶ",
-        resident_options,
-        key="bee_resident_select"
-    )
-
-    selected_row = resident_map[selected_label]
-    resident_id = str(selected_row.get("resident_id", "")).strip()
-    resident_name = str(selected_row.get("resident_name", "")).strip()
-
-    st.markdown("### 保存済みデータ呼び出し")
-
-    diary_df = get_knowbe_diary_saved_records(resident_id)
-
-    load_options = ["新規作成"]
-    load_map = {"新規作成": None}
-
-    if diary_df is not None and not diary_df.empty:
-        try:
-            if "updated_at" in diary_df.columns:
-                diary_df = diary_df.sort_values("updated_at", ascending=False)
-        except Exception:
-            pass
-
-        for _, r in diary_df.head(20).iterrows():
-            record_id = str(r.get("record_id", "")).strip()
-            updated_at = str(r.get("updated_at", "")).strip()
-
-            saved_json = load_document_json(record_id)
-            if not isinstance(saved_json, dict):
+            if not rname:
                 continue
 
-            saved_date = str(saved_json.get("target_date", "")).strip()
-            saved_start = str(saved_json.get("start_time", "")).strip()
-            saved_end = str(saved_json.get("end_time", "")).strip()
+            label = f"{rname}"
+            if rid:
+                label += f" ({rid})"
 
-            label = f"{saved_date} / {saved_start}〜{saved_end} / ID:{record_id}"
-            if updated_at:
-                label += f" / {updated_at}"
+            resident_options.append(label)
+            resident_map[label] = row.to_dict()
 
-            load_options.append(label)
-            load_map[label] = record_id
+        if not resident_options:
+            st.warning("この事業所に所属する利用者がまだ登録されていません。")
+            return
 
-    load_col1, load_col2 = st.columns([5, 1])
-
-    with load_col1:
-        selected_saved_label = st.selectbox(
-            "過去の保存データ",
-            load_options,
-            key="bee_saved_record_select"
+        selected_label = st.selectbox(
+            "利用者を選ぶ",
+            resident_options,
+            key="bee_resident_select"
         )
 
-    with load_col2:
-        st.write("")
-        st.write("")
-        if st.button("呼び出す", key="bee_load_saved_record", use_container_width=True):
-            selected_record_id = load_map.get(selected_saved_label)
-            if selected_record_id:
-                saved_json = load_document_json(selected_record_id)
-                if isinstance(saved_json, dict):
-                    st.session_state["bee_journal_pending_load_json"] = saved_json
-                    st.session_state["bee_journal_loaded_record_id"] = selected_record_id
-                    st.session_state["bee_journal_load_message"] = "保存データを呼び出しました！"
-                else:
-                    st.warning("保存データの読み込みに失敗しました。")
+        selected_row = resident_map[selected_label]
+        resident_id = str(selected_row.get("resident_id", "")).strip()
+        resident_name = str(selected_row.get("resident_name", "")).strip()
 
-    st.divider()
-    st.markdown("## 日誌入力")
+        st.markdown("### 保存済みデータ呼び出し")
 
-    target_date = st.date_input(
-        "対象日",
-        value=st.session_state.get("bee_target_date", now_jst().date()),
-        key="bee_target_date"
-    )
+        diary_df = get_knowbe_diary_saved_records(resident_id)
 
-    input_cols = st.columns([1, 1, 1, 1])
+        load_options = ["新規作成"]
+        load_map = {"新規作成": None}
 
-    with input_cols[0]:
-        start_time = st.text_input(
-            "開始時間",
-            value=st.session_state.get("start_time", ""),
-            key="start_time",
-            placeholder="10:00"
-        )
+        if diary_df is not None and not diary_df.empty:
+            try:
+                if "updated_at" in diary_df.columns:
+                    diary_df = diary_df.sort_values("updated_at", ascending=False)
+            except Exception:
+                pass
 
-    with input_cols[1]:
-        end_time = st.text_input(
-            "終了時間",
-            value=st.session_state.get("end_time", ""),
-            key="end_time",
-            placeholder="10:50"
-        )
+            for _, r in diary_df.head(20).iterrows():
+                record_id = str(r.get("record_id", "")).strip()
+                updated_at = str(r.get("updated_at", "")).strip()
 
-    with input_cols[2]:
-        meal_flag = st.selectbox(
-            "食事提供",
-            ["なし", "あり"],
-            index=0 if st.session_state.get("bee_meal_flag", "なし") == "なし" else 1,
-            key="bee_meal_flag"
-        )
+                saved_json = load_document_json(record_id)
+                if not isinstance(saved_json, dict):
+                    continue
 
-    with input_cols[3]:
-        service_type = st.selectbox(
-            "サービス種別",
-            ["在宅", "通所", "施設外就労"],
-            index=["在宅", "通所", "施設外就労"].index(
-                st.session_state.get("bee_service_type", "在宅")
-                if st.session_state.get("bee_service_type", "在宅") in ["在宅", "通所", "施設外就労"]
-                else "在宅"
-            ),
-            key="bee_service_type"
-        )
+                saved_date = str(saved_json.get("target_date", "")).strip()
+                saved_start = str(saved_json.get("start_time", "")).strip()
+                saved_end = str(saved_json.get("end_time", "")).strip()
 
-    work_time_col1, work_time_col2, work_time_col3 = st.columns(3)
+                label = f"{saved_date} / {saved_start}〜{saved_end} / ID:{record_id}"
+                if updated_at:
+                    label += f" / {updated_at}"
 
-    with work_time_col1:
-        work_start_time = st.text_input(
-            "作業開始時間",
-            value=st.session_state.get("bee_work_start_time", ""),
-            key="bee_work_start_time",
-            placeholder="必要な事業所だけ入力"
-        )
+                load_options.append(label)
+                load_map[label] = record_id
 
-    with work_time_col2:
-        work_end_time = st.text_input(
-            "作業終了時間",
-            value=st.session_state.get("bee_work_end_time", ""),
-            key="bee_work_end_time",
-            placeholder="必要な事業所だけ入力"
-        )
+        load_col1, load_col2 = st.columns([5, 1])
 
-    with work_time_col3:
-        work_break_time = st.text_input(
-            "休憩時間",
-            value=st.session_state.get("bee_work_break_time", ""),
-            key="bee_work_break_time",
-            placeholder="必要な事業所だけ入力"
-        )
-
-    st.caption("※ 作業時間は任意です。入力しなくても送信できます。Knowbe側に欄がない事業所もあります。")
-
-    staff_name = st.text_input(
-        "日誌入力者",
-        value=st.session_state.get("bee_staff_name", current_staff_name),
-        key="bee_staff_name"
-    )
-
-    note_mode = st.radio(
-        "備考の入力方法",
-        ["候補から選ぶ", "直接入力"],
-        horizontal=True,
-        key="bee_note_mode"
-    )
-
-    if note_mode == "候補から選ぶ":
-        note_candidates = ["在宅利用", "食事摂取量 10/10", "施設外就労(実施報告書等添付)", "入院", ""]
-        default_note = st.session_state.get("bee_note_text", "")
-        default_index = note_candidates.index(default_note) if default_note in note_candidates else 0
-
-        note = st.selectbox(
-            "備考",
-            note_candidates,
-            index=default_index,
-            key="bee_note_select"
-        )
-    else:
-        note = st.text_area(
-            "備考",
-            value=st.session_state.get("bee_note_text", ""),
-            key="bee_note_text",
-            height=80
-        )
-
-    st.markdown("""
-    <style>
-    div.stButton > button {
-        white-space: normal !important;
-        height: auto !important;
-        min-height: 3.8rem !important;
-        line-height: 1.4 !important;
-        padding-top: 0.6rem !important;
-        padding-bottom: 0.6rem !important;
-    }
-    div.stButton > button p {
-        white-space: pre-line !important;
-        line-height: 1.4 !important;
-        margin: 0 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    if "knowbe_bee_use_plan" not in st.session_state:
-        st.session_state["knowbe_bee_use_plan"] = False
-
-    use_plan = st.session_state.get("knowbe_bee_use_plan", False)
-
-    plan_row = get_plan_row(target_company_id, resident_id)
-    plan_text = ""
-    if use_plan and plan_row:
-        plan_text = (
-            f"長期目標: {plan_row.get('long_term_goal', '')}\n"
-            f"短期目標: {plan_row.get('short_term_goal', '')}"
-        )
-
-    example_row = get_staff_example_row(target_company_id, staff_name)
-    rule_row = get_personal_rule_row(target_company_id, staff_name)
-
-    examples_text = build_examples_text(service_type, example_row)
-    loaded_rule_text = rule_row.get("rule_text", "") if rule_row else ""
-
-    preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
-
-    memo_cols = st.columns(2)
-
-    with memo_cols[0]:
-        start_memo = st.text_area(
-            "開始メモ",
-            value=st.session_state.get("bee_start_memo", ""),
-            key="bee_start_memo",
-            height=140
-        )
-
-    with memo_cols[1]:
-        end_memo = st.text_area(
-            "終了メモ",
-            value=st.session_state.get("bee_end_memo", ""),
-            key="bee_end_memo",
-            height=140
-        )
-
-    send_memo_cols = st.columns(4)
-
-    with send_memo_cols[0]:
-        start_send_raw = st.button(
-            "<利用者状態欄>\n開始メモをだけを入力した\n文章のままknowbeへ送信",
-            key="bee_send_start_raw",
-            use_container_width=True
-        )
-
-    with send_memo_cols[1]:
-        start_send_gemini = st.button(
-            "<職員考察欄>\n開始メモをだけをGeminiで\n文を編集してknowbeへ送信",
-            key="bee_send_start_gemini",
-            use_container_width=True
-        )
-
-    with send_memo_cols[2]:
-        end_send_raw = st.button(
-            "<利用者状態欄>\n終了メモをだけを入力した\n文章のままknowbeへ送信",
-            key="bee_send_end_raw",
-            use_container_width=True
-        )
-
-    with send_memo_cols[3]:
-        end_send_gemini = st.button(
-            "<職員考察欄>\n終了メモをだけをGeminiで\n文を編集してknowbeへ送信",
-            key="bee_send_end_gemini",
-            use_container_width=True
-        )
-
-    save_payload = {
-        "company_id": target_company_id,
-        "company_name": target_company_name,
-        "date": str(target_date),
-        "resident_id": resident_id,
-        "resident_name": resident_name,
-        "start_time": start_time,
-        "end_time": end_time,
-        "meal_flag": meal_flag,
-        "note": preview_note,
-        "start_memo": start_memo,
-        "end_memo": end_memo,
-        "staff_name": staff_name,
-        "service_type": service_type,
-        "knowbe_user": st.session_state.get("bee_knownbe_user_name", "未登録"),
-        "use_plan": st.session_state.get("knowbe_bee_use_plan", False),
-    }
-
-    form_data = build_knowbe_diary_form_data(
-        target_company_id=target_company_id,
-        target_company_name=target_company_name,
-        resident_id=resident_id,
-        resident_name=resident_name,
-        target_date=target_date,
-        start_time=start_time,
-        end_time=end_time,
-        meal_flag=meal_flag,
-        service_type=service_type,
-        work_start_time=work_start_time,
-        work_end_time=work_end_time,
-        work_break_time=work_break_time,
-        staff_name=staff_name,
-        note_mode=note_mode,
-        preview_note=preview_note,
-        start_memo=start_memo,
-        end_memo=end_memo,
-    )
-
-    st.divider()
-    st.markdown("## 下書き保存")
-
-    loaded_record_id = st.session_state.get("bee_journal_loaded_record_id")
-
-    save_cols = st.columns([1, 1, 4])
-
-    with save_cols[0]:
-        if st.button("途中保存", key="bee_journal_save_new", use_container_width=True):
-            new_id = save_document_record(
-                resident_id=resident_id,
-                resident_name=resident_name,
-                doc_type="knowbe日誌下書き",
-                form_data=form_data
+        with load_col1:
+            selected_saved_label = st.selectbox(
+                "過去の保存データ",
+                load_options,
+                key="bee_saved_record_select"
             )
-            st.session_state["bee_journal_loaded_record_id"] = new_id
-            st.success(f"途中保存しました！ record_id = {new_id}")
 
-    with save_cols[1]:
-        if st.button("上書き保存", key="bee_journal_save_update", use_container_width=True):
-            if loaded_record_id:
-                ok = update_document_record(loaded_record_id, form_data)
-                if ok:
-                    st.success(f"上書き保存しました！ record_id = {loaded_record_id}")
-                else:
-                    st.warning("上書き対象が見つかりません。")
-            else:
-                st.warning("先に途中保存してください。")
+        with load_col2:
+            st.write("")
+            st.write("")
+            if st.button("呼び出す", key="bee_load_saved_record", use_container_width=True):
+                selected_record_id = load_map.get(selected_saved_label)
+                if selected_record_id:
+                    saved_json = load_document_json(selected_record_id)
+                    if isinstance(saved_json, dict):
+                        st.session_state["bee_journal_pending_load_json"] = saved_json
+                        st.session_state["bee_journal_loaded_record_id"] = selected_record_id
+                        st.session_state["bee_journal_load_message"] = "保存データを呼び出しました！"
+                    else:
+                        st.warning("保存データの読み込みに失敗しました。")
 
-    st.divider()
-    st.markdown("## 送信")
+        st.divider()
+        st.markdown("## 日誌入力")
 
-    # 通常の利用時間だけをバリデーション対象にする
-    show_time_errors = bool(str(start_time).strip() or str(end_time).strip())
+        target_date = st.date_input(
+            "対象日",
+            value=st.session_state.get("bee_target_date", now_jst().date()),
+            key="bee_target_date"
+        )
 
-    if show_time_errors:
-        time_errors = validate_bee_times(
+        input_cols = st.columns([1, 1, 1, 1])
+
+        with input_cols[0]:
+            start_time = st.text_input(
+                "開始時間",
+                value=st.session_state.get("start_time", ""),
+                key="start_time",
+                placeholder="10:00"
+            )
+
+        with input_cols[1]:
+            end_time = st.text_input(
+                "終了時間",
+                value=st.session_state.get("end_time", ""),
+                key="end_time",
+                placeholder="10:50"
+            )
+
+        with input_cols[2]:
+            meal_flag = st.selectbox(
+                "食事提供",
+                ["なし", "あり"],
+                index=0 if st.session_state.get("bee_meal_flag", "なし") == "なし" else 1,
+                key="bee_meal_flag"
+            )
+
+        with input_cols[3]:
+            service_type = st.selectbox(
+                "サービス種別",
+                ["在宅", "通所", "施設外就労"],
+                index=["在宅", "通所", "施設外就労"].index(
+                    st.session_state.get("bee_service_type", "在宅")
+                    if st.session_state.get("bee_service_type", "在宅") in ["在宅", "通所", "施設外就労"]
+                    else "在宅"
+                ),
+                key="bee_service_type"
+            )
+
+        work_time_col1, work_time_col2, work_time_col3 = st.columns(3)
+
+        with work_time_col1:
+            work_start_time = st.text_input(
+                "作業開始時間",
+                value=st.session_state.get("bee_work_start_time", ""),
+                key="bee_work_start_time",
+                placeholder="必要な事業所だけ入力"
+            )
+
+        with work_time_col2:
+            work_end_time = st.text_input(
+                "作業終了時間",
+                value=st.session_state.get("bee_work_end_time", ""),
+                key="bee_work_end_time",
+                placeholder="必要な事業所だけ入力"
+            )
+
+        with work_time_col3:
+            work_break_time = st.text_input(
+                "休憩時間",
+                value=st.session_state.get("bee_work_break_time", ""),
+                key="bee_work_break_time",
+                placeholder="必要な事業所だけ入力"
+            )
+
+        st.caption("※ 作業時間は任意です。入力しなくても送信できます。Knowbe側に欄がない事業所もあります。")
+
+        staff_name = st.text_input(
+            "日誌入力者",
+            value=st.session_state.get("bee_staff_name", current_staff_name),
+            key="bee_staff_name"
+        )
+
+        note_mode = st.radio(
+            "備考の入力方法",
+            ["候補から選ぶ", "直接入力"],
+            horizontal=True,
+            key="bee_note_mode"
+        )
+
+        if note_mode == "候補から選ぶ":
+            note_candidates = ["在宅利用", "食事摂取量 10/10", "施設外就労(実施報告書等添付)", "入院", ""]
+            default_note = st.session_state.get("bee_note_text", "")
+            default_index = note_candidates.index(default_note) if default_note in note_candidates else 0
+
+            note = st.selectbox(
+                "備考",
+                note_candidates,
+                index=default_index,
+                key="bee_note_select"
+            )
+        else:
+            note = st.text_area(
+                "備考",
+                value=st.session_state.get("bee_note_text", ""),
+                key="bee_note_text",
+                height=80
+            )
+
+        st.markdown("""
+        <style>
+        div.stButton > button {
+            white-space: normal !important;
+            height: auto !important;
+            min-height: 3.8rem !important;
+            line-height: 1.4 !important;
+            padding-top: 0.6rem !important;
+            padding-bottom: 0.6rem !important;
+        }
+        div.stButton > button p {
+            white-space: pre-line !important;
+            line-height: 1.4 !important;
+            margin: 0 !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        if "knowbe_bee_use_plan" not in st.session_state:
+            st.session_state["knowbe_bee_use_plan"] = False
+
+        use_plan = st.session_state.get("knowbe_bee_use_plan", False)
+
+        plan_row = get_plan_row(target_company_id, resident_id)
+        plan_text = ""
+        if use_plan and plan_row:
+            plan_text = (
+                f"長期目標: {plan_row.get('long_term_goal', '')}\n"
+                f"短期目標: {plan_row.get('short_term_goal', '')}"
+            )
+
+        example_row = get_staff_example_row(target_company_id, staff_name)
+        rule_row = get_personal_rule_row(target_company_id, staff_name)
+
+        examples_text = build_examples_text(service_type, example_row)
+        loaded_rule_text = rule_row.get("rule_text", "") if rule_row else ""
+
+        preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
+
+        memo_cols = st.columns(2)
+
+        with memo_cols[0]:
+            start_memo = st.text_area(
+                "開始メモ",
+                value=st.session_state.get("bee_start_memo", ""),
+                key="bee_start_memo",
+                height=140
+            )
+
+        with memo_cols[1]:
+            end_memo = st.text_area(
+                "終了メモ",
+                value=st.session_state.get("bee_end_memo", ""),
+                key="bee_end_memo",
+                height=140
+            )
+
+        send_memo_cols = st.columns(4)
+
+        with send_memo_cols[0]:
+            start_send_raw = st.button(
+                "<利用者状態欄>\n開始メモをだけを入力した\n文章のままknowbeへ送信",
+                key="bee_send_start_raw",
+                use_container_width=True
+            )
+
+        with send_memo_cols[1]:
+            start_send_gemini = st.button(
+                "<職員考察欄>\n開始メモをだけをGeminiで\n文を編集してknowbeへ送信",
+                key="bee_send_start_gemini",
+                use_container_width=True
+            )
+
+        with send_memo_cols[2]:
+            end_send_raw = st.button(
+                "<利用者状態欄>\n終了メモをだけを入力した\n文章のままknowbeへ送信",
+                key="bee_send_end_raw",
+                use_container_width=True
+            )
+
+        with send_memo_cols[3]:
+            end_send_gemini = st.button(
+                "<職員考察欄>\n終了メモをだけをGeminiで\n文を編集してknowbeへ送信",
+                key="bee_send_end_gemini",
+                use_container_width=True
+            )
+
+        save_payload = {
+            "company_id": target_company_id,
+            "company_name": target_company_name,
+            "date": str(target_date),
+            "resident_id": resident_id,
+            "resident_name": resident_name,
+            "start_time": start_time,
+            "end_time": end_time,
+            "meal_flag": meal_flag,
+            "note": preview_note,
+            "start_memo": start_memo,
+            "end_memo": end_memo,
+            "staff_name": staff_name,
+            "service_type": service_type,
+            "knowbe_user": st.session_state.get("bee_knownbe_user_name", "未登録"),
+            "use_plan": st.session_state.get("knowbe_bee_use_plan", False),
+        }
+
+        form_data = build_knowbe_diary_form_data(
+            target_company_id=target_company_id,
+            target_company_name=target_company_name,
             resident_id=resident_id,
+            resident_name=resident_name,
             target_date=target_date,
             start_time=start_time,
             end_time=end_time,
-            work_start_time="",
-            work_end_time="",
-        )
-    else:
-        time_errors = []
-
-    if show_time_errors and time_errors:
-        for err in time_errors:
-            st.error(err)
-
-    send_cols = st.columns([1, 1])
-
-    with send_cols[0]:
-        bulk_send_gemini = st.button(
-            "開始メモをGeminiで編集して利用者状態欄へ\n終了メモをGeminiで編集して職員考察欄へ\nまとめて送信",
-            key="bee_bulk_send_gemini",
-            width="stretch",
-            disabled=bool(time_errors)
+            meal_flag=meal_flag,
+            service_type=service_type,
+            work_start_time=work_start_time,
+            work_end_time=work_end_time,
+            work_break_time=work_break_time,
+            staff_name=staff_name,
+            note_mode=note_mode,
+            preview_note=preview_note,
+            start_memo=start_memo,
+            end_memo=end_memo,
         )
 
-    with send_cols[1]:
-        bulk_send_raw = st.button(
-            "開始メモを入力した文のまま編集なしで利用者状態欄へ\n終了メモを入力した文のまま編集なしで職員考察欄へ\nまとめて送信",
-            key="bee_bulk_send_raw",
-            width="stretch",
-            disabled=bool(time_errors)
-        )
+        st.divider()
+        st.markdown("## 下書き保存")
 
-    if bulk_send_gemini:
-        try:
-            generated_status, generated_support = generate_bee_texts(
-                resident_name=resident_name,
-                service_type=service_type,
-                meal_flag=meal_flag,
-                note_text=preview_note,
-                start_memo=start_memo,
-                end_memo=end_memo,
-                staff_name=staff_name,
-                plan_text=plan_text,
-                examples_text=examples_text,
-                rule_text=loaded_rule_text,
-            )
+        loaded_record_id = st.session_state.get("bee_journal_loaded_record_id")
 
-            mark_bee_journal_generated_texts(
-                generated_status=generated_status,
-                generated_support=generated_support
-            )
+        save_cols = st.columns([1, 1, 4])
 
-            ok = send_to_knowbe_from_bee(
-                company_id=target_company_id,
-                target_date=str(target_date),
-                resident_name=resident_name,
-                service_type=service_type,
-                start_time=start_time,
-                end_time=end_time,
-                meal_flag=meal_flag,
-                note_text=preview_note,
-                generated_status=generated_status,
-                generated_support=generated_support,
-                staff_name=staff_name,
-                knowbe_target="bulk_gemini",
-                work_start_time=work_start_time,
-                work_end_time=work_end_time,
-                work_break_time=work_break_time,
-                work_memo="",
-                login_username=resolved_knowbe_user,
-                login_password=resolved_knowbe_pw,
-                send_user_status=True,
-                send_staff_comment=True,
-            )
-
-            if ok:
-                auto_save_form_data = build_knowbe_diary_form_data(
-                    target_company_id=target_company_id,
-                    target_company_name=target_company_name,
+        with save_cols[0]:
+            if st.button("途中保存", key="bee_journal_save_new", use_container_width=True):
+                new_id = save_document_record(
                     resident_id=resident_id,
                     resident_name=resident_name,
-                    target_date=target_date,
+                    doc_type="knowbe日誌下書き",
+                    form_data=form_data
+                )
+                st.session_state["bee_journal_loaded_record_id"] = new_id
+                st.success(f"途中保存しました！ record_id = {new_id}")
+
+        with save_cols[1]:
+            if st.button("上書き保存", key="bee_journal_save_update", use_container_width=True):
+                if loaded_record_id:
+                    ok = update_document_record(loaded_record_id, form_data)
+                    if ok:
+                        st.success(f"上書き保存しました！ record_id = {loaded_record_id}")
+                    else:
+                        st.warning("上書き対象が見つかりません。")
+                else:
+                    st.warning("先に途中保存してください。")
+
+        st.divider()
+        st.markdown("## 送信")
+
+        # 通常の利用時間だけをバリデーション対象にする
+        show_time_errors = bool(str(start_time).strip() or str(end_time).strip())
+
+        if show_time_errors:
+            time_errors = validate_bee_times(
+                resident_id=resident_id,
+                target_date=target_date,
+                start_time=start_time,
+                end_time=end_time,
+                work_start_time="",
+                work_end_time="",
+            )
+        else:
+            time_errors = []
+
+        if show_time_errors and time_errors:
+            for err in time_errors:
+                st.error(err)
+
+        send_cols = st.columns([1, 1])
+
+        with send_cols[0]:
+            bulk_send_gemini = st.button(
+                "開始メモをGeminiで編集して利用者状態欄へ\n終了メモをGeminiで編集して職員考察欄へ\nまとめて送信",
+                key="bee_bulk_send_gemini",
+                width="stretch",
+                disabled=bool(time_errors)
+            )
+
+        with send_cols[1]:
+            bulk_send_raw = st.button(
+                "開始メモを入力した文のまま編集なしで利用者状態欄へ\n終了メモを入力した文のまま編集なしで職員考察欄へ\nまとめて送信",
+                key="bee_bulk_send_raw",
+                width="stretch",
+                disabled=bool(time_errors)
+            )
+
+        if bulk_send_gemini:
+            try:
+                generated_status, generated_support = generate_bee_texts(
+                    resident_name=resident_name,
+                    service_type=service_type,
+                    meal_flag=meal_flag,
+                    note_text=preview_note,
+                    start_memo=start_memo,
+                    end_memo=end_memo,
+                    staff_name=staff_name,
+                    plan_text=plan_text,
+                    examples_text=examples_text,
+                    rule_text=loaded_rule_text,
+                )
+
+                mark_bee_journal_generated_texts(
+                    generated_status=generated_status,
+                    generated_support=generated_support
+                )
+
+                ok = send_to_knowbe_from_bee(
+                    company_id=target_company_id,
+                    target_date=str(target_date),
+                    resident_name=resident_name,
+                    service_type=service_type,
                     start_time=start_time,
                     end_time=end_time,
                     meal_flag=meal_flag,
-                    service_type=service_type,
+                    note_text=preview_note,
+                    generated_status=generated_status,
+                    generated_support=generated_support,
+                    staff_name=staff_name,
+                    knowbe_target="bulk_gemini",
                     work_start_time=work_start_time,
                     work_end_time=work_end_time,
                     work_break_time=work_break_time,
-                    staff_name=staff_name,
-                    note_mode=note_mode,
-                    preview_note=preview_note,
-                    start_memo=start_memo,
-                    end_memo=end_memo,
+                    work_memo="",
+                    login_username=resolved_knowbe_user,
+                    login_password=resolved_knowbe_pw,
+                    send_user_status=True,
+                    send_staff_comment=True,
                 )
 
-                loaded_record_id = st.session_state.get("bee_journal_loaded_record_id")
-                if loaded_record_id:
-                    update_document_record(loaded_record_id, auto_save_form_data)
-                else:
-                    new_id = save_document_record(
+                if ok:
+                    auto_save_form_data = build_knowbe_diary_form_data(
+                        target_company_id=target_company_id,
+                        target_company_name=target_company_name,
                         resident_id=resident_id,
                         resident_name=resident_name,
-                        doc_type="knowbe日誌下書き",
-                        form_data=auto_save_form_data
+                        target_date=target_date,
+                        start_time=start_time,
+                        end_time=end_time,
+                        meal_flag=meal_flag,
+                        service_type=service_type,
+                        work_start_time=work_start_time,
+                        work_end_time=work_end_time,
+                        work_break_time=work_break_time,
+                        staff_name=staff_name,
+                        note_mode=note_mode,
+                        preview_note=preview_note,
+                        start_memo=start_memo,
+                        end_memo=end_memo,
                     )
-                    st.session_state["bee_journal_loaded_record_id"] = new_id
 
-                st.success("Gemini文で一気送信できました！自動保存も完了しました。")
-        except Exception as e:
-            st.error(f"Gemini一気送信失敗です: {e}")
+                    loaded_record_id = st.session_state.get("bee_journal_loaded_record_id")
+                    if loaded_record_id:
+                        update_document_record(loaded_record_id, auto_save_form_data)
+                    else:
+                        new_id = save_document_record(
+                            resident_id=resident_id,
+                            resident_name=resident_name,
+                            doc_type="knowbe日誌下書き",
+                            form_data=auto_save_form_data
+                        )
+                        st.session_state["bee_journal_loaded_record_id"] = new_id
 
-    elif bulk_send_raw:
-        try:
-            ok = send_to_knowbe_from_bee(
-                company_id=target_company_id,
-                target_date=str(target_date),
-                resident_name=resident_name,
-                service_type=service_type,
-                start_time=start_time,
-                end_time=end_time,
-                meal_flag=meal_flag,
-                note_text=preview_note,
-                generated_status=start_memo,
-                generated_support=end_memo,
-                staff_name=staff_name,
-                knowbe_target="bulk_raw",
-                work_start_time=work_start_time,
-                work_end_time=work_end_time,
-                work_break_time=work_break_time,
-                work_memo="",
-                login_username=resolved_knowbe_user,
-                login_password=resolved_knowbe_pw,
-                send_user_status=True,
-                send_staff_comment=True,
+                    st.success("Gemini文で一気送信できました！自動保存も完了しました。")
+            except Exception as e:
+                st.error(f"Gemini一気送信失敗です: {e}")
+
+        elif bulk_send_raw:
+            try:
+                ok = send_to_knowbe_from_bee(
+                    company_id=target_company_id,
+                    target_date=str(target_date),
+                    resident_name=resident_name,
+                    service_type=service_type,
+                    start_time=start_time,
+                    end_time=end_time,
+                    meal_flag=meal_flag,
+                    note_text=preview_note,
+                    generated_status=start_memo,
+                    generated_support=end_memo,
+                    staff_name=staff_name,
+                    knowbe_target="bulk_raw",
+                    work_start_time=work_start_time,
+                    work_end_time=work_end_time,
+                    work_break_time=work_break_time,
+                    work_memo="",
+                    login_username=resolved_knowbe_user,
+                    login_password=resolved_knowbe_pw,
+                    send_user_status=True,
+                    send_staff_comment=True,
+                )
+
+                if ok:
+                    st.success("Gemini編集なしでそのままKnowbeへ入力できました！")
+
+            except Exception as e:
+                st.error(f"編集なし送信失敗です: {e}")
+
+        st.warning(
+            "Knowbe送信を使うには、画面上でKnowbe情報を入力するか、管理者メニューの『Knowbe情報登録』で保存してください。"
+        )
+
+        st.divider()
+        st.markdown("## 補助設定")
+
+        if "knowbe_bee_use_plan" not in st.session_state:
+            st.session_state["knowbe_bee_use_plan"] = False
+
+        use_plan = st.checkbox(
+            "個別支援計画を参照する",
+            key="knowbe_bee_use_plan"
+        )
+
+        st.divider()
+        st.markdown("## スタッフ例文・個人ルール")
+
+        if not example_row:
+            st.warning("この入力者のスタッフ例文は未登録です。")
+        if not rule_row:
+            st.warning("この入力者の個人ルールは未登録です。")
+
+        if "bee_rule_edit_open" not in st.session_state:
+            st.session_state["bee_rule_edit_open"] = False
+
+        is_editing = st.session_state["bee_rule_edit_open"]
+
+        ex_cols1 = st.columns(2)
+        with ex_cols1[0]:
+            home_start_value = st.text_area(
+                "在宅作業開始例文",
+                value=example_row.get("home_start_example", "") if example_row else "",
+                key="bee_home_start_example_unified",
+                height=100,
+                disabled=not is_editing
+            )
+        with ex_cols1[1]:
+            home_end_value = st.text_area(
+                "在宅作業終了例文",
+                value=example_row.get("home_end_example", "") if example_row else "",
+                key="bee_home_end_example_unified",
+                height=100,
+                disabled=not is_editing
             )
 
-            if ok:
-                st.success("Gemini編集なしでそのままKnowbeへ入力できました！")
+        ex_cols2 = st.columns(2)
+        with ex_cols2[0]:
+            day_start_value = st.text_area(
+                "通所作業開始例文",
+                value=example_row.get("day_start_example", "") if example_row else "",
+                key="bee_day_start_example_unified",
+                height=100,
+                disabled=not is_editing
+            )
+        with ex_cols2[1]:
+            day_end_value = st.text_area(
+                "通所作業終了例文",
+                value=example_row.get("day_end_example", "") if example_row else "",
+                key="bee_day_end_example_unified",
+                height=100,
+                disabled=not is_editing
+            )
 
-        except Exception as e:
-            st.error(f"編集なし送信失敗です: {e}")
+        ex_cols3 = st.columns(2)
+        with ex_cols3[0]:
+            outside_start_value = st.text_area(
+                "施設外作業開始例文",
+                value=example_row.get("outside_start_example", "") if example_row else "",
+                key="bee_outside_start_example_unified",
+                height=100,
+                disabled=not is_editing
+            )
+        with ex_cols3[1]:
+            outside_end_value = st.text_area(
+                "施設外作業終了例文",
+                value=example_row.get("outside_end_example", "") if example_row else "",
+                key="bee_outside_end_example_unified",
+                height=100,
+                disabled=not is_editing
+            )
 
-    st.warning(
-        "Knowbe送信を使うには、画面上でKnowbe情報を入力するか、管理者メニューの『Knowbe情報登録』で保存してください。"
-    )
+        bottom_cols = st.columns([5, 1])
+        with bottom_cols[0]:
+            rule_text_value = st.text_area(
+                "個人ルール",
+                value=rule_row.get("rule_text", "") if rule_row else "未登録です",
+                key="bee_rule_text_unified",
+                height=160,
+                disabled=not is_editing,
+                placeholder="未登録です"
+            )
 
-    st.divider()
-    st.markdown("## 補助設定")
+        with bottom_cols[1]:
+            st.write("")
+            st.write("")
+            if not is_editing:
+                if st.button("編集", key="bee_rule_edit_open_btn", use_container_width=True):
+                    st.session_state["bee_rule_edit_open"] = True
+            else:
+                if st.button("登録", key="bee_save_examples_rules", use_container_width=True):
+                    save_staff_examples_record(
+                        company_id=target_company_id,
+                        staff_name=staff_name,
+                        home_start_example=home_start_value,
+                        home_end_example=home_end_value,
+                        day_start_example=day_start_value,
+                        day_end_example=day_end_value,
+                        outside_start_example=outside_start_value,
+                        outside_end_example=outside_end_value,
+                    )
+                    save_personal_rules_record(
+                        company_id=target_company_id,
+                        staff_name=staff_name,
+                        rule_text="" if rule_text_value == "未登録です" else rule_text_value,
+                    )
+                    st.success("スタッフ例文・個人ルールを登録しました！")
+                    st.session_state["bee_rule_edit_open"] = False
 
-    if "knowbe_bee_use_plan" not in st.session_state:
-        st.session_state["knowbe_bee_use_plan"] = False
+        st.divider()
+        st.markdown("## 入力内容確認")
 
-    use_plan = st.checkbox(
-        "個別支援計画を参照する",
-        key="knowbe_bee_use_plan"
-    )
-
-    st.divider()
-    st.markdown("## スタッフ例文・個人ルール")
-
-    if not example_row:
-        st.warning("この入力者のスタッフ例文は未登録です。")
-    if not rule_row:
-        st.warning("この入力者の個人ルールは未登録です。")
-
-    if "bee_rule_edit_open" not in st.session_state:
-        st.session_state["bee_rule_edit_open"] = False
-
-    is_editing = st.session_state["bee_rule_edit_open"]
-
-    ex_cols1 = st.columns(2)
-    with ex_cols1[0]:
-        home_start_value = st.text_area(
-            "在宅作業開始例文",
-            value=example_row.get("home_start_example", "") if example_row else "",
-            key="bee_home_start_example_unified",
-            height=100,
-            disabled=not is_editing
-        )
-    with ex_cols1[1]:
-        home_end_value = st.text_area(
-            "在宅作業終了例文",
-            value=example_row.get("home_end_example", "") if example_row else "",
-            key="bee_home_end_example_unified",
-            height=100,
-            disabled=not is_editing
-        )
-
-    ex_cols2 = st.columns(2)
-    with ex_cols2[0]:
-        day_start_value = st.text_area(
-            "通所作業開始例文",
-            value=example_row.get("day_start_example", "") if example_row else "",
-            key="bee_day_start_example_unified",
-            height=100,
-            disabled=not is_editing
-        )
-    with ex_cols2[1]:
-        day_end_value = st.text_area(
-            "通所作業終了例文",
-            value=example_row.get("day_end_example", "") if example_row else "",
-            key="bee_day_end_example_unified",
-            height=100,
-            disabled=not is_editing
-        )
-
-    ex_cols3 = st.columns(2)
-    with ex_cols3[0]:
-        outside_start_value = st.text_area(
-            "施設外作業開始例文",
-            value=example_row.get("outside_start_example", "") if example_row else "",
-            key="bee_outside_start_example_unified",
-            height=100,
-            disabled=not is_editing
-        )
-    with ex_cols3[1]:
-        outside_end_value = st.text_area(
-            "施設外作業終了例文",
-            value=example_row.get("outside_end_example", "") if example_row else "",
-            key="bee_outside_end_example_unified",
-            height=100,
-            disabled=not is_editing
-        )
-
-    bottom_cols = st.columns([5, 1])
-    with bottom_cols[0]:
-        rule_text_value = st.text_area(
-            "個人ルール",
-            value=rule_row.get("rule_text", "") if rule_row else "未登録です",
-            key="bee_rule_text_unified",
-            height=160,
-            disabled=not is_editing,
-            placeholder="未登録です"
-        )
-
-    with bottom_cols[1]:
-        st.write("")
-        st.write("")
-        if not is_editing:
-            if st.button("編集", key="bee_rule_edit_open_btn", use_container_width=True):
-                st.session_state["bee_rule_edit_open"] = True
-        else:
-            if st.button("登録", key="bee_save_examples_rules", use_container_width=True):
-                save_staff_examples_record(
-                    company_id=target_company_id,
-                    staff_name=staff_name,
-                    home_start_example=home_start_value,
-                    home_end_example=home_end_value,
-                    day_start_example=day_start_value,
-                    day_end_example=day_end_value,
-                    outside_start_example=outside_start_value,
-                    outside_end_example=outside_end_value,
-                )
-                save_personal_rules_record(
-                    company_id=target_company_id,
-                    staff_name=staff_name,
-                    rule_text="" if rule_text_value == "未登録です" else rule_text_value,
-                )
-                st.success("スタッフ例文・個人ルールを登録しました！")
-                st.session_state["bee_rule_edit_open"] = False
-
-    st.divider()
-    st.markdown("## 入力内容確認")
-
-    with st.expander("入力内容確認（開発用）"):
-        st.json(save_payload)
+        with st.expander("入力内容確認（開発用）"):
+            st.json(save_payload)
 
 
 def get_external_contacts_df():
