@@ -9484,124 +9484,10 @@ def render_bulk_knowbe_diary_page():
         "save_stage": "draft",
     }
 
-    st.markdown("## 一括下書き保存")
-
-    bulk_loaded_record_id = st.session_state.get("bulk_knowbe_loaded_record_id")
-
-    bulk_save_cols = st.columns([1, 1, 4])
-
-    with bulk_save_cols[0]:
-        if st.button("途中保存", key="bulk_knowbe_save_new", use_container_width=True):
-            new_id = save_document_record(
-                resident_id="BULK",
-                resident_name=f"{bulk_target_date.strftime('%Y-%m-%d')} 一括日誌",
-                doc_type="knowbe日誌一括下書き",
-                form_data=bulk_form_data
-            )
-            st.session_state["bulk_knowbe_loaded_record_id"] = new_id
-            st.success(f"途中保存しました！ record_id = {new_id}")
-
-    with bulk_save_cols[1]:
-        if st.button("上書き保存", key="bulk_knowbe_save_update", use_container_width=True):
-            if bulk_loaded_record_id:
-                ok = update_document_record(bulk_loaded_record_id, bulk_form_data)
-                if ok:
-                    st.success(f"上書き保存しました！ record_id = {bulk_loaded_record_id}")
-                else:
-                    st.warning("上書き対象が見つかりません。")
-            else:
-                st.warning("先に途中保存してください。")
-
-    st.markdown("## 送信")
-
-    if st.button("knowbeへ送信する", type="primary", use_container_width=True):
-        active_targets = [x for x in send_targets if x["enabled"]]
-
-        valid_targets = []
-        invalid_messages = []
-
-        for item in active_targets:
-            if not str(item.get("staff_name", "")).strip():
-                invalid_messages.append(f"{item['resident_name']}：日誌入力者が未入力")
-                continue
-            valid_targets.append(item)
-
-        st.write(f"send_targets件数: {len(send_targets)}")
-        st.write(f"active_targets件数: {len(active_targets)}")
-        st.write(f"valid_targets件数: {len(valid_targets)}")
-
-        if invalid_messages:
-            st.warning("一部送信されない利用者があります：")
-            for msg in invalid_messages:
-                st.warning(msg)
-
-        if not valid_targets:
-            st.warning("送信できる利用者が1人もいません。")
-            return
-
-        success_count = 0
-        error_count = 0
-
-        progress = st.progress(0)
-        status_box = st.empty()
-
-        for i, item in enumerate(valid_targets, start=1):
-            try:
-                status_box.info(f"{i}/{len(valid_targets)} 送信中: {item['resident_name']}")
-
-                start_memo_to_send = item["start_memo"]
-                end_memo_to_send = item["end_memo"]
-
-                if item["send_mode"] == "gemini":
-                    start_memo_to_send = edit_text_with_gemini_for_start_memo(
-                        resident_name=item["resident_name"],
-                        original_text=item["start_memo"],
-                        remark_text=item["remark_text"],
-                    )
-                    end_memo_to_send = edit_text_with_gemini_for_end_memo(
-                        resident_name=item["resident_name"],
-                        original_text=item["end_memo"],
-                        remark_text=item["remark_text"],
-                    )
-
-                    st.session_state[f"bulk_{item['resident_id']}_generated_start_memo"] = start_memo_to_send
-                    st.session_state[f"bulk_{item['resident_id']}_generated_end_memo"] = end_memo_to_send
-
-                ok = send_to_knowbe_from_bee(
-                    company_id=current_company_id,
-                    target_date=item["target_date"],
-                    resident_name=item["resident_name"],
-                    service_type=item["service_type"],
-                    start_time=item["start_time"],
-                    end_time=item["end_time"],
-                    meal_flag=item["meal_flag"],
-                    note_text=item["remark_text"],
-                    generated_status=start_memo_to_send,
-                    generated_support=end_memo_to_send,
-                    staff_name=item["staff_name"],
-                    knowbe_target="bulk_gemini" if item["send_mode"] == "gemini" else "bulk_raw",
-                    work_start_time=item["work_start_time"],
-                    work_end_time=item["work_end_time"],
-                    work_break_time=item.get("break_time", ""),
-                    work_memo="",
-                    login_username=resolved_knowbe_user,
-                    login_password=resolved_knowbe_pw,
-                    send_user_status=True,
-                    send_staff_comment=True,
-                )
-
-                if ok:
-                    success_count += 1
-                else:
-                    error_count += 1
-                    st.error(f"{item['resident_name']} の送信で失敗しました（Knowbe未反映）")
-
-            except Exception as e:
-                error_count += 1
-                st.error(f"{item['resident_name']} の送信でエラー: {e}")
-
-            progress.progress(i / len(valid_targets))
-
+    # =========================
+    # 再開用 helper
+    # =========================
+    def _build_auto_entries_for_bulk_save():
         auto_entries = []
         for item in send_targets:
             rid = str(item.get("resident_id", "")).strip()
@@ -9632,31 +9518,305 @@ def render_bulk_knowbe_diary_page():
                     item.get("generated_end_memo", "")
                 ),
             })
+        return auto_entries
 
-        auto_bulk_form_data = {
+    def _ensure_bulk_record_id():
+        rid = st.session_state.get("bulk_knowbe_loaded_record_id")
+        if rid:
+            return rid
+
+        new_id = save_document_record(
+            resident_id="BULK",
+            resident_name=f"{bulk_target_date.strftime('%Y-%m-%d')} 一括日誌",
+            doc_type="knowbe日誌一括下書き",
+            form_data=bulk_form_data
+        )
+        st.session_state["bulk_knowbe_loaded_record_id"] = new_id
+        return new_id
+
+    def _save_bulk_checkpoint(next_index, last_name, results, finished=False, stop_requested=False):
+        rid = _ensure_bulk_record_id()
+
+        checkpoint_data = {
             "company_id": current_company_id,
             "target_date": bulk_target_date.strftime("%Y-%m-%d"),
             "staff_name": login_staff_name,
-            "entries": auto_entries,
-            "save_stage": "generated",
+            "entries": _build_auto_entries_for_bulk_save(),
+            "save_stage": "generated" if finished else "sending",
+            "resume_next_index": int(next_index),
+            "resume_last_name": str(last_name or "").strip(),
+            "resume_results": list(results or []),
+            "resume_finished": bool(finished),
+            "resume_stop_requested": bool(stop_requested),
         }
 
-        bulk_loaded_record_id = st.session_state.get("bulk_knowbe_loaded_record_id")
-        if bulk_loaded_record_id:
-            update_document_record(bulk_loaded_record_id, auto_bulk_form_data)
-        else:
+        update_document_record(rid, checkpoint_data)
+
+    # =========================
+    # 既存checkpoint読込
+    # =========================
+    bulk_loaded_record_id = st.session_state.get("bulk_knowbe_loaded_record_id")
+
+    saved_resume_index = 0
+    saved_resume_last_name = ""
+    saved_resume_results = []
+    saved_resume_finished = False
+
+    if bulk_loaded_record_id:
+        try:
+            loaded_json = load_document_json(bulk_loaded_record_id)
+        except Exception:
+            loaded_json = None
+
+        if isinstance(loaded_json, dict):
+            try:
+                saved_resume_index = int(loaded_json.get("resume_next_index", 0) or 0)
+            except Exception:
+                saved_resume_index = 0
+
+            saved_resume_last_name = str(loaded_json.get("resume_last_name", "")).strip()
+
+            loaded_results = loaded_json.get("resume_results", [])
+            if isinstance(loaded_results, list):
+                saved_resume_results = loaded_results
+            else:
+                saved_resume_results = []
+
+            saved_resume_finished = bool(loaded_json.get("resume_finished", False))
+
+    # デバッグ確認
+    st.caption(f"利用中利用者数: {len(residents_df)} / 送信候補数: {len(send_targets)}")
+
+    st.markdown("## 一括下書き保存")
+
+    bulk_save_cols = st.columns([1, 1, 1, 3])
+
+    with bulk_save_cols[0]:
+        if st.button("途中保存", key="bulk_knowbe_save_new", use_container_width=True):
             new_id = save_document_record(
                 resident_id="BULK",
                 resident_name=f"{bulk_target_date.strftime('%Y-%m-%d')} 一括日誌",
                 doc_type="knowbe日誌一括下書き",
-                form_data=auto_bulk_form_data
+                form_data=bulk_form_data
             )
             st.session_state["bulk_knowbe_loaded_record_id"] = new_id
+            st.success(f"途中保存しました！ record_id = {new_id}")
 
-        status_box.success(
-            f"送信完了：成功 {success_count}件 / エラー {error_count}件 / 自動保存完了"
+    with bulk_save_cols[1]:
+        if st.button("上書き保存", key="bulk_knowbe_save_update", use_container_width=True):
+            if bulk_loaded_record_id:
+                ok = update_document_record(bulk_loaded_record_id, bulk_form_data)
+                if ok:
+                    st.success(f"上書き保存しました！ record_id = {bulk_loaded_record_id}")
+                else:
+                    st.warning("上書き対象が見つかりません。")
+            else:
+                st.warning("先に途中保存してください。")
+
+    with bulk_save_cols[2]:
+        if st.button("中断", key="bulk_knowbe_stop_button", use_container_width=True):
+            st.session_state["bulk_send_stop_requested"] = True
+            _save_bulk_checkpoint(
+                next_index=int(st.session_state.get("bulk_send_next_index", saved_resume_index)),
+                last_name=str(st.session_state.get("bulk_send_last_name", saved_resume_last_name)).strip(),
+                results=st.session_state.get("bulk_send_results", saved_resume_results),
+                finished=False,
+                stop_requested=True,
+            )
+            st.warning("中断要求を受け付けました。次の1件の前で停止します。")
+
+    if saved_resume_index > 0 and not saved_resume_finished:
+        st.info(
+            f"前回の続きがあります。次回は "
+            f"{saved_resume_index + 1}件目から再開します。"
+            f"（直前: {saved_resume_last_name or '不明'}）"
         )
-        
+
+    st.markdown("## 送信")
+
+    runtime_targets = st.session_state.get("bulk_send_runtime_targets", [])
+    runtime_next_index = int(st.session_state.get("bulk_send_next_index", 0) or 0)
+    runtime_results = st.session_state.get("bulk_send_results", [])
+    runtime_running = bool(st.session_state.get("bulk_send_running", False))
+    runtime_stop_requested = bool(st.session_state.get("bulk_send_stop_requested", False))
+
+    if st.button("knowbeへ送信する", type="primary", use_container_width=True):
+        active_targets = [x for x in send_targets if x["enabled"]]
+
+        valid_targets = []
+        invalid_messages = []
+
+        for item in active_targets:
+            if not str(item.get("staff_name", "")).strip():
+                invalid_messages.append(f"{item['resident_name']}：日誌入力者が未入力")
+                continue
+            valid_targets.append(item)
+
+        st.write(f"send_targets件数: {len(send_targets)}")
+        st.write(f"active_targets件数: {len(active_targets)}")
+        st.write(f"valid_targets件数: {len(valid_targets)}")
+
+        if invalid_messages:
+            st.warning("一部送信されない利用者があります：")
+            for msg in invalid_messages:
+                st.warning(msg)
+
+        if not valid_targets:
+            st.warning("送信できる利用者が1人もいません。")
+        else:
+            resume_index = 0
+            resume_results = []
+
+            if saved_resume_index > 0 and not saved_resume_finished:
+                resume_index = min(saved_resume_index, len(valid_targets))
+                resume_results = list(saved_resume_results)
+
+            st.session_state["bulk_send_runtime_targets"] = valid_targets
+            st.session_state["bulk_send_next_index"] = resume_index
+            st.session_state["bulk_send_results"] = resume_results
+            st.session_state["bulk_send_running"] = True
+            st.session_state["bulk_send_stop_requested"] = False
+            st.session_state["bulk_send_finished"] = False
+            st.session_state["bulk_send_last_name"] = saved_resume_last_name
+
+            _ensure_bulk_record_id()
+            _save_bulk_checkpoint(
+                next_index=resume_index,
+                last_name=saved_resume_last_name,
+                results=resume_results,
+                finished=False,
+                stop_requested=False,
+            )
+
+            st.rerun()
+
+    # =========================
+    # 実行中UI
+    # =========================
+    if runtime_targets:
+        st.write(f"実行対象件数: {len(runtime_targets)}")
+        st.write(f"次の開始位置: {runtime_next_index + 1 if runtime_next_index < len(runtime_targets) else len(runtime_targets)}")
+        if runtime_results:
+            st.markdown("### 一括送信ログ")
+            for line in runtime_results[-10:]:
+                st.write(line)
+
+    # =========================
+    # 1件ずつ送信して checkpoint 保存
+    # =========================
+    if runtime_running:
+        total_count = len(runtime_targets)
+        progress = st.progress(0 if total_count == 0 else runtime_next_index / total_count)
+        status_box = st.empty()
+
+        if runtime_stop_requested:
+            st.session_state["bulk_send_running"] = False
+            _save_bulk_checkpoint(
+                next_index=runtime_next_index,
+                last_name=st.session_state.get("bulk_send_last_name", ""),
+                results=runtime_results,
+                finished=False,
+                stop_requested=True,
+            )
+            status_box.warning(
+                f"送信を中断しました。次回は {runtime_next_index + 1}件目から再開します。"
+            )
+
+        elif runtime_next_index >= total_count:
+            success_count = len([x for x in runtime_results if str(x).startswith("OK:")])
+            error_count = len([x for x in runtime_results if str(x).startswith("ERR:") or str(x).startswith("NG:")])
+
+            st.session_state["bulk_send_running"] = False
+            st.session_state["bulk_send_finished"] = True
+
+            _save_bulk_checkpoint(
+                next_index=runtime_next_index,
+                last_name=st.session_state.get("bulk_send_last_name", ""),
+                results=runtime_results,
+                finished=True,
+                stop_requested=False,
+            )
+
+            status_box.success(
+                f"送信完了：成功 {success_count}件 / エラー {error_count}件 / 自動保存完了"
+            )
+
+        else:
+            item = runtime_targets[runtime_next_index]
+            resident_name = str(item.get("resident_name", "")).strip()
+            st.session_state["bulk_send_last_name"] = resident_name
+
+            status_box.info(f"{runtime_next_index + 1}/{total_count} 送信中: {resident_name}")
+
+            try:
+                start_memo_to_send = item["start_memo"]
+                end_memo_to_send = item["end_memo"]
+
+                if item["send_mode"] == "gemini":
+                    start_memo_to_send = edit_text_with_gemini_for_start_memo(
+                        resident_name=resident_name,
+                        original_text=item["start_memo"],
+                        remark_text=item["remark_text"],
+                    )
+                    end_memo_to_send = edit_text_with_gemini_for_end_memo(
+                        resident_name=resident_name,
+                        original_text=item["end_memo"],
+                        remark_text=item["remark_text"],
+                    )
+
+                    st.session_state[f"bulk_{item['resident_id']}_generated_start_memo"] = start_memo_to_send
+                    st.session_state[f"bulk_{item['resident_id']}_generated_end_memo"] = end_memo_to_send
+
+                ok = send_to_knowbe_from_bee(
+                    company_id=current_company_id,
+                    target_date=item["target_date"],
+                    resident_name=resident_name,
+                    service_type=item["service_type"],
+                    start_time=item["start_time"],
+                    end_time=item["end_time"],
+                    meal_flag=item["meal_flag"],
+                    note_text=item["remark_text"],
+                    generated_status=start_memo_to_send,
+                    generated_support=end_memo_to_send,
+                    staff_name=item["staff_name"],
+                    knowbe_target="bulk_gemini" if item["send_mode"] == "gemini" else "bulk_raw",
+                    work_start_time=item["work_start_time"],
+                    work_end_time=item["work_end_time"],
+                    work_break_time=item.get("break_time", ""),
+                    work_memo="",
+                    login_username=resolved_knowbe_user,
+                    login_password=resolved_knowbe_pw,
+                    send_user_status=True,
+                    send_staff_comment=True,
+                )
+
+                if ok:
+                    runtime_results.append(f"OK: {resident_name}")
+                else:
+                    runtime_results.append(f"NG: {resident_name}（Knowbe未反映）")
+
+            except Exception as e:
+                runtime_results.append(f"ERR: {resident_name} / {e}")
+
+            st.session_state["bulk_send_results"] = runtime_results
+            st.session_state["bulk_send_next_index"] = runtime_next_index + 1
+
+            _save_bulk_checkpoint(
+                next_index=runtime_next_index + 1,
+                last_name=resident_name,
+                results=runtime_results,
+                finished=False,
+                stop_requested=False,
+            )
+
+            progress.progress((runtime_next_index + 1) / total_count)
+
+            # まだ残っていれば次の人へ
+            if (runtime_next_index + 1) < total_count and not st.session_state.get("bulk_send_stop_requested", False):
+                st.rerun()
+            else:
+                st.rerun()
+
 def render_bee_journal_page():
     st.title("🐝knowbe日誌入力🐝")
     st.caption("Sue for Bee Assistance 専用の裏メニューです。")
