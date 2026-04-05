@@ -24,7 +24,7 @@ from run_assistance import (
     fetch_user_support_record_text_from_app,
     run_support_record_kind_export,
 )
-from attendance import render_attendance_page
+from attendance import render_attendance_page, flush_attendance_before_page_change
 
 JST = timezone(timedelta(hours=9))
 
@@ -91,6 +91,17 @@ COMPANY_SCOPED_SHEETS = {
     "piecework_production",
     "piecework_clients",
 }
+
+def go_page(page_name: str):
+    """
+    共通ページ移動。
+    勤怠の未保存があれば先に保存してから移動する。
+    """
+    if not flush_attendance_before_page_change():
+        return
+
+    st.session_state.current_page = page_name
+    st.rerun()
 
 def render_support_record_audit_page():
     st.header("過去日誌照合")
@@ -314,6 +325,83 @@ def get_knowbe_diary_saved_records(resident_id: str):
 
     return df.copy()
 
+def get_ic_reader_bridge_df():
+    df = load_db("ic_reader_bridge")
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["bridge_id", "device_name", "last_card_id", "last_seen_at", "status"])
+    return df.fillna("").copy()
+
+
+def get_latest_ic_card_id_from_bridge(bridge_id: str = "main_reader", max_age_seconds: int = 20):
+    df = get_ic_reader_bridge_df()
+    if df.empty:
+        return "", "ic_reader_bridge が空です"
+
+    work = df.copy()
+    work["bridge_id"] = work["bridge_id"].astype(str).str.strip()
+    row = work[work["bridge_id"] == str(bridge_id).strip()]
+
+    if row.empty:
+        return "", f"bridge_id={bridge_id} が見つかりません"
+
+    r = row.iloc[0]
+    card_id = str(r.get("last_card_id", "")).strip()
+    status = str(r.get("status", "")).strip()
+    last_seen_at = str(r.get("last_seen_at", "")).strip()
+
+    if not card_id:
+        return "", "カードがまだ読まれていません"
+
+    if status not in ["ready", "idle"]:
+        return "", f"reader status={status}"
+
+    try:
+        seen_dt = pd.to_datetime(last_seen_at)
+        now_dt = now_jst().replace(tzinfo=None)
+        seen_dt = seen_dt.to_pydatetime().replace(tzinfo=None)
+        age = (now_dt - seen_dt).total_seconds()
+        if age > max_age_seconds:
+            return "", f"カード読取が古いです（{int(age)}秒前）"
+    except Exception:
+        pass
+
+    return card_id, ""
+
+
+def save_login_card_id_to_user(user_id: str, card_id: str):
+    users_df = get_users_df()
+    if users_df is None or users_df.empty:
+        return False, "users シートが空です"
+
+    users_df = users_df.fillna("").copy()
+
+    if "login_card_id" not in users_df.columns:
+        users_df["login_card_id"] = ""
+
+    user_id = str(user_id).strip()
+    card_id = str(card_id).strip().upper()
+
+    if not user_id:
+        return False, "user_id が空です"
+    if not card_id:
+        return False, "card_id が空です"
+
+    # 既に他の人に使われていないか確認
+    dup = users_df[
+        (users_df["login_card_id"].astype(str).str.strip().str.upper() == card_id) &
+        (users_df["user_id"].astype(str).str.strip() != user_id)
+    ]
+    if not dup.empty:
+        dup_name = str(dup.iloc[0].get("display_name", dup.iloc[0].get("user_id", ""))).strip()
+        return False, f"このカードIDはすでに別の利用者/職員に登録されています: {dup_name}"
+
+    mask = users_df["user_id"].astype(str).str.strip() == user_id
+    if not mask.any():
+        return False, "対象 user_id が見つかりません"
+
+    users_df.loc[mask, "login_card_id"] = card_id
+    save_db(users_df, "users")
+    return True, "保存しました"
 
 def build_knowbe_diary_form_data(
     target_company_id,
@@ -3966,152 +4054,206 @@ def render_ic_card_manage_page():
     staff_df = get_company_users_for_admin(company_id)
 
     if staff_df is None or staff_df.empty:
-        st.info("登録対象のスタッフがまだいありません。")
+        st.info("登録対象のスタッフがまだいません。")
         return
+
+    # 念のため列補完
+    if "login_card_id" not in staff_df.columns:
+        staff_df["login_card_id"] = ""
+    if "display_name" not in staff_df.columns:
+        staff_df["display_name"] = ""
+    if "user_login_id" not in staff_df.columns:
+        staff_df["user_login_id"] = ""
+    if "user_id" not in staff_df.columns:
+        staff_df["user_id"] = ""
 
     tab1, tab2, tab3 = st.tabs(["新規登録", "登録変更", "登録削除"])
 
-    staff_options = [
-        (
-            str(row.get("user_id", "")).strip(),
-            f"{str(row.get('display_name', '')).strip()} "
-            f"({str(row.get('user_login_id', '')).strip()})"
-        )
-        for _, row in staff_df.iterrows()
-    ]
-
-    option_map = {label: user_id for user_id, label in staff_options}
-    labels = list(option_map.keys())
-
     with tab1:
         st.subheader("新規登録")
+
         unregistered = staff_df[
             staff_df["login_card_id"].fillna("").astype(str).str.strip() == ""
         ].copy()
 
         if unregistered.empty:
-            st.info("未登録スタッフはいありません。")
+            st.info("未登録スタッフはいません。")
         else:
-            new_labels = [
-                f"{str(row.get('display_name', '')).strip()} ({str(row.get('user_login_id', '')).strip()})"
-                for _, row in unregistered.iterrows()
-            ]
             new_label_map = {
                 f"{str(row.get('display_name', '')).strip()} ({str(row.get('user_login_id', '')).strip()})":
                 str(row.get("user_id", "")).strip()
                 for _, row in unregistered.iterrows()
             }
+            new_labels = list(new_label_map.keys())
 
-            selected_label = st.selectbox("登録するスタッフ", new_labels, key="ic_new_user")
-            card_id_input = st.text_input(
-                "カードID",
-                key="ic_new_card_id",
-                help="当面は手入力でもOK。あとでタッチ読取につなぎます。"
+            selected_label = st.selectbox(
+                "登録するスタッフ",
+                new_labels,
+                key="ic_new_user"
             )
 
+            st.info("①スタッフを選ぶ → ②ICカードをタッチ → ③『カードを読み取る』 → ④『新規登録する』")
+
+            read_cols = st.columns([1, 2])
+
+            with read_cols[0]:
+                if st.button("カードを読み取る", key="read_ic_card", use_container_width=True):
+                    card_id, err = get_latest_ic_card_id_from_bridge("main_reader", 20)
+
+                    if err:
+                        st.error(err)
+                    else:
+                        st.session_state["ic_new_card_id"] = str(card_id).strip().upper()
+                        st.success(f"読み取り成功: {st.session_state['ic_new_card_id']}")
+
+            with read_cols[1]:
+                card_id_input = st.text_input(
+                    "カードID",
+                    key="ic_new_card_id",
+                    help="通常はICカードをタッチして『カードを読み取る』で自動入力します。うまく読めない時だけ手入力してください。"
+                )
+
+            preview_card_id = str(st.session_state.get("ic_new_card_id", "")).strip()
+            if preview_card_id:
+                st.caption(f"現在の読取結果: {preview_card_id}")
+
             if st.button("新規登録する", key="ic_register_button", use_container_width=True):
-                ok, msg = set_user_login_card_id(new_label_map[selected_label], card_id_input)
-                if ok:
-                    create_admin_log(
-                        action_type="ic_card_register",
-                        target_type="user",
-                        target_id=new_label_map[selected_label],
-                        action_detail=f"login_card_id={str(card_id_input).strip()}"
-                    )
-                    st.success(msg)
-                    st.rerun()
+                target_user_id = str(new_label_map.get(selected_label, "")).strip()
+                card_id_to_save = str(card_id_input or "").strip().upper()
+
+                if not target_user_id:
+                    st.error("登録対象スタッフの user_id が取得できません。")
+                elif not card_id_to_save:
+                    st.error("カードIDが空です。ICカードをタッチして『カードを読み取る』を押してください。")
                 else:
-                    st.error(msg)
+                    ok, msg = set_user_login_card_id(target_user_id, card_id_to_save)
+                    if ok:
+                        create_admin_log(
+                            action_type="ic_card_register",
+                            target_type="user",
+                            target_id=target_user_id,
+                            action_detail=f"login_card_id={card_id_to_save}"
+                        )
+                        st.success(msg)
+
+                        # 登録後は軽く初期化
+                        st.session_state["ic_new_card_id"] = ""
+                        st.rerun()
+                    else:
+                        st.error(msg)
 
     with tab2:
         st.subheader("登録変更")
+
         registered = staff_df[
             staff_df["login_card_id"].fillna("").astype(str).str.strip() != ""
         ].copy()
 
         if registered.empty:
-            st.info("登録済みスタッフがいありません。")
+            st.info("登録済みスタッフはいません。")
         else:
-            change_labels = [
-                f"{str(row.get('display_name', '')).strip()} "
-                f"({str(row.get('user_login_id', '')).strip()}) / "
-                f"現在: {str(row.get('login_card_id', '')).strip()}"
-                for _, row in registered.iterrows()
-            ]
             change_label_map = {
                 f"{str(row.get('display_name', '')).strip()} "
-                f"({str(row.get('user_login_id', '')).strip()}) / "
-                f"現在: {str(row.get('login_card_id', '')).strip()}":
+                f"({str(row.get('user_login_id', '')).strip()}) "
+                f"[現在: {str(row.get('login_card_id', '')).strip()}]":
                 str(row.get("user_id", "")).strip()
                 for _, row in registered.iterrows()
             }
+            change_labels = list(change_label_map.keys())
 
-            selected_label = st.selectbox("変更するスタッフ", change_labels, key="ic_change_user")
-            new_card_id = st.text_input("新しいカードID", key="ic_change_card_id")
+            selected_change_label = st.selectbox(
+                "変更するスタッフ",
+                change_labels,
+                key="ic_change_user"
+            )
+
+            change_cols = st.columns([1, 2])
+
+            with change_cols[0]:
+                if st.button("新しいカードを読み取る", key="read_ic_card_change", use_container_width=True):
+                    card_id, err = get_latest_ic_card_id_from_bridge("main_reader", 20)
+
+                    if err:
+                        st.error(err)
+                    else:
+                        st.session_state["ic_change_card_id"] = str(card_id).strip().upper()
+                        st.success(f"読み取り成功: {st.session_state['ic_change_card_id']}")
+
+            with change_cols[1]:
+                change_card_id_input = st.text_input(
+                    "新しいカードID",
+                    key="ic_change_card_id",
+                    help="通常はICカードをタッチして『新しいカードを読み取る』で自動入力します。"
+                )
 
             if st.button("登録変更する", key="ic_change_button", use_container_width=True):
-                ok, msg = set_user_login_card_id(change_label_map[selected_label], new_card_id)
-                if ok:
-                    create_admin_log(
-                        action_type="ic_card_change",
-                        target_type="user",
-                        target_id=change_label_map[selected_label],
-                        action_detail=f"new_login_card_id={str(new_card_id).strip()}"
-                    )
-                    st.success(msg)
-                    st.rerun()
+                target_user_id = str(change_label_map.get(selected_change_label, "")).strip()
+                new_card_id = str(change_card_id_input or "").strip().upper()
+
+                if not target_user_id:
+                    st.error("変更対象スタッフの user_id が取得できません。")
+                elif not new_card_id:
+                    st.error("新しいカードIDが空です。")
                 else:
-                    st.error(msg)
+                    ok, msg = set_user_login_card_id(target_user_id, new_card_id)
+                    if ok:
+                        create_admin_log(
+                            action_type="ic_card_change",
+                            target_type="user",
+                            target_id=target_user_id,
+                            action_detail=f"login_card_id={new_card_id}"
+                        )
+                        st.success(msg)
+                        st.session_state["ic_change_card_id"] = ""
+                        st.rerun()
+                    else:
+                        st.error(msg)
 
     with tab3:
         st.subheader("登録削除")
+
         registered = staff_df[
             staff_df["login_card_id"].fillna("").astype(str).str.strip() != ""
         ].copy()
 
         if registered.empty:
-            st.info("削除対象の登録はありません。")
+            st.info("削除対象の登録済みスタッフはいません。")
         else:
-            delete_labels = [
-                f"{str(row.get('display_name', '')).strip()} "
-                f"({str(row.get('user_login_id', '')).strip()}) / "
-                f"現在: {str(row.get('login_card_id', '')).strip()}"
-                for _, row in registered.iterrows()
-            ]
             delete_label_map = {
                 f"{str(row.get('display_name', '')).strip()} "
-                f"({str(row.get('user_login_id', '')).strip()}) / "
-                f"現在: {str(row.get('login_card_id', '')).strip()}":
+                f"({str(row.get('user_login_id', '')).strip()}) "
+                f"[現在: {str(row.get('login_card_id', '')).strip()}]":
                 str(row.get("user_id", "")).strip()
                 for _, row in registered.iterrows()
             }
+            delete_labels = list(delete_label_map.keys())
 
-            selected_label = st.selectbox("削除するスタッフ", delete_labels, key="ic_delete_user")
+            selected_delete_label = st.selectbox(
+                "削除するスタッフ",
+                delete_labels,
+                key="ic_delete_user"
+            )
+
+            st.warning("このスタッフのICカード登録を削除します。")
 
             if st.button("登録削除する", key="ic_delete_button", use_container_width=True):
-                ok, msg = clear_user_login_card_id(delete_label_map[selected_label])
-                if ok:
-                    create_admin_log(
-                        action_type="ic_card_delete",
-                        target_type="user",
-                        target_id=delete_label_map[selected_label],
-                        action_detail="login_card_id cleared"
-                    )
-                    st.success(msg)
-                    st.rerun()
-                else:
-                    st.error(msg)
+                target_user_id = str(delete_label_map.get(selected_delete_label, "")).strip()
 
-    st.divider()
-    with st.expander("現在の登録状況を見る"):
-        view_df = staff_df[[
-            "display_name",
-            "user_login_id",
-            "login_card_id",
-            "status_perm"
-        ]].copy()
-        view_df.columns = ["表示名", "ログインID", "カードID", "状態"]
-        st.dataframe(view_df, use_container_width=True)
+                if not target_user_id:
+                    st.error("削除対象スタッフの user_id が取得できません。")
+                else:
+                    ok, msg = set_user_login_card_id(target_user_id, "")
+                    if ok:
+                        create_admin_log(
+                            action_type="ic_card_delete",
+                            target_type="user",
+                            target_id=target_user_id,
+                            action_detail="login_card_id cleared"
+                        )
+                        st.success("ICカード登録を削除しました。")
+                        st.rerun()
+                    else:
+                        st.error(msg)
 
 def get_document_master_df():
     return get_document_master_df_cached().copy()

@@ -81,16 +81,6 @@ def flush_attendance_before_page_change():
         st.error(f"ページ移動前の勤怠保存に失敗しました: {e}")
         return False
 
-def go_page(page_name: str):
-    """
-    共通ページ移動。
-    勤怠の未保存があれば先に保存してから移動する。
-    """
-    if not flush_attendance_before_page_change():
-        return
-
-    st.session_state.current_page = page_name
-    st.rerun()
 
 def render_attendance_page():
     st.header("勤怠管理")
