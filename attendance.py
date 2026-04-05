@@ -4,6 +4,13 @@ import pandas as pd
 from common import now_jst
 from data_access import load_db, save_db, get_users_df, get_user_company_permissions_df, get_attendance_logs_df, get_attendance_display_settings_df, get_companies_df
 
+import streamlit as st
+import pandas as pd
+import time
+
+from common import now_jst
+from data_access import load_db, save_db, get_users_df, get_user_company_permissions_df, get_attendance_logs_df, get_attendance_display_settings_df, get_companies_df
+
 def init_attendance_runtime_state():
     if "attendance_pending_logs" not in st.session_state:
         st.session_state["attendance_pending_logs"] = []
@@ -16,6 +23,16 @@ def init_attendance_runtime_state():
 
     if "attendance_last_action_message" not in st.session_state:
         st.session_state["attendance_last_action_message"] = ""
+
+    # IC打刻用
+    if "attendance_last_ic_card_id" not in st.session_state:
+        st.session_state["attendance_last_ic_card_id"] = ""
+
+    if "attendance_last_ic_processed_at" not in st.session_state:
+        st.session_state["attendance_last_ic_processed_at"] = 0.0
+
+    if "attendance_ic_message" not in st.session_state:
+        st.session_state["attendance_ic_message"] = ""
 
 
 def flush_attendance_pending_logs(force: bool = False):
@@ -65,6 +82,160 @@ def flush_attendance_pending_logs(force: bool = False):
         f"勤怠ログを {len(add_df)} 件まとめて保存しました（{now_dt.strftime('%H:%M:%S')}）"
     )
     return True
+
+def get_ic_reader_bridge_df():
+    df = load_db("ic_reader_bridge")
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["bridge_id", "device_name", "last_card_id", "last_seen_at", "status"])
+    return df.fillna("")
+
+
+def get_latest_ic_card_id_from_bridge_for_attendance(bridge_id: str = "main_reader", max_age_seconds: int = 20):
+    df = get_ic_reader_bridge_df()
+    if df.empty:
+        return "", "ic_reader_bridge が空です"
+
+    work = df.copy()
+    work["bridge_id"] = work["bridge_id"].astype(str).str.strip()
+    row = work[work["bridge_id"] == str(bridge_id).strip()]
+
+    if row.empty:
+        return "", f"bridge_id={bridge_id} が見つかりません"
+
+    r = row.iloc[0]
+    card_id = str(r.get("last_card_id", "")).strip().upper()
+    status = str(r.get("status", "")).strip()
+    last_seen_at = str(r.get("last_seen_at", "")).strip()
+
+    if not card_id:
+        return "", "カードがまだ読まれていません"
+
+    if status not in ["ready", "idle"]:
+        return "", f"reader status={status}"
+
+    try:
+        seen_dt = pd.to_datetime(last_seen_at)
+        now_dt = now_jst().replace(tzinfo=None)
+        seen_dt = seen_dt.to_pydatetime().replace(tzinfo=None)
+        age = (now_dt - seen_dt).total_seconds()
+        if age > max_age_seconds:
+            return "", f"カード読取が古いです（{int(age)}秒前）"
+    except Exception:
+        pass
+
+    return card_id, ""
+
+
+def find_user_id_by_card_id(card_id: str, selected_company: str, users_df, permissions_df):
+    card_id = str(card_id or "").strip().upper()
+    if not card_id:
+        return "", "card_id が空です"
+
+    if users_df is None or users_df.empty:
+        return "", "users が空です"
+
+    work_users = users_df.fillna("").copy()
+    work_users["login_card_id"] = work_users["login_card_id"].astype(str).str.strip().str.upper()
+    work_users["user_id"] = work_users["user_id"].astype(str).str.strip()
+
+    hit = work_users[work_users["login_card_id"] == card_id].copy()
+    if hit.empty:
+        return "", "このカードIDはスタッフに登録されていません"
+
+    if permissions_df is None or permissions_df.empty:
+        return "", "権限データがありません"
+
+    work_perm = permissions_df.fillna("").copy()
+    work_perm["user_id"] = work_perm["user_id"].astype(str).str.strip()
+    work_perm["company_id"] = work_perm["company_id"].astype(str).str.strip()
+
+    hit = pd.merge(hit, work_perm, on="user_id", how="inner", suffixes=("", "_perm"))
+    hit = hit[hit["company_id_perm"] == str(selected_company).strip()].copy()
+
+    if "can_use_perm" in hit.columns:
+        hit = hit[pd.to_numeric(hit["can_use_perm"], errors="coerce").fillna(0) == 1]
+    elif "can_use" in hit.columns:
+        hit = hit[hit["can_use"].astype(str).str.strip().isin(["1", "TRUE", "True", "true"])]
+
+    if hit.empty:
+        return "", "この事業所では使えないスタッフです"
+
+    return str(hit.iloc[0]["user_id"]).strip(), ""
+
+
+def apply_attendance_action(uid: str, selected_company: str, current_user_id: str, attendance_logs_df):
+    now = now_jst()
+    action = st.session_state.get("attendance_action_mode", "in")
+
+    action_text_map = {
+        "in": "出勤",
+        "out": "退勤",
+        "break_start": "休憩中",
+        "break_end": "出勤",
+    }
+
+    result_text_map = {
+        "in": "出勤",
+        "out": "退勤",
+        "break_start": "休憩開始",
+        "break_end": "休憩終了",
+    }
+
+    st.session_state["attendance_local_status"][uid] = action_text_map.get(action, "退勤")
+
+    pending_logs = st.session_state.get("attendance_pending_logs", [])
+    new_log = {
+        "attendance_id": f"A{len(attendance_logs_df) + len(pending_logs) + 1:04}",
+        "date": now.strftime("%Y-%m-%d"),
+        "user_id": uid,
+        "company_id": selected_company,
+        "action": action,
+        "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "device_name": "ic_reader",
+        "recorded_by": current_user_id,
+    }
+
+    attendance_logs_df = pd.concat(
+        [attendance_logs_df, pd.DataFrame([new_log])],
+        ignore_index=True
+    )
+    st.session_state["attendance_logs_df"] = attendance_logs_df
+
+    pending_logs.append(new_log)
+    st.session_state["attendance_pending_logs"] = pending_logs
+
+    st.session_state["attendance_last_action_message"] = f"{uid} を {result_text_map.get(action, '打刻')} しました"
+    return attendance_logs_df
+
+
+def handle_ic_attendance(selected_company: str, current_user_id: str, users_df, permissions_df, attendance_logs_df, duplicate_guard_sec: int = 10):
+    card_id, err = get_latest_ic_card_id_from_bridge_for_attendance("main_reader", 20)
+    if err or not card_id:
+        return attendance_logs_df
+
+    now_ts = time.time()
+    last_card_id = str(st.session_state.get("attendance_last_ic_card_id", "")).strip().upper()
+    last_processed_at = float(st.session_state.get("attendance_last_ic_processed_at", 0.0) or 0.0)
+
+    # 同じカードは10秒以内なら無視
+    if card_id == last_card_id and (now_ts - last_processed_at) < duplicate_guard_sec:
+        return attendance_logs_df
+
+    uid, user_err = find_user_id_by_card_id(card_id, selected_company, users_df, permissions_df)
+    if user_err:
+        st.session_state["attendance_ic_message"] = user_err
+        st.session_state["attendance_last_ic_card_id"] = card_id
+        st.session_state["attendance_last_ic_processed_at"] = now_ts
+        return attendance_logs_df
+
+    attendance_logs_df = apply_attendance_action(uid, selected_company, current_user_id, attendance_logs_df)
+
+    st.session_state["attendance_ic_message"] = f"IC打刻しました: {card_id}"
+    st.session_state["attendance_last_ic_card_id"] = card_id
+    st.session_state["attendance_last_ic_processed_at"] = now_ts
+
+    st.rerun()
+    return attendance_logs_df
 
 def flush_attendance_before_page_change():
     """
@@ -461,6 +632,24 @@ def render_attendance_page():
 
     st.info(f"現在のモード: {mode_label_map.get(st.session_state['attendance_action_mode'], '出勤モード')}")
 
+    ic_msg = str(st.session_state.get("attendance_ic_message", "")).strip()
+    last_action_msg = str(st.session_state.get("attendance_last_action_message", "")).strip()
+
+    if ic_msg:
+        st.caption(f"IC状態: {ic_msg}")
+    if last_action_msg:
+        st.caption(f"最新打刻: {last_action_msg}")
+
+    # IC自動打刻
+    attendance_logs_df = handle_ic_attendance(
+        selected_company=selected_company,
+        current_user_id=current_user_id,
+        users_df=users_df,
+        permissions_df=permissions_df,
+        attendance_logs_df=attendance_logs_df,
+        duplicate_guard_sec=10
+    )
+
     users_list = merged.to_dict(orient="records")
 
     for start_idx in range(0, len(users_list), 5):
@@ -489,48 +678,10 @@ def render_attendance_page():
                     use_container_width=True,
                     type=button_type,
                 ):
-                    now = now_jst()
-                    action = st.session_state.get("attendance_action_mode", "in")
-
-                    action_text_map = {
-                        "in": "出勤",
-                        "out": "退勤",
-                        "break_start": "休憩中",
-                        "break_end": "出勤",
-                    }
-
-                    result_text_map = {
-                        "in": "出勤",
-                        "out": "退勤",
-                        "break_start": "休憩開始",
-                        "break_end": "休憩終了",
-                    }
-
-                    # 先に画面上の状態を即更新
-                    st.session_state["attendance_local_status"][uid] = action_text_map.get(action, "退勤")
-
-                    new_log = {
-                        "attendance_id": f"A{len(attendance_logs_df) + len(st.session_state.get('attendance_pending_logs', [])) + 1:04}",
-                        "date": now.strftime("%Y-%m-%d"),
-                        "user_id": uid,
-                        "company_id": selected_company,
-                        "action": action,
-                        "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
-                        "device_name": "tablet",
-                        "recorded_by": current_user_id,
-                    }
-
-                    # 画面用のログにも先に積む
-                    attendance_logs_df = pd.concat(
-                        [attendance_logs_df, pd.DataFrame([new_log])],
-                        ignore_index=True
+                    attendance_logs_df = apply_attendance_action(
+                        uid=uid,
+                        selected_company=selected_company,
+                        current_user_id=current_user_id,
+                        attendance_logs_df=attendance_logs_df,
                     )
-                    st.session_state["attendance_logs_df"] = attendance_logs_df
-
-                    # スプシ保存は後回し。pendingキューへ積む
-                    pending_logs = st.session_state.get("attendance_pending_logs", [])
-                    pending_logs.append(new_log)
-                    st.session_state["attendance_pending_logs"] = pending_logs
-
-                    # 1回クリックで即色を変えるため、ここで再描画だけする
                     st.rerun()
