@@ -9589,7 +9589,7 @@ def render_bulk_knowbe_diary_page():
 
     st.markdown("## 一括下書き保存")
 
-    bulk_save_cols = st.columns([1, 1, 1, 3])
+    bulk_save_cols = st.columns([1, 1, 1, 1, 3])
 
     with bulk_save_cols[0]:
         if st.button("途中保存", key="bulk_knowbe_save_new", use_container_width=True):
@@ -9624,6 +9624,30 @@ def render_bulk_knowbe_diary_page():
                 stop_requested=True,
             )
             st.warning("中断要求を受け付けました。次の1件の前で停止します。")
+
+    with bulk_save_cols[3]:
+        if st.button("最初から実行", key="bulk_knowbe_restart_from_top", use_container_width=True):
+            # 実行状態を完全に先頭へ戻す
+            st.session_state["bulk_send_runtime_targets"] = []
+            st.session_state["bulk_send_next_index"] = 0
+            st.session_state["bulk_send_results"] = []
+            st.session_state["bulk_send_running"] = False
+            st.session_state["bulk_send_stop_requested"] = False
+            st.session_state["bulk_send_finished"] = False
+            st.session_state["bulk_send_last_name"] = ""
+
+            # checkpoint も先頭状態で保存して、続き表示を消す
+            _ensure_bulk_record_id()
+            _save_bulk_checkpoint(
+                next_index=0,
+                last_name="",
+                results=[],
+                finished=False,
+                stop_requested=False,
+            )
+
+            st.success("開始位置を1件目に戻しました。次回は最初から実行します。")
+            st.rerun()
 
     if saved_resume_index > 0 and not saved_resume_finished:
         st.info(
@@ -9667,6 +9691,7 @@ def render_bulk_knowbe_diary_page():
             resume_index = 0
             resume_results = []
 
+            # 「最初から実行」を押していない通常時だけ resume を使う
             if saved_resume_index > 0 and not saved_resume_finished:
                 resume_index = min(saved_resume_index, len(valid_targets))
                 resume_results = list(saved_resume_results)
@@ -9677,12 +9702,12 @@ def render_bulk_knowbe_diary_page():
             st.session_state["bulk_send_running"] = True
             st.session_state["bulk_send_stop_requested"] = False
             st.session_state["bulk_send_finished"] = False
-            st.session_state["bulk_send_last_name"] = saved_resume_last_name
+            st.session_state["bulk_send_last_name"] = saved_resume_last_name if resume_index > 0 else ""
 
             _ensure_bulk_record_id()
             _save_bulk_checkpoint(
                 next_index=resume_index,
-                last_name=saved_resume_last_name,
+                last_name=saved_resume_last_name if resume_index > 0 else "",
                 results=resume_results,
                 finished=False,
                 stop_requested=False,
@@ -9811,11 +9836,7 @@ def render_bulk_knowbe_diary_page():
 
             progress.progress((runtime_next_index + 1) / total_count)
 
-            # まだ残っていれば次の人へ
-            if (runtime_next_index + 1) < total_count and not st.session_state.get("bulk_send_stop_requested", False):
-                st.rerun()
-            else:
-                st.rerun()
+            st.rerun()
 
 def render_bee_journal_page():
     st.title("🐝knowbe日誌入力🐝")
