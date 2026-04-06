@@ -3706,7 +3706,7 @@ def run_daily_records(driver, excel_path: str, items: List[PersonItem], targets:
 
     log(f"📝 日々の記録の記録者: {recorder_name}")
 
-    if not open_daily_record_page(driver, y, m, d):
+    if not open_daily_record_page(driver):
         raise RuntimeError("[FATAL] 日々の記録ページへ行けないある")
 
     for it in targets:
@@ -3716,19 +3716,38 @@ def run_daily_records(driver, excel_path: str, items: List[PersonItem], targets:
 
         log(f"🧾 日々の記録入力: {it.name}")
 
+        category = _daily_record_category(it)
+
+        style_user, style_staff = _get_style_examples_for_staff(
+            examples,
+            recorder_name,
+            category
+        )
+
+        base_user_memo = norm(it.user_state)
+        base_staff_memo = norm(it.staff_note)
+
+        if not base_user_memo:
+            base_user_memo = _replace_placeholder_name(style_user, it.name)
+
+        if not base_staff_memo:
+            base_staff_memo = _replace_placeholder_name(style_staff, it.name)
+
+        user_text = base_user_memo
+        staff_text = base_staff_memo
+
         ok = process_one_daily_record(
             driver=driver,
-            client=None,
-            treaty_text=treaty_text,
-            examples=examples,
-            recorder_name=recorder_name,
             it=it,
+            recorder_name=recorder_name,
+            user_text=user_text,
+            staff_text=staff_text,
         )
 
         if not ok:
             dump_debug(driver, f"daily_record_fail_{it.name}")
             log(f"[WARN] 日々の記録失敗→次へ: {it.name}")
-
+            
 def _normalize_service_for_app(service_type: str, knowbe_target: str) -> str:
     s = norm(service_type)
 
@@ -4258,7 +4277,7 @@ def send_one_record_from_app(
 
         # ② 日々の記録ページ
         print("[STEP] open_daily_record_page start", flush=True)
-        if not open_daily_record_page(driver, y, mo, d):
+        if not open_daily_record_page(driver):
             raise RuntimeError("[FATAL] 日々の記録ページへ行けないある")
         print("[STEP] open_daily_record_page done", flush=True)
 
