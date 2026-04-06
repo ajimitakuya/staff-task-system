@@ -2585,6 +2585,7 @@ def process_report_edit(driver, it: PersonItem) -> bool:
         log(f"⚠️ {it.name} 例外: {e}")
         close_dialog_if_open(driver)
         return False
+    
 # =========================
 # 日々の記録 + Gemini
 # =========================
@@ -2759,17 +2760,76 @@ def _build_gemini_prompt(
     return prompt
 
 def _gemini_generate_text(client, prompt: str) -> str:
+    def _cleanup_text(text: str) -> str:
+        text = (text or "").strip()
+        text = text.replace("```json", "").replace("```", "").strip()
+        return text
+
+    def _looks_like_reasoning(text: str) -> bool:
+        if not text:
+            return False
+
+        ng_patterns = [
+            "考えられる最善の出力を生成するために",
+            "思考プロセス",
+            "依頼内容の確認",
+            "開始メモの分析",
+            "最終的な決定",
+            "複数の候補を比較",
+            "出力します",
+            "1.  **",
+            "2.  **",
+            "3.  **",
+            "4.  **",
+            "5.  **",
+            "6.  **",
+            "7.  **",
+        ]
+
+        for p in ng_patterns:
+            if p in text:
+                return True
+
+        # 箇条書きや番号だらけの応答も弾く
+        lines = [x.strip() for x in text.splitlines() if x.strip()]
+        numbered = sum(1 for x in lines if re.match(r"^\d+\.", x))
+        bullets = sum(1 for x in lines if x.startswith("*") or x.startswith("-"))
+
+        if numbered >= 2 or bullets >= 4:
+            return True
+
+        return False
+
+    # 1回目
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt,
     )
 
-    result_text = (getattr(response, "text", "") or "").strip()
+    result_text = _cleanup_text(getattr(response, "text", "") or "")
     if not result_text:
         raise RuntimeError("Geminiの応答が空ある")
 
-    cleaned = result_text.replace("```json", "").replace("```", "").strip()
-    return cleaned
+    # 思考プロセスっぽいなら再試行
+    if _looks_like_reasoning(result_text):
+        retry_prompt = (
+            prompt
+            + "\n\n【最重要・再指示】\n"
+              "思考過程、分析、手順、箇条書き、番号付き説明は絶対に出力しないこと。\n"
+              "出力は完成した支援記録の本文のみを1段落または2段落で返すこと。\n"
+              "『依頼内容の確認』『分析』『最終的な決定』などの文言は禁止。"
+        )
+
+        response2 = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=retry_prompt,
+        )
+
+        result_text2 = _cleanup_text(getattr(response2, "text", "") or "")
+        if result_text2 and not _looks_like_reasoning(result_text2):
+            return result_text2
+
+    return result_text
 
 def _replace_placeholder_name(text: str, full_name: str) -> str:
     """
