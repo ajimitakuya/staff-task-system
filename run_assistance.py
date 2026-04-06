@@ -36,6 +36,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.action_chains import ActionChains
 
+print("[DEBUG] RUN_ASSISTANCE __file__ =", __file__, flush=True)
 
 # =========================
 # 設定
@@ -3176,17 +3177,15 @@ def open_daily_record_page(driver):
     driver.get("https://mgr.knowbe.jp/v2/#/record/daily")
     time.sleep(2)
 
+    print("[DEBUG] open_daily_record_page current_url =", driver.current_url, flush=True)
+    print("[DEBUG] open_daily_record_page __file__ =", __file__, flush=True)
+
     body_text = driver.find_element(By.TAG_NAME, "body").text
 
-    # 🔥判定をゆるくする
-    keywords = [
-        "日々の記録",
-        "業務日誌",
-        "支援記録"
-    ]
-
+    keywords = ["日々の記録", "業務日誌", "支援記録"]
     for k in keywords:
         if k in body_text:
+            print(f"[DEBUG] open_daily_record_page hit keyword={k}", flush=True)
             return True
 
     dump_debug(driver, "open_daily_record_page_fail")
