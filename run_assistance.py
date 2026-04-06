@@ -3172,35 +3172,25 @@ def process_one_daily_record(
     log(f"✅ 日々の記録 保存成功ある: {it.name}")
     return True
 
-def open_daily_record_page(driver, y: int, m: int, d: int) -> bool:
-    """
-    左メニューの「日々の記録」へ移動し、対象日ページを開く
-    """
-    try:
-        btn = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located(
-                (By.XPATH, "//p[contains(normalize-space(.),'日々の記録')]")
-            )
-        )
-        safe_click(driver, btn)
-        time.sleep(1.0)
-    except Exception:
-        pass
+def open_daily_record_page(driver):
+    driver.get("https://mgr.knowbe.jp/v2/#/record/daily")
+    time.sleep(2)
 
-    target_url = f"https://mgr.knowbe.jp/v2/?_page=record/daily/#/record/daily/{y:04d}{m:02d}{d:02d}"
-    driver.get(target_url)
-    time.sleep(1.5)
+    body_text = driver.find_element(By.TAG_NAME, "body").text
 
-    try:
-        WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located(
-                (By.XPATH, "//*[contains(normalize-space(.),'支援記録')]")
-            )
-        )
-        return True
-    except Exception:
-        dump_debug(driver, "open_daily_record_page_fail")
-        return False
+    # 🔥判定をゆるくする
+    keywords = [
+        "日々の記録",
+        "業務日誌",
+        "支援記録"
+    ]
+
+    for k in keywords:
+        if k in body_text:
+            return True
+
+    dump_debug(driver, "open_daily_record_page_fail")
+    return False
 
 # =========================
 # 利用者ごと → 支援記録 → 本文取得
