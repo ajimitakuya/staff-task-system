@@ -2391,7 +2391,6 @@ def process_report_edit(driver, it: PersonItem) -> bool:
                 ok = select_dropdown_skip_if_same(driver, dlg, "サービス提供", it.service)
 
             if not ok:
-                # すでに画面上にサービス名が含まれていれば続行
                 try:
                     dlg_text = (dlg.text or "").replace("\n", " ")
                 except Exception:
@@ -2411,6 +2410,7 @@ def process_report_edit(driver, it: PersonItem) -> bool:
             close_dialog_if_open(driver)
             return False
 
+        # ===== 上段の開始/終了時間 =====
         has_start = bool((it.start or "").strip())
         has_end = bool((it.end or "").strip())
 
@@ -2451,6 +2451,7 @@ def process_report_edit(driver, it: PersonItem) -> bool:
                 except Exception as e:
                     print(f"[DEBUG] {it.name} after set end read error={e}", flush=True)
 
+        # ===== 食事提供 =====
         ok = select_dropdown_skip_if_same(driver, dlg, "食事提供", meal)
         if not ok:
             dump_debug(driver, f"meal_dropdown_fail_{it.name}")
@@ -2458,6 +2459,7 @@ def process_report_edit(driver, it: PersonItem) -> bool:
             close_dialog_if_open(driver)
             return False
 
+        # ===== 備考 =====
         note_src = (it.note or "").strip()
         final_note = "施設外就労(実施報告書等添付)" if s == "施設外就労" else note_src
 
@@ -2470,6 +2472,7 @@ def process_report_edit(driver, it: PersonItem) -> bool:
             close_dialog_if_open(driver)
             return False
 
+        # ===== 作業時間チェック制御 =====
         has_work_time = bool((it.work_start or "").strip()) and bool((it.work_end or "").strip())
         print(
             f"[DEBUG] process_report_edit has_work_time={has_work_time} "
@@ -2477,16 +2480,45 @@ def process_report_edit(driver, it: PersonItem) -> bool:
             flush=True
         )
 
-        if has_work_time:
-            print("[DEBUG] before fill_work_record_section in process_report_edit", flush=True)
-            try:
-                fill_work_record_section(driver, dlg, it)
-                print("[DEBUG] after fill_work_record_section in process_report_edit", flush=True)
-            except Exception as e:
-                log(f"ℹ️ {it.name} 作業時間欄入力失敗のためスキップして続行します: {e}")
-        else:
-            log(f"ℹ️ {it.name} 作業時間未入力のためスキップ")
+        try:
+            worked_chk = dlg.find_element(By.CSS_SELECTOR, "input[name='workRecord.worked']")
+            is_checked = worked_chk.is_selected()
+            print(f"[DEBUG] {it.name} worked checked before={is_checked}", flush=True)
 
+            if has_work_time:
+                # 作業時間あり → ONにする
+                if not is_checked:
+                    driver.execute_script("arguments[0].click();", worked_chk)
+                    time.sleep(0.3)
+                    print(f"[DEBUG] {it.name} 作業時間チェックON", flush=True)
+
+                print("[DEBUG] before fill_work_record_section in process_report_edit", flush=True)
+                try:
+                    fill_work_record_section(driver, dlg, it)
+                    print("[DEBUG] after fill_work_record_section in process_report_edit", flush=True)
+                except Exception as e:
+                    log(f"ℹ️ {it.name} 作業時間欄入力失敗のためスキップして続行します: {e}")
+
+            else:
+                # 作業時間なし → OFFにする
+                if is_checked:
+                    driver.execute_script("arguments[0].click();", worked_chk)
+                    time.sleep(0.3)
+                    print(f"[DEBUG] {it.name} 作業時間チェックOFF", flush=True)
+
+                log(f"ℹ️ {it.name} 作業時間未入力のためチェックOFFで保存します")
+
+        except Exception as e:
+            print(f"[DEBUG] {it.name} 作業時間チェック制御失敗 {e}", flush=True)
+            if has_work_time:
+                try:
+                    fill_work_record_section(driver, dlg, it)
+                except Exception as ee:
+                    log(f"ℹ️ {it.name} 作業時間欄入力失敗のためスキップして続行します: {ee}")
+            else:
+                log(f"ℹ️ {it.name} 作業時間未入力のためスキップ")
+
+        # ===== 保存 =====
         save_btn = None
         for xp in [
             ".//button[contains(.,'保存する')]",
@@ -2522,16 +2554,29 @@ def process_report_edit(driver, it: PersonItem) -> bool:
                 close_dialog_if_open(driver)
                 return False
 
-        try:
-            time.sleep(0.8)
-            if dlg:
-                try:
-                    if dlg.is_displayed():
-                        close_dialog_if_open(driver)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        # ===== 保存完了待ち =====
+        save_done = False
+        t0 = time.time()
+
+        while time.time() - t0 < 15:
+            try:
+                if not dlg.is_displayed():
+                    save_done = True
+                    break
+            except Exception:
+                save_done = True
+                break
+
+            time.sleep(0.3)
+
+        if not save_done:
+            dump_debug(driver, f"save_wait_timeout_{it.name}")
+            log(f"⚠️ {it.name} 保存完了待ちでタイムアウトしました")
+            close_dialog_if_open(driver)
+            return False
+
+        # 保険
+        time.sleep(1.0)
 
         return True
 
@@ -2540,7 +2585,6 @@ def process_report_edit(driver, it: PersonItem) -> bool:
         log(f"⚠️ {it.name} 例外: {e}")
         close_dialog_if_open(driver)
         return False
-
 # =========================
 # 日々の記録 + Gemini
 # =========================
