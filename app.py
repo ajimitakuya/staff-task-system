@@ -9627,27 +9627,46 @@ def render_bulk_knowbe_diary_page():
 
     with bulk_save_cols[3]:
         if st.button("最初から実行", key="bulk_knowbe_restart_from_top", use_container_width=True):
-            # 実行状態を完全に先頭へ戻す
-            st.session_state["bulk_send_runtime_targets"] = []
-            st.session_state["bulk_send_next_index"] = 0
-            st.session_state["bulk_send_results"] = []
-            st.session_state["bulk_send_running"] = False
-            st.session_state["bulk_send_stop_requested"] = False
-            st.session_state["bulk_send_finished"] = False
-            st.session_state["bulk_send_last_name"] = ""
+            active_targets = [x for x in send_targets if x["enabled"]]
 
-            # checkpoint も先頭状態で保存して、続き表示を消す
-            _ensure_bulk_record_id()
-            _save_bulk_checkpoint(
-                next_index=0,
-                last_name="",
-                results=[],
-                finished=False,
-                stop_requested=False,
-            )
+            valid_targets = []
+            invalid_messages = []
 
-            st.success("開始位置を1件目に戻しました。次回は最初から実行します。")
-            st.rerun()
+            for item in active_targets:
+                if not str(item.get("staff_name", "")).strip():
+                    invalid_messages.append(f"{item['resident_name']}：日誌入力者が未入力")
+                    continue
+                valid_targets.append(item)
+
+            if invalid_messages:
+                st.warning("一部送信されない利用者があります：")
+                for msg in invalid_messages:
+                    st.warning(msg)
+
+            if not valid_targets:
+                st.warning("送信できる利用者が1人もいません。")
+            else:
+                # 実行状態を完全に先頭へ戻す
+                st.session_state["bulk_send_runtime_targets"] = valid_targets
+                st.session_state["bulk_send_next_index"] = 0
+                st.session_state["bulk_send_results"] = []
+                st.session_state["bulk_send_running"] = True
+                st.session_state["bulk_send_stop_requested"] = False
+                st.session_state["bulk_send_finished"] = False
+                st.session_state["bulk_send_last_name"] = ""
+
+                # checkpoint も先頭状態で保存
+                _ensure_bulk_record_id()
+                _save_bulk_checkpoint(
+                    next_index=0,
+                    last_name="",
+                    results=[],
+                    finished=False,
+                    stop_requested=False,
+                )
+
+                st.success("1件目からそのまま実行開始するある！")
+                st.rerun()
 
     if saved_resume_index > 0 and not saved_resume_finished:
         st.info(

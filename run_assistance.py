@@ -2184,14 +2184,38 @@ def select_dropdown_skip_if_same(driver, root, label_text: str, value_text: str)
 # =========================
 def _find_time_input(root, kind: str):
     """
-    上側の
+    利用実績モーダル上段の
       開始時間 / 終了時間
-    だけを拾う。
+    を最優先で安定取得する。
 
-    下側の
+    下段の
       作業開始時間 / 作業終了時間
-    は絶対に拾わない。
+    は絶対に取らない。
     """
+    # ===== 1) まず name 属性で直接狙う =====
+    direct_candidates = []
+    if kind == "start":
+        direct_candidates = [
+            "input[name='initial.startTime']",
+            "input[name='startTime']",
+            "input[name='service.startTime']",
+        ]
+    else:
+        direct_candidates = [
+            "input[name='initial.endTime']",
+            "input[name='endTime']",
+            "input[name='service.endTime']",
+        ]
+
+    for css in direct_candidates:
+        try:
+            el = root.find_element(By.CSS_SELECTOR, css)
+            if el and el.is_displayed():
+                return el
+        except Exception:
+            pass
+
+    # ===== 2) ラベル近傍で探す =====
     if kind == "start":
         target_labels = ["開始時間", "利用開始時間", "サービス開始時間"]
         ng_words = ["作業開始時間"]
@@ -2199,8 +2223,6 @@ def _find_time_input(root, kind: str):
         target_labels = ["終了時間", "利用終了時間", "サービス終了時間"]
         ng_words = ["作業終了時間"]
 
-    # まず「作業開始時間」「作業終了時間」を含む領域を除外しつつ、
-    # 上側ラベルに最も近い input を拾う
     for label_text in target_labels:
         try:
             labels = root.find_elements(
@@ -2222,7 +2244,6 @@ def _find_time_input(root, kind: str):
             except Exception:
                 continue
 
-            # 近い親要素まで上がって、そのブロック内の input を優先
             cur = lab
             for _ in range(6):
                 try:
@@ -2235,7 +2256,6 @@ def _find_time_input(root, kind: str):
                 except Exception:
                     area_text = ""
 
-                # 「作業開始時間」「作業終了時間」を含むブロックは除外
                 if "作業開始時間" in area_text or "作業終了時間" in area_text:
                     continue
 
@@ -2256,14 +2276,12 @@ def _find_time_input(root, kind: str):
                     return visible_inputs[0]
 
                 if len(visible_inputs) >= 2:
-                    # 念のため、開始は左寄り、終了は右寄りを取る
                     try:
                         visible_inputs = sorted(visible_inputs, key=lambda e: e.location["x"])
                     except Exception:
                         pass
                     return visible_inputs[0] if kind == "start" else visible_inputs[-1]
 
-            # ラベル直後の input を拾う保険
             try:
                 cand = lab.find_element(
                     By.XPATH,
@@ -2274,8 +2292,7 @@ def _find_time_input(root, kind: str):
             except Exception:
                 pass
 
-    # 最後の保険：
-    # 画面内の input を総当たりして、上側2つだけを選ぶ
+    # ===== 3) 最後の保険：上側だけ拾う =====
     try:
         all_inputs = root.find_elements(By.XPATH, ".//input")
     except Exception:
@@ -2290,7 +2307,6 @@ def _find_time_input(root, kind: str):
             continue
 
         try:
-            # 近くの親ブロックに「作業開始時間/作業終了時間」があれば除外
             parent = inp.find_element(By.XPATH, "./ancestor::*[self::div or self::td][1]")
             ptxt = (parent.text or "").strip()
             if "作業開始時間" in ptxt or "作業終了時間" in ptxt:
@@ -2308,7 +2324,6 @@ def _find_time_input(root, kind: str):
 
     if top_candidates:
         top_candidates.sort(key=lambda t: (t[0], t[1]))
-        # 上から見て最初の2つが上段の開始/終了である前提
         first_two = [t[2] for t in top_candidates[:2]]
         if len(first_two) == 1:
             return first_two[0]
@@ -2400,8 +2415,15 @@ def process_report_edit(driver, it: PersonItem) -> bool:
         has_end = bool((it.end or "").strip())
 
         if has_start or has_end:
+            print(f"[DEBUG] {it.name} it.start={it.start!r} it.end={it.end!r}", flush=True)
+
             inp_start = _find_time_input(dlg, "start")
             inp_end = _find_time_input(dlg, "end")
+
+            print(
+                f"[DEBUG] {it.name} inp_start found={inp_start is not None} inp_end found={inp_end is not None}",
+                flush=True
+            )
 
             if not inp_start or not inp_end:
                 dump_debug(driver, f"time_input_not_found_{it.name}")
@@ -2411,9 +2433,23 @@ def process_report_edit(driver, it: PersonItem) -> bool:
 
             if has_start:
                 set_input_value(driver, inp_start, it.start)
+                try:
+                    print(
+                        f"[DEBUG] {it.name} after set start value={inp_start.get_attribute('value')!r}",
+                        flush=True
+                    )
+                except Exception as e:
+                    print(f"[DEBUG] {it.name} after set start read error={e}", flush=True)
 
             if has_end:
                 set_input_value(driver, inp_end, it.end)
+                try:
+                    print(
+                        f"[DEBUG] {it.name} after set end value={inp_end.get_attribute('value')!r}",
+                        flush=True
+                    )
+                except Exception as e:
+                    print(f"[DEBUG] {it.name} after set end read error={e}", flush=True)
 
         ok = select_dropdown_skip_if_same(driver, dlg, "食事提供", meal)
         if not ok:
@@ -3747,7 +3783,7 @@ def run_daily_records(driver, excel_path: str, items: List[PersonItem], targets:
         if not ok:
             dump_debug(driver, f"daily_record_fail_{it.name}")
             log(f"[WARN] 日々の記録失敗→次へ: {it.name}")
-            
+
 def _normalize_service_for_app(service_type: str, knowbe_target: str) -> str:
     s = norm(service_type)
 
