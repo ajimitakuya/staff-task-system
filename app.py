@@ -5399,6 +5399,12 @@ def update_active_user():
         or st.session_state.get("user_login_id", "")
     ).strip()
 
+    current_user_id = str(
+        st.session_state.get("user_id", "")
+        or st.session_state.get("login_id", "")
+        or st.session_state.get("user_login_id", "")
+    ).strip()
+
     if not current_user:
         return False
 
@@ -5412,13 +5418,18 @@ def update_active_user():
             if col not in active_df.columns:
                 active_df[col] = ""
 
+        active_df["user"] = active_df["user"].astype(str).str.strip()
         now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
-        if current_user in active_df["user"].astype(str).values:
-            active_df.loc[active_df["user"].astype(str) == str(current_user), "last_seen"] = now_str
+        # 古いID行を消す
+        if current_user_id:
+            active_df = active_df[active_df["user"] != current_user_id].copy()
+
+        if current_user in active_df["user"].values:
+            active_df.loc[active_df["user"] == current_user, "last_seen"] = now_str
         else:
             new_row = {
-                "user": str(current_user),
+                "user": current_user,
                 "login_at": now_str,
                 "last_seen": now_str,
             }
