@@ -8664,7 +8664,7 @@ def get_staff_examples_df():
     return get_staff_examples_df_cached().copy()
 
 
-@st.cache_data(ttl=60)
+# @st.cache_data(ttl=60)
 def get_personal_rules_df_cached():
     df = load_db("personal_rules")
     if df is None or df.empty:
@@ -8680,7 +8680,7 @@ def get_personal_rules_df():
     return get_personal_rules_df_cached().copy()
 
 
-@st.cache_data(ttl=60)
+# @st.cache_data(ttl=60)
 def get_assistant_plans_df_cached():
     df = load_db("assistant_plans")
     if df is None or df.empty:
