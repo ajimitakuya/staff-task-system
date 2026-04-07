@@ -3147,7 +3147,6 @@ def _set_daily_recorder_for_row(driver, row, recorder_name: str) -> bool:
     xps = [
         ".//*[@role='button' and contains(@id, 'staff_id')]",
         ".//*[@role='button' and contains(normalize-space(.), '選択してください')]",
-        ".//*[@role='button']",
     ]
 
     for xp in xps:
@@ -3265,8 +3264,24 @@ def process_one_daily_record(
         log(f"⚠️ 作業欄の選択失敗ある: {it.name}")
         return False
 
+    time.sleep(0.5)
+
+    # ★ 作業欄変更後に行を取り直す
+    row = find_row_by_name(driver, it.name)
+    if row is None:
+        log(f"⚠️ 作業欄変更後の行再取得失敗ある: {it.name}")
+        return False
+
     if not _set_daily_textareas_for_row(driver, row, user_text, staff_text):
         log(f"⚠️ 日々の記録 textarea 入力失敗ある: {it.name}")
+        return False
+
+    time.sleep(0.3)
+
+    # ★ recorder前にももう一度取り直す
+    row = find_row_by_name(driver, it.name)
+    if row is None:
+        log(f"⚠️ 記録者入力前の行再取得失敗ある: {it.name}")
         return False
 
     if not _set_daily_recorder_for_row(driver, row, recorder_name):
