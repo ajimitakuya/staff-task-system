@@ -2946,16 +2946,24 @@ def _wait_daily_save_complete(driver, timeout=15) -> bool:
 
 def _find_daily_record_row_by_name(driver, name: str):
     """
-    支援記録テーブルの行を、利用者名で探す
+    日々の記録テーブルの行を、利用者名で探す
+    スペース差や氏名+付加情報の揺れに強くする
     """
-    rows = driver.find_elements(By.XPATH, "//tbody/tr")
+    target = _norm_name_for_match(name)
+
+    try:
+        rows = driver.find_elements(By.XPATH, "//tbody/tr")
+    except Exception:
+        rows = []
+
     for r in rows:
         try:
-            txt = (r.text or "").replace("\n", " ")
-            if name in txt:
+            txt = _norm_name_for_match((r.text or "").replace("\n", " "))
+            if target and target in txt:
                 return r
         except Exception:
             pass
+
     return None
 
 
@@ -4424,7 +4432,7 @@ def send_one_record_from_app(
         if not click_daily_edit_button(driver):
             raise RuntimeError("[FATAL] 日々の記録の編集ボタンが押せないある")
 
-        row = find_row_by_name(driver, it.name)
+        row = _find_daily_record_row_by_name(driver, it.name)
         if row is None:
             dump_debug(driver, f"daily_row_not_found_{it.name}")
             raise RuntimeError(f"[FATAL] 日々の記録 行発見失敗ある: {it.name}")
