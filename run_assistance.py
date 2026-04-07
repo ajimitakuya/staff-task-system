@@ -3082,11 +3082,6 @@ def _set_daily_textareas_for_row(
     send_user_status: bool = True,
     send_staff_comment: bool = True,
 ) -> bool:
-    """
-    その行の 利用者状態 / 職員考察 textarea に入力
-    send_user_status=False のときは利用者状態を触らない
-    send_staff_comment=False のときは職員考察を触らない
-    """
     try:
         user_area = row.find_element(By.XPATH, ".//textarea[contains(@name,'user_status')]")
         staff_area = row.find_element(By.XPATH, ".//textarea[contains(@name,'staff_comment')]")
@@ -3095,20 +3090,19 @@ def _set_daily_textareas_for_row(
         return False
 
     try:
-        current_user_value = (
-            user_area.get_attribute("value")
-            or user_area.get_attribute("textContent")
-            or ""
-        )
+        if not user_area.is_displayed() or not staff_area.is_displayed():
+            dump_debug(driver, "daily_textarea_hidden")
+            return False
+    except Exception:
+        pass
+
+    try:
+        current_user_value = user_area.get_attribute("value") or user_area.get_attribute("textContent") or ""
     except Exception:
         current_user_value = ""
 
     try:
-        current_staff_value = (
-            staff_area.get_attribute("value")
-            or staff_area.get_attribute("textContent")
-            or ""
-        )
+        current_staff_value = staff_area.get_attribute("value") or staff_area.get_attribute("textContent") or ""
     except Exception:
         current_staff_value = ""
 
@@ -3116,29 +3110,40 @@ def _set_daily_textareas_for_row(
     final_staff_text = staff_comment_text if send_staff_comment else current_staff_value
 
     set_input_value(driver, user_area, final_user_text)
-    time.sleep(0.1)
+    time.sleep(0.2)
     set_input_value(driver, staff_area, final_staff_text)
-    time.sleep(0.1)
+    time.sleep(0.2)
+
+    # 入力確認
+    try:
+        after_user = user_area.get_attribute("value") or ""
+    except Exception:
+        after_user = ""
+
+    try:
+        after_staff = staff_area.get_attribute("value") or ""
+    except Exception:
+        after_staff = ""
+
+    print("[DEBUG] textarea after_user =", after_user, flush=True)
+    print("[DEBUG] textarea after_staff =", after_staff, flush=True)
+
+    if send_user_status and str(final_user_text).strip() and str(after_user).strip() != str(final_user_text).strip():
+        dump_debug(driver, "daily_user_text_not_applied")
+        return False
+
+    if send_staff_comment and str(final_staff_text).strip() and str(after_staff).strip() != str(final_staff_text).strip():
+        dump_debug(driver, "daily_staff_text_not_applied")
+        return False
+
     return True
 
 def _set_daily_recorder_for_row(driver, row, recorder_name: str) -> bool:
-    """
-    その行の 記録者 select を選ぶ
-    """
     if not recorder_name:
         return False
 
-    # すでに入っていればOK
-    try:
-        row_text = norm(row.text)
-        if _norm_name_for_match(recorder_name) in _norm_name_for_match(row_text):
-            return True
-    except Exception:
-        pass
-
     btn = None
 
-    # staff_id 専用のボタンを最優先
     xps = [
         ".//*[@role='button' and contains(@id, 'staff_id')]",
         ".//*[@role='button' and contains(normalize-space(.), '選択してください')]",
