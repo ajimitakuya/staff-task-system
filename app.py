@@ -5391,7 +5391,12 @@ def load_active_users_cached():
     return df
 
 def update_active_user():
-    current_user = st.session_state.get("login_id") or st.session_state.get("user_login_id")
+    current_user = (
+        st.session_state.get("login_id")
+        or st.session_state.get("user_login_id")
+        or st.session_state.get("user_id")
+        or st.session_state.get("user")
+    )
     if not current_user:
         return False
 
@@ -5417,7 +5422,7 @@ def update_active_user():
             }
             active_df = pd.concat([active_df, pd.DataFrame([new_row])], ignore_index=True)
 
-        save_db("active_users", active_df)
+        save_db(active_df, "active_users")
         st.session_state["_active_users_cache_df"] = active_df.copy()
         st.session_state["_active_users_cache_time"] = time.time()
         return True
