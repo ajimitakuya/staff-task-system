@@ -5367,61 +5367,85 @@ def get_resident_links_df_cached():
                 df[col] = ""
     return df.fillna("")
 
+import time
+import traceback
+import pandas as pd
+import streamlit as st
+from gspread.exceptions import APIError
+
+def load_active_users_cached():
+    now_ts = time.time()
+    cache_key = "_active_users_cache_df"
+    time_key = "_active_users_cache_time"
+
+    last_ts = st.session_state.get(time_key, 0)
+    if now_ts - last_ts < 60 and cache_key in st.session_state:
+        return st.session_state[cache_key].copy()
+
+    df = load_db("active_users")
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["user", "login_at", "last_seen"])
+
+    st.session_state[cache_key] = df.copy()
+    st.session_state[time_key] = now_ts
+    return df
 
 def update_active_user():
-    current_user = str(st.session_state.get("user", "")).strip()
+    current_user = st.session_state.get("login_id") or st.session_state.get("user_login_id")
     if not current_user:
-        return
+        return False
 
-    active_df = load_db("active_users")
+    try:
+        active_df = load_active_users_cached()
 
-    if active_df is None or active_df.empty:
-        active_df = pd.DataFrame(columns=["user", "login_at", "last_seen"])
-    else:
+        if active_df is None or active_df.empty:
+            active_df = pd.DataFrame(columns=["user", "login_at", "last_seen"])
+
         for col in ["user", "login_at", "last_seen"]:
             if col not in active_df.columns:
                 active_df[col] = ""
 
-    now_str = now_jst().strftime("%Y-%m-%d %H:%M")
+        now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
-    keep_rows = []
-    now_naive = now_jst().replace(tzinfo=None)
+        if current_user in active_df["user"].astype(str).values:
+            active_df.loc[active_df["user"].astype(str) == str(current_user), "last_seen"] = now_str
+        else:
+            new_row = {
+                "user": str(current_user),
+                "login_at": now_str,
+                "last_seen": now_str,
+            }
+            active_df = pd.concat([active_df, pd.DataFrame([new_row])], ignore_index=True)
 
-    for _, row in active_df.fillna("").iterrows():
-        last_seen = str(row.get("last_seen", "")).strip()
-        if not last_seen:
-            continue
-        try:
-            last_dt = pd.to_datetime(last_seen).to_pydatetime()
-            if (now_naive - last_dt).total_seconds() <= 15 * 60:
-                keep_rows.append(row)
-        except Exception:
-            pass
+        save_db("active_users", active_df)
+        st.session_state["_active_users_cache_df"] = active_df.copy()
+        st.session_state["_active_users_cache_time"] = time.time()
+        return True
 
-    active_df = pd.DataFrame(keep_rows) if keep_rows else pd.DataFrame(columns=["user", "login_at", "last_seen"])
+    except APIError as e:
+        print("⚠️ update_active_user APIError:", repr(e))
+        traceback.print_exc()
+        return False
 
-    if current_user in active_df["user"].astype(str).tolist():
-        active_df.loc[active_df["user"] == current_user, "last_seen"] = now_str
-    else:
-        new_row = pd.DataFrame([{
-            "user": current_user,
-            "login_at": st.session_state.get("login_at", now_str),
-            "last_seen": now_str
-        }])
-        active_df = pd.concat([active_df, new_row], ignore_index=True)
-
-    save_db(active_df, "active_users")
+    except Exception as e:
+        print("⚠️ update_active_user error:", repr(e))
+        traceback.print_exc()
+        return False
 
 def heartbeat_active_user():
-    if "user" not in st.session_state:
-        return
-
-    now_ts = now_jst().timestamp()
+    now_ts = time.time()
     last_ping = st.session_state.get("last_active_ping", 0)
 
-    if now_ts - last_ping >= 300:
-        update_active_user()
-        st.session_state["last_active_ping"] = now_ts
+    if now_ts - last_ping < 300:
+        return
+
+    try:
+        ok = update_active_user()
+        if ok:
+            st.session_state["last_active_ping"] = now_ts
+    except Exception as e:
+        print("⚠️ heartbeat_active_user error:", repr(e))
+        traceback.print_exc()
 
 def sync_task_events_to_calendar(company_id=None):
     if company_id is None:
