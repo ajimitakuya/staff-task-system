@@ -5391,13 +5391,12 @@ def load_active_users_cached():
     return df
 
 def update_active_user():
-    current_user = (
-        st.session_state.get("login_id")
+    current_user_id = (
+        st.session_state.get("user_id")
+        or st.session_state.get("login_id")
         or st.session_state.get("user_login_id")
-        or st.session_state.get("user_id")
-        or st.session_state.get("user")
     )
-    if not current_user:
+    if not current_user_id:
         return False
 
     try:
@@ -5412,11 +5411,14 @@ def update_active_user():
 
         now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
-        if current_user in active_df["user"].astype(str).values:
-            active_df.loc[active_df["user"].astype(str) == str(current_user), "last_seen"] = now_str
+        if str(current_user_id) in active_df["user"].astype(str).values:
+            active_df.loc[
+                active_df["user"].astype(str) == str(current_user_id),
+                "last_seen"
+            ] = now_str
         else:
             new_row = {
-                "user": str(current_user),
+                "user": str(current_user_id),
                 "login_at": now_str,
                 "last_seen": now_str,
             }
