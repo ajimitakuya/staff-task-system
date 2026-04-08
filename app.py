@@ -421,6 +421,9 @@ def build_knowbe_diary_form_data(
     preview_note,
     start_memo,
     end_memo,
+    piecework_id="",
+    piecework_name="",
+    piecework_quantity="",
 ):
     return {
         "company_id": str(target_company_id).strip(),
@@ -447,6 +450,10 @@ def build_knowbe_diary_form_data(
 
         "start_memo_generated": str(st.session_state.get("bee_generated_status", "")).strip(),
         "end_memo_generated": str(st.session_state.get("bee_generated_support", "")).strip(),
+
+        "piecework_id": str(piecework_id or "").strip(),
+        "piecework_name": str(piecework_name or "").strip(),
+        "piecework_quantity": str(piecework_quantity or "").strip(),
 
         "use_plan": bool(st.session_state.get("knowbe_bee_use_plan", False)),
         "save_stage": "draft",
@@ -500,6 +507,10 @@ def apply_pending_bee_journal_load():
     # Gemini生成文
     st.session_state["bee_generated_status"] = str(pending_json.get("start_memo_generated", "")).strip()
     st.session_state["bee_generated_support"] = str(pending_json.get("end_memo_generated", "")).strip()
+
+    # 内職
+    st.session_state["bee_piecework_id"] = str(pending_json.get("piecework_id", "")).strip()
+    st.session_state["bee_piecework_quantity"] = str(pending_json.get("piecework_quantity", "")).strip()
 
     # plan checkbox
     st.session_state["knowbe_bee_use_plan"] = bool(pending_json.get("use_plan", False))
@@ -4645,6 +4656,237 @@ def load_document_json(record_id):
         return json.loads(json_str)
     except Exception:
         return None
+
+def clear_bee_journal_input_state(default_staff_name=""):
+    st.session_state["start_time"] = ""
+    st.session_state["end_time"] = ""
+    st.session_state["bee_meal_flag"] = "なし"
+    st.session_state["bee_service_type"] = "在宅"
+    st.session_state["bee_work_start_time"] = ""
+    st.session_state["bee_work_end_time"] = ""
+    st.session_state["bee_work_break_time"] = ""
+    st.session_state["bee_staff_name"] = str(default_staff_name or "").strip()
+    st.session_state["bee_note_mode"] = "候補から選ぶ"
+    st.session_state["bee_note_text"] = ""
+    st.session_state["bee_note_select"] = "在宅利用"
+    st.session_state["bee_start_memo"] = ""
+    st.session_state["bee_end_memo"] = ""
+    st.session_state["bee_generated_status"] = ""
+    st.session_state["bee_generated_support"] = ""
+    st.session_state["bee_piecework_id"] = ""
+    st.session_state["bee_piecework_quantity"] = ""
+    st.session_state["knowbe_bee_use_plan"] = False
+
+
+def load_bee_journal_json_into_session(saved_json, default_staff_name=""):
+    if isinstance(saved_json, dict):
+        st.session_state["bee_journal_pending_load_json"] = saved_json
+        apply_pending_bee_journal_load()
+    else:
+        clear_bee_journal_input_state(default_staff_name=default_staff_name)
+
+
+BEE_DAILY_INPUT_DOC_TYPE = "knowbe日誌入力途中保存"
+
+
+def get_bee_daily_input_records(company_id, target_date):
+    df = get_saved_documents_df()
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    work = df[df["doc_type"].astype(str) == BEE_DAILY_INPUT_DOC_TYPE].copy()
+    if work.empty:
+        return work
+
+    rows = []
+    target_date_str = str(target_date)
+    for _, row in work.iterrows():
+        try:
+            payload = json.loads(str(row.get("json_data", "") or ""))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("company_id", "")).strip() != str(company_id).strip():
+            continue
+        if str(payload.get("target_date", payload.get("date", ""))).strip() != target_date_str:
+            continue
+        row_dict = row.to_dict()
+        row_dict["payload"] = payload
+        rows.append(row_dict)
+
+    if not rows:
+        return pd.DataFrame()
+
+    result = pd.DataFrame(rows)
+    try:
+        result["record_id_num"] = pd.to_numeric(result["record_id"], errors="coerce")
+        result = result.sort_values(["record_id_num"], ascending=[False])
+    except Exception:
+        pass
+    return result
+
+
+
+def upsert_bee_daily_input_record(company_id, target_date, resident_id, resident_name, form_data):
+    df = get_saved_documents_df()
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M")
+    company_id = str(company_id).strip()
+    resident_id = str(resident_id).strip()
+    target_date_str = str(target_date)
+
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["record_id", "resident_id", "resident_name", "doc_type", "created_at", "updated_at", "json_data"])
+
+    target_idx = None
+    for idx, row in df.iterrows():
+        if str(row.get("doc_type", "")).strip() != BEE_DAILY_INPUT_DOC_TYPE:
+            continue
+        if str(row.get("resident_id", "")).strip() != resident_id:
+            continue
+        try:
+            payload = json.loads(str(row.get("json_data", "") or ""))
+        except Exception:
+            continue
+        if str(payload.get("company_id", "")).strip() == company_id and str(payload.get("target_date", payload.get("date", ""))).strip() == target_date_str:
+            target_idx = idx
+            break
+
+    if target_idx is not None:
+        record_id = df.loc[target_idx, "record_id"]
+        df.loc[target_idx, "resident_name"] = resident_name
+        df.loc[target_idx, "updated_at"] = now_str
+        df.loc[target_idx, "json_data"] = json.dumps(form_data, ensure_ascii=False)
+        save_db(df, "saved_documents")
+        return record_id
+
+    ids = pd.to_numeric(df.get("record_id", pd.Series(dtype=float)), errors="coerce").dropna()
+    next_id = int(ids.max()) + 1 if not ids.empty else 1
+    new_row = pd.DataFrame([{
+        "record_id": next_id,
+        "resident_id": resident_id,
+        "resident_name": resident_name,
+        "doc_type": BEE_DAILY_INPUT_DOC_TYPE,
+        "created_at": now_str,
+        "updated_at": now_str,
+        "json_data": json.dumps(form_data, ensure_ascii=False),
+    }])
+    df = pd.concat([df, new_row], ignore_index=True)
+    save_db(df, "saved_documents")
+    return next_id
+
+
+
+def bee_required_completion_status(payload):
+    payload = payload or {}
+    start_time = str(payload.get("start_time", "")).strip()
+    end_time = str(payload.get("end_time", "")).strip()
+    start_memo = str(payload.get("start_memo_raw", payload.get("start_memo", ""))).strip()
+    end_memo = str(payload.get("end_memo_raw", payload.get("end_memo", ""))).strip()
+    staff_name = str(payload.get("staff_name", "")).strip()
+
+    has_any = bool(start_time or end_time or start_memo or end_memo or staff_name)
+    complete = bool(start_time and end_time and start_memo and end_memo and staff_name)
+    incomplete = bool(has_any and not complete)
+
+    missing = []
+    if not start_time:
+        missing.append("開始時間")
+    if not end_time:
+        missing.append("終了時間")
+    if not start_memo:
+        missing.append("開始メモ")
+    if not end_memo:
+        missing.append("終了メモ")
+    if not staff_name:
+        missing.append("入力者")
+
+    return {
+        "complete": complete,
+        "incomplete": incomplete,
+        "missing": missing,
+    }
+
+
+
+def get_bee_daily_status_maps(company_id, target_date):
+    status_map = {}
+    record_map = {}
+    df = get_bee_daily_input_records(company_id, target_date)
+    if df is None or df.empty:
+        return status_map, record_map
+
+    for _, row in df.iterrows():
+        resident_id = str(row.get("resident_id", "")).strip()
+        payload = row.get("payload", {}) if isinstance(row.get("payload", {}), dict) else {}
+        status_map[resident_id] = bee_required_completion_status(payload)
+        record_map[resident_id] = row.to_dict()
+    return status_map, record_map
+
+
+
+def get_nursing_care_time_text(resident_id, target_date):
+    schedule_df = get_resident_schedule_df()
+    if schedule_df is None or schedule_df.empty:
+        return ""
+
+    weekday_label = _normalize_weekday_label(target_date)
+    work = schedule_df.copy()
+    for col in ["resident_id", "weekday", "service_type", "start_time", "end_time"]:
+        if col not in work.columns:
+            work[col] = ""
+
+    work = work[
+        (work["resident_id"].astype(str).str.strip() == str(resident_id).strip()) &
+        (work["weekday"].astype(str).str.strip() == str(weekday_label).strip()) &
+        (work["service_type"].astype(str).str.strip().isin(["看護", "介護"]))
+    ].copy()
+
+    if work.empty:
+        return ""
+
+    parts = []
+    for _, row in work.iterrows():
+        sv = str(row.get("service_type", "")).strip()
+        rs = str(row.get("start_time", "")).strip()
+        re = str(row.get("end_time", "")).strip()
+        rng = rs
+        if re:
+            rng += f"〜{re}"
+        parts.append(f"{sv} {rng}".strip())
+    return " / ".join([x for x in parts if x])
+
+
+
+def build_bee_daily_preview_df(company_id, target_date, master_df=None):
+    records_df = get_bee_daily_input_records(company_id, target_date)
+    if records_df is None or records_df.empty:
+        return pd.DataFrame(columns=["氏名", "開始時刻", "終了時刻", "開始メモ", "終了メモ", "看護介護時間", "内職内容", "数量"])
+
+    name_map = {}
+    if master_df is not None and not master_df.empty:
+        for _, row in master_df.iterrows():
+            rid = str(row.get("resident_id", "")).strip()
+            rname = str(row.get("resident_name", "")).strip()
+            if rid and rname:
+                name_map[rid] = rname
+
+    rows = []
+    for _, row in records_df.iterrows():
+        payload = row.get("payload", {}) if isinstance(row.get("payload", {}), dict) else {}
+        rid = str(row.get("resident_id", "")).strip()
+        rows.append({
+            "氏名": name_map.get(rid) or str(row.get("resident_name", "")).strip(),
+            "開始時刻": str(payload.get("start_time", "")).strip(),
+            "終了時刻": str(payload.get("end_time", "")).strip(),
+            "開始メモ": str(payload.get("start_memo_raw", payload.get("start_memo", ""))).strip(),
+            "終了メモ": str(payload.get("end_memo_raw", payload.get("end_memo", ""))).strip(),
+            "看護介護時間": get_nursing_care_time_text(rid, target_date),
+            "内職内容": str(payload.get("piecework_name", "")).strip(),
+            "数量": str(payload.get("piecework_quantity", "")).strip(),
+        })
+    return pd.DataFrame(rows)
+
 
 def get_gemini_api_key_from_app():
     api_key = ""
@@ -8878,6 +9120,237 @@ def generate_status_support_with_gemini(
         str(data.get("generated_support", "")).strip(),
     )
 
+def clear_bee_journal_input_state(default_staff_name=""):
+    st.session_state["start_time"] = ""
+    st.session_state["end_time"] = ""
+    st.session_state["bee_meal_flag"] = "なし"
+    st.session_state["bee_service_type"] = "在宅"
+    st.session_state["bee_work_start_time"] = ""
+    st.session_state["bee_work_end_time"] = ""
+    st.session_state["bee_work_break_time"] = ""
+    st.session_state["bee_staff_name"] = str(default_staff_name or "").strip()
+    st.session_state["bee_note_mode"] = "候補から選ぶ"
+    st.session_state["bee_note_text"] = ""
+    st.session_state["bee_note_select"] = "在宅利用"
+    st.session_state["bee_start_memo"] = ""
+    st.session_state["bee_end_memo"] = ""
+    st.session_state["bee_generated_status"] = ""
+    st.session_state["bee_generated_support"] = ""
+    st.session_state["bee_piecework_id"] = ""
+    st.session_state["bee_piecework_quantity"] = ""
+    st.session_state["knowbe_bee_use_plan"] = False
+
+
+def load_bee_journal_json_into_session(saved_json, default_staff_name=""):
+    if isinstance(saved_json, dict):
+        st.session_state["bee_journal_pending_load_json"] = saved_json
+        apply_pending_bee_journal_load()
+    else:
+        clear_bee_journal_input_state(default_staff_name=default_staff_name)
+
+
+BEE_DAILY_INPUT_DOC_TYPE = "knowbe日誌入力途中保存"
+
+
+def get_bee_daily_input_records(company_id, target_date):
+    df = get_saved_documents_df()
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    work = df[df["doc_type"].astype(str) == BEE_DAILY_INPUT_DOC_TYPE].copy()
+    if work.empty:
+        return work
+
+    rows = []
+    target_date_str = str(target_date)
+    for _, row in work.iterrows():
+        try:
+            payload = json.loads(str(row.get("json_data", "") or ""))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("company_id", "")).strip() != str(company_id).strip():
+            continue
+        if str(payload.get("target_date", payload.get("date", ""))).strip() != target_date_str:
+            continue
+        row_dict = row.to_dict()
+        row_dict["payload"] = payload
+        rows.append(row_dict)
+
+    if not rows:
+        return pd.DataFrame()
+
+    result = pd.DataFrame(rows)
+    try:
+        result["record_id_num"] = pd.to_numeric(result["record_id"], errors="coerce")
+        result = result.sort_values(["record_id_num"], ascending=[False])
+    except Exception:
+        pass
+    return result
+
+
+
+def upsert_bee_daily_input_record(company_id, target_date, resident_id, resident_name, form_data):
+    df = get_saved_documents_df()
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M")
+    company_id = str(company_id).strip()
+    resident_id = str(resident_id).strip()
+    target_date_str = str(target_date)
+
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=["record_id", "resident_id", "resident_name", "doc_type", "created_at", "updated_at", "json_data"])
+
+    target_idx = None
+    for idx, row in df.iterrows():
+        if str(row.get("doc_type", "")).strip() != BEE_DAILY_INPUT_DOC_TYPE:
+            continue
+        if str(row.get("resident_id", "")).strip() != resident_id:
+            continue
+        try:
+            payload = json.loads(str(row.get("json_data", "") or ""))
+        except Exception:
+            continue
+        if str(payload.get("company_id", "")).strip() == company_id and str(payload.get("target_date", payload.get("date", ""))).strip() == target_date_str:
+            target_idx = idx
+            break
+
+    if target_idx is not None:
+        record_id = df.loc[target_idx, "record_id"]
+        df.loc[target_idx, "resident_name"] = resident_name
+        df.loc[target_idx, "updated_at"] = now_str
+        df.loc[target_idx, "json_data"] = json.dumps(form_data, ensure_ascii=False)
+        save_db(df, "saved_documents")
+        return record_id
+
+    ids = pd.to_numeric(df.get("record_id", pd.Series(dtype=float)), errors="coerce").dropna()
+    next_id = int(ids.max()) + 1 if not ids.empty else 1
+    new_row = pd.DataFrame([{
+        "record_id": next_id,
+        "resident_id": resident_id,
+        "resident_name": resident_name,
+        "doc_type": BEE_DAILY_INPUT_DOC_TYPE,
+        "created_at": now_str,
+        "updated_at": now_str,
+        "json_data": json.dumps(form_data, ensure_ascii=False),
+    }])
+    df = pd.concat([df, new_row], ignore_index=True)
+    save_db(df, "saved_documents")
+    return next_id
+
+
+
+def bee_required_completion_status(payload):
+    payload = payload or {}
+    start_time = str(payload.get("start_time", "")).strip()
+    end_time = str(payload.get("end_time", "")).strip()
+    start_memo = str(payload.get("start_memo_raw", payload.get("start_memo", ""))).strip()
+    end_memo = str(payload.get("end_memo_raw", payload.get("end_memo", ""))).strip()
+    staff_name = str(payload.get("staff_name", "")).strip()
+
+    has_any = bool(start_time or end_time or start_memo or end_memo or staff_name)
+    complete = bool(start_time and end_time and start_memo and end_memo and staff_name)
+    incomplete = bool(has_any and not complete)
+
+    missing = []
+    if not start_time:
+        missing.append("開始時間")
+    if not end_time:
+        missing.append("終了時間")
+    if not start_memo:
+        missing.append("開始メモ")
+    if not end_memo:
+        missing.append("終了メモ")
+    if not staff_name:
+        missing.append("入力者")
+
+    return {
+        "complete": complete,
+        "incomplete": incomplete,
+        "missing": missing,
+    }
+
+
+
+def get_bee_daily_status_maps(company_id, target_date):
+    status_map = {}
+    record_map = {}
+    df = get_bee_daily_input_records(company_id, target_date)
+    if df is None or df.empty:
+        return status_map, record_map
+
+    for _, row in df.iterrows():
+        resident_id = str(row.get("resident_id", "")).strip()
+        payload = row.get("payload", {}) if isinstance(row.get("payload", {}), dict) else {}
+        status_map[resident_id] = bee_required_completion_status(payload)
+        record_map[resident_id] = row.to_dict()
+    return status_map, record_map
+
+
+
+def get_nursing_care_time_text(resident_id, target_date):
+    schedule_df = get_resident_schedule_df()
+    if schedule_df is None or schedule_df.empty:
+        return ""
+
+    weekday_label = _normalize_weekday_label(target_date)
+    work = schedule_df.copy()
+    for col in ["resident_id", "weekday", "service_type", "start_time", "end_time"]:
+        if col not in work.columns:
+            work[col] = ""
+
+    work = work[
+        (work["resident_id"].astype(str).str.strip() == str(resident_id).strip()) &
+        (work["weekday"].astype(str).str.strip() == str(weekday_label).strip()) &
+        (work["service_type"].astype(str).str.strip().isin(["看護", "介護"]))
+    ].copy()
+
+    if work.empty:
+        return ""
+
+    parts = []
+    for _, row in work.iterrows():
+        sv = str(row.get("service_type", "")).strip()
+        rs = str(row.get("start_time", "")).strip()
+        re = str(row.get("end_time", "")).strip()
+        rng = rs
+        if re:
+            rng += f"〜{re}"
+        parts.append(f"{sv} {rng}".strip())
+    return " / ".join([x for x in parts if x])
+
+
+
+def build_bee_daily_preview_df(company_id, target_date, master_df=None):
+    records_df = get_bee_daily_input_records(company_id, target_date)
+    if records_df is None or records_df.empty:
+        return pd.DataFrame(columns=["氏名", "開始時刻", "終了時刻", "開始メモ", "終了メモ", "看護介護時間", "内職内容", "数量"])
+
+    name_map = {}
+    if master_df is not None and not master_df.empty:
+        for _, row in master_df.iterrows():
+            rid = str(row.get("resident_id", "")).strip()
+            rname = str(row.get("resident_name", "")).strip()
+            if rid and rname:
+                name_map[rid] = rname
+
+    rows = []
+    for _, row in records_df.iterrows():
+        payload = row.get("payload", {}) if isinstance(row.get("payload", {}), dict) else {}
+        rid = str(row.get("resident_id", "")).strip()
+        rows.append({
+            "氏名": name_map.get(rid) or str(row.get("resident_name", "")).strip(),
+            "開始時刻": str(payload.get("start_time", "")).strip(),
+            "終了時刻": str(payload.get("end_time", "")).strip(),
+            "開始メモ": str(payload.get("start_memo_raw", payload.get("start_memo", ""))).strip(),
+            "終了メモ": str(payload.get("end_memo_raw", payload.get("end_memo", ""))).strip(),
+            "看護介護時間": get_nursing_care_time_text(rid, target_date),
+            "内職内容": str(payload.get("piecework_name", "")).strip(),
+            "数量": str(payload.get("piecework_quantity", "")).strip(),
+        })
+    return pd.DataFrame(rows)
+
+
 def get_gemini_api_key_from_app():
     api_key = ""
 
@@ -9953,7 +10426,16 @@ def render_bee_journal_page():
             st.warning("この事業所に所属する利用者がまだ登録されていません。")
             return
 
-        resident_options = []
+        target_date = st.date_input(
+            "対象日",
+            value=st.session_state.get("bee_target_date", now_jst().date()),
+            key="bee_target_date"
+        )
+
+        status_map, daily_record_map = get_bee_daily_status_maps(target_company_id, target_date)
+
+        unsaved_options = ["選んでください"]
+        saved_options = ["選んでください"]
         resident_map = {}
 
         for _, row in master_df.iterrows():
@@ -9963,26 +10445,70 @@ def render_bee_journal_page():
             if not rname:
                 continue
 
-            label = f"{rname}"
+            base_label = f"{rname}"
             if rid:
-                label += f" ({rid})"
+                base_label += f" ({rid})"
 
-            resident_options.append(label)
-            resident_map[label] = row.to_dict()
+            status_info = status_map.get(rid, {})
+            option_label = base_label
+            if status_info.get("incomplete"):
+                option_label += " 🔴未入力項目あり"
 
-        if not resident_options:
+            resident_map[option_label] = row.to_dict()
+            resident_map[base_label] = row.to_dict()
+
+            if status_info.get("complete"):
+                saved_options.append(option_label)
+            else:
+                unsaved_options.append(option_label)
+
+        if len(unsaved_options) == 1 and len(saved_options) == 1:
             st.warning("この事業所に所属する利用者がまだ登録されていません。")
             return
 
-        selected_label = st.selectbox(
-            "利用者を選ぶ",
-            resident_options,
-            key="bee_resident_select"
-        )
+        select_cols = st.columns(2)
+        with select_cols[0]:
+            selected_unsaved_label = st.selectbox(
+                "未入力・入力途中",
+                unsaved_options,
+                key="bee_unsaved_resident_select"
+            )
+        with select_cols[1]:
+            selected_saved_label = st.selectbox(
+                "入力済み",
+                saved_options,
+                key="bee_saved_group_resident_select"
+            )
+
+        selected_label = selected_unsaved_label if selected_unsaved_label != "選んでください" else selected_saved_label
+        if selected_label == "選んでください":
+            fallback_options = [x for x in unsaved_options[1:] + saved_options[1:] if x != "選んでください"]
+            if not fallback_options:
+                st.info("対象利用者を選んでください。")
+                return
+            selected_label = fallback_options[0]
 
         selected_row = resident_map[selected_label]
         resident_id = str(selected_row.get("resident_id", "")).strip()
         resident_name = str(selected_row.get("resident_name", "")).strip()
+
+        selected_daily_key = f"{target_company_id}|{resident_id}|{target_date}"
+        if st.session_state.get("bee_active_resident_date_key", "") != selected_daily_key:
+            saved_row = daily_record_map.get(resident_id)
+            if saved_row and isinstance(saved_row.get("payload"), dict):
+                load_bee_journal_json_into_session(saved_row.get("payload"), default_staff_name=current_staff_name)
+                st.session_state["bee_journal_loaded_record_id"] = saved_row.get("record_id")
+            else:
+                clear_bee_journal_input_state(default_staff_name=current_staff_name)
+                st.session_state["bee_journal_loaded_record_id"] = None
+            st.session_state["bee_active_resident_date_key"] = selected_daily_key
+
+        selected_status = status_map.get(resident_id, {})
+        if selected_status.get("incomplete"):
+            missing_text = "、".join(selected_status.get("missing", []))
+            st.warning(f"この利用者はまだ入力途中です。未入力: {missing_text}")
+        elif selected_status.get("complete"):
+            st.success("この利用者はこの日の必要項目が入力済みです。")
 
         st.markdown("### 保存済みデータ呼び出し")
 
@@ -10042,12 +10568,6 @@ def render_bee_journal_page():
 
         st.divider()
         st.markdown("## 日誌入力")
-
-        target_date = st.date_input(
-            "対象日",
-            value=st.session_state.get("bee_target_date", now_jst().date()),
-            key="bee_target_date"
-        )
 
         input_cols = st.columns([1, 1, 1, 1])
 
@@ -10146,6 +10666,55 @@ def render_bee_journal_page():
                 key="bee_note_text",
                 height=80
             )
+
+        piecework_df = get_piecework_master_df(target_company_id)
+        piecework_options = [""]
+        piecework_name_map = {"": ""}
+        if piecework_df is not None and not piecework_df.empty:
+            piecework_df = piecework_df.copy()
+            if "status" in piecework_df.columns:
+                piecework_df = piecework_df[
+                    piecework_df["status"].fillna("公開").astype(str).str.strip().isin(["公開", "active", "有効", ""])
+                ].copy()
+            for _, pw_row in piecework_df.iterrows():
+                pw_id = str(pw_row.get("piecework_id", "")).strip()
+                pw_name = str(pw_row.get("piecework_name", "")).strip()
+                if not pw_name:
+                    continue
+                label = pw_name if not pw_id else f"{pw_name} ({pw_id})"
+                piecework_options.append(label)
+                piecework_name_map[label] = pw_name
+
+        current_piecework_id = str(st.session_state.get("bee_piecework_id", "")).strip()
+        default_piecework_label = ""
+        for label in piecework_options:
+            if current_piecework_id and label.endswith(f"({current_piecework_id})"):
+                default_piecework_label = label
+                break
+
+        piece_cols = st.columns([3, 1])
+        with piece_cols[0]:
+            selected_piecework_label = st.selectbox(
+                "内職内容",
+                piecework_options,
+                index=piecework_options.index(default_piecework_label) if default_piecework_label in piecework_options else 0,
+                key="bee_piecework_select"
+            )
+        with piece_cols[1]:
+            piecework_quantity = st.text_input(
+                "数量",
+                value=str(st.session_state.get("bee_piecework_quantity", "")),
+                key="bee_piecework_quantity",
+                placeholder="任意"
+            )
+
+        selected_piecework_id = ""
+        selected_piecework_name = ""
+        if selected_piecework_label:
+            selected_piecework_name = piecework_name_map.get(selected_piecework_label, "")
+            if selected_piecework_label.endswith(")") and "(" in selected_piecework_label:
+                selected_piecework_id = selected_piecework_label.rsplit("(", 1)[-1].replace(")", "").strip()
+        st.session_state["bee_piecework_id"] = selected_piecework_id
 
         st.markdown("""
         <style>
@@ -10250,6 +10819,8 @@ def render_bee_journal_page():
             "service_type": service_type,
             "knowbe_user": st.session_state.get("bee_knownbe_user_name", "未登録"),
             "use_plan": st.session_state.get("knowbe_bee_use_plan", False),
+            "piecework_name": selected_piecework_name,
+            "piecework_quantity": piecework_quantity,
         }
 
         form_data = build_knowbe_diary_form_data(
@@ -10270,16 +10841,31 @@ def render_bee_journal_page():
             preview_note=preview_note,
             start_memo=start_memo,
             end_memo=end_memo,
+            piecework_id=selected_piecework_id,
+            piecework_name=selected_piecework_name,
+            piecework_quantity=piecework_quantity,
         )
 
         st.divider()
-        st.markdown("## 下書き保存")
+        st.markdown("## 保存")
 
         loaded_record_id = st.session_state.get("bee_journal_loaded_record_id")
 
-        save_cols = st.columns([1, 1, 4])
+        save_cols = st.columns([1.2, 1, 1, 3])
 
         with save_cols[0]:
+            if st.button("保存", key="bee_daily_progress_save", use_container_width=True):
+                save_id = upsert_bee_daily_input_record(
+                    company_id=target_company_id,
+                    target_date=target_date,
+                    resident_id=resident_id,
+                    resident_name=resident_name,
+                    form_data=form_data,
+                )
+                st.session_state["bee_journal_loaded_record_id"] = save_id
+                st.success(f"保存しました！ record_id = {save_id}")
+
+        with save_cols[1]:
             if st.button("途中保存", key="bee_journal_save_new", use_container_width=True):
                 new_id = save_document_record(
                     resident_id=resident_id,
@@ -10290,7 +10876,7 @@ def render_bee_journal_page():
                 st.session_state["bee_journal_loaded_record_id"] = new_id
                 st.success(f"途中保存しました！ record_id = {new_id}")
 
-        with save_cols[1]:
+        with save_cols[2]:
             if st.button("上書き保存", key="bee_journal_save_update", use_container_width=True):
                 if loaded_record_id:
                     ok = update_document_record(loaded_record_id, form_data)
@@ -10403,6 +10989,9 @@ def render_bee_journal_page():
                         preview_note=preview_note,
                         start_memo=start_memo,
                         end_memo=end_memo,
+                        piecework_id=selected_piecework_id,
+                        piecework_name=selected_piecework_name,
+                        piecework_quantity=piecework_quantity,
                     )
 
                     loaded_record_id = st.session_state.get("bee_journal_loaded_record_id")
@@ -10570,6 +11159,135 @@ def render_bee_journal_page():
                     )
                     st.success("スタッフ例文・個人ルールを登録しました！")
                     st.session_state["bee_rule_edit_open"] = False
+
+        st.divider()
+        st.markdown("## 保存済みデータから全員送信")
+
+        preview_df = build_bee_daily_preview_df(target_company_id, target_date, master_df=master_df)
+        with st.expander("入力項目確認"):
+            if preview_df.empty:
+                st.info("まだこの日の保存データがありません。")
+            else:
+                st.dataframe(preview_df, use_container_width=True, hide_index=True)
+
+        saved_records_df = get_bee_daily_input_records(target_company_id, target_date)
+        complete_targets = []
+        if saved_records_df is not None and not saved_records_df.empty:
+            for _, saved_row in saved_records_df.iterrows():
+                payload = saved_row.get("payload", {}) if isinstance(saved_row.get("payload"), dict) else {}
+                status_info = bee_required_completion_status(payload)
+                if not status_info.get("complete"):
+                    continue
+                complete_targets.append(payload)
+
+        if complete_targets:
+            st.caption(f"この日の入力済み利用者 {len(complete_targets)} 名を、1人ずつ順番にKnowbeへ送信します。")
+            current_status_box = st.empty()
+            error_log_box = st.empty()
+
+            current_status_text = str(st.session_state.get("bee_saved_loop_current_status", "")).strip()
+            if current_status_text:
+                current_status_box.info(current_status_text)
+
+            current_error_logs = st.session_state.get("bee_saved_loop_error_logs", [])
+            if current_error_logs:
+                error_log_box.error("\n".join([f"- {line}" for line in current_error_logs]))
+
+            if st.button("この日の入力済み利用者を全員送信", key="bee_send_saved_all", use_container_width=True):
+                progress = st.progress(0)
+                current_status_box = st.empty()
+                error_log_box = st.empty()
+                results = []
+                error_logs = []
+                total = len(complete_targets)
+
+                st.session_state["bee_saved_loop_results"] = []
+                st.session_state["bee_saved_loop_error_logs"] = []
+                st.session_state["bee_saved_loop_current_status"] = "送信を開始します。"
+                current_status_box.info(st.session_state["bee_saved_loop_current_status"])
+
+                for idx, payload in enumerate(complete_targets, start=1):
+                    target_resident_name = str(payload.get("resident_name", "")).strip()
+                    try:
+                        st.session_state["bee_saved_loop_current_status"] = f"{idx}/{total} {target_resident_name}：送信データを準備中"
+                        current_status_box.info(st.session_state["bee_saved_loop_current_status"])
+
+                        start_to_send = str(payload.get("start_memo_generated", "")).strip() or str(payload.get("start_memo_raw", payload.get("start_memo", ""))).strip()
+                        end_to_send = str(payload.get("end_memo_generated", "")).strip() or str(payload.get("end_memo_raw", payload.get("end_memo", ""))).strip()
+
+                        if not str(payload.get("start_memo_generated", "")).strip() and not str(payload.get("end_memo_generated", "")).strip():
+                            st.session_state["bee_saved_loop_current_status"] = f"{idx}/{total} {target_resident_name}：Geminiで文章を整形中"
+                            current_status_box.info(st.session_state["bee_saved_loop_current_status"])
+                            start_to_send, end_to_send = generate_bee_texts(
+                                resident_name=target_resident_name,
+                                service_type=str(payload.get("service_type", "在宅")).strip() or "在宅",
+                                meal_flag=str(payload.get("meal_flag", "なし")).strip() or "なし",
+                                note_text=str(payload.get("note_text", payload.get("note", ""))).strip(),
+                                start_memo=str(payload.get("start_memo_raw", payload.get("start_memo", ""))).strip(),
+                                end_memo=str(payload.get("end_memo_raw", payload.get("end_memo", ""))).strip(),
+                                staff_name=str(payload.get("staff_name", "")).strip(),
+                                plan_text="",
+                                examples_text="",
+                                rule_text="",
+                            )
+
+                        st.session_state["bee_saved_loop_current_status"] = f"{idx}/{total} {target_resident_name}：Knowbeへ送信中"
+                        current_status_box.info(st.session_state["bee_saved_loop_current_status"])
+
+                        ok = send_to_knowbe_from_bee(
+                            company_id=target_company_id,
+                            target_date=str(payload.get("target_date", payload.get("date", target_date))),
+                            resident_name=target_resident_name,
+                            service_type=str(payload.get("service_type", "在宅")).strip() or "在宅",
+                            start_time=str(payload.get("start_time", "")).strip(),
+                            end_time=str(payload.get("end_time", "")).strip(),
+                            meal_flag=str(payload.get("meal_flag", "なし")).strip() or "なし",
+                            note_text=str(payload.get("note_text", payload.get("note", ""))).strip(),
+                            generated_status=start_to_send,
+                            generated_support=end_to_send,
+                            staff_name=str(payload.get("staff_name", "")).strip(),
+                            knowbe_target="bulk_saved_loop",
+                            work_start_time=str(payload.get("work_start_time", "")).strip(),
+                            work_end_time=str(payload.get("work_end_time", "")).strip(),
+                            work_break_time=str(payload.get("work_break_time", "")).strip(),
+                            work_memo="",
+                            login_username=resolved_knowbe_user,
+                            login_password=resolved_knowbe_pw,
+                            send_user_status=True,
+                            send_staff_comment=True,
+                        )
+
+                        if ok:
+                            results.append(f"OK: {target_resident_name}")
+                            st.session_state["bee_saved_loop_current_status"] = f"{idx}/{total} {target_resident_name}：送信完了"
+                        else:
+                            results.append(f"NG: {target_resident_name}")
+                            error_logs.append(f"{target_resident_name}：送信失敗（Knowbe返却値NG）")
+                            st.session_state["bee_saved_loop_current_status"] = f"{idx}/{total} {target_resident_name}：送信失敗"
+
+                    except Exception as e:
+                        results.append(f"ERR: {target_resident_name} / {e}")
+                        error_logs.append(f"{target_resident_name}：{e}")
+                        st.session_state["bee_saved_loop_current_status"] = f"{idx}/{total} {target_resident_name}：エラー発生"
+
+                    current_status_box.info(st.session_state["bee_saved_loop_current_status"])
+                    st.session_state["bee_saved_loop_results"] = results
+                    st.session_state["bee_saved_loop_error_logs"] = error_logs
+                    if error_logs:
+                        error_log_box.error("\n".join([f"- {line}" for line in error_logs]))
+                    progress.progress(idx / total)
+
+                ok_count = len([x for x in results if str(x).startswith("OK:")])
+                ng_count = len(results) - ok_count
+                st.session_state["bee_saved_loop_current_status"] = f"送信完了：成功 {ok_count}件 / エラー {ng_count}件"
+                current_status_box.success(st.session_state["bee_saved_loop_current_status"])
+                if error_logs:
+                    error_log_box.error("\n".join([f"- {line}" for line in error_logs]))
+
+        loop_error_logs = st.session_state.get("bee_saved_loop_error_logs", [])
+        if loop_error_logs:
+            with st.expander("送信エラーログ"):
+                st.markdown("\n".join([f"- {line}" for line in loop_error_logs]))
 
         st.divider()
         st.markdown("## 入力内容確認")
