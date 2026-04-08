@@ -1,14 +1,11 @@
-import os
-import re
 import json
+import re
 import time
-import shutil
 import traceback
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-import pdfplumber
 import pandas as pd
 import gspread
 
@@ -20,13 +17,12 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
 
 
 # =========================================================
 # 設定読込
 # =========================================================
-CONFIG_PATH = Path("config_local.json")
+CONFIG_PATH = Path(__file__).parent / "config_local.json"
 
 
 def load_config() -> Dict[str, Any]:
@@ -42,15 +38,13 @@ BASE_URL = CFG["base_url"]
 USER_ID = CFG["user_id"]
 PASSWORD = CFG["password"]
 BROWSER = CFG.get("browser", "chrome").lower()
-PDF_WAIT = int(CFG.get("download_wait_sec", 600))
 TASKS = CFG["tasks"]
 
 TODAY_STR = datetime.now().strftime("%Y%m%d")
 STAMP_STR = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 DESKTOP = Path.home() / "Desktop"
-WORK_DIR = DESKTOP / f"{CFG.get('desktop_output_dir_name_prefix', 'DMCI_SUPER_AUTORUN')}_{STAMP_STR}"
-PDF_DIR = WORK_DIR / "pdf"
+WORK_DIR = DESKTOP / f"{CFG.get('desktop_output_dir_name_prefix', 'DMCI_TABLE_AUTORUN')}_{STAMP_STR}"
 XLSX_DIR = WORK_DIR / "xlsx"
 DEBUG_DIR = WORK_DIR / "debug"
 LOG_DIR = WORK_DIR / "logs"
@@ -67,7 +61,7 @@ FINAL_BOOK_PATH = WORK_DIR / f"{TODAY_STR}.xlsx"
 # 基本
 # =========================================================
 def ensure_dirs():
-    for p in [PDF_DIR, XLSX_DIR, DEBUG_DIR, LOG_DIR, HTML_DIR, SHOT_DIR, JSON_DIR]:
+    for p in [XLSX_DIR, DEBUG_DIR, LOG_DIR, HTML_DIR, SHOT_DIR, JSON_DIR]:
         p.mkdir(parents=True, exist_ok=True)
 
 
@@ -141,8 +135,8 @@ def retry(func, retries=3, wait_sec=3, label="retry_target"):
 # Google Sheets
 # =========================================================
 def get_gspread_client():
-    sa_file = CFG["google_service_account_file"]
-    gc = gspread.service_account(filename=sa_file)
+    sa_file = Path(__file__).parent / CFG["google_service_account_file"]
+    gc = gspread.service_account(filename=str(sa_file))
     return gc
 
 
@@ -152,7 +146,7 @@ def get_spreadsheet():
     return ss
 
 
-def ensure_worksheet(ss, title: str, rows=2000, cols=30):
+def ensure_worksheet(ss, title: str, rows=3000, cols=40):
     try:
         return ss.worksheet(title)
     except Exception:
@@ -161,9 +155,8 @@ def ensure_worksheet(ss, title: str, rows=2000, cols=30):
 
 def write_df_to_gsheet(ss, sheet_name: str, df: pd.DataFrame):
     ws_name = CFG["google_sheet_names"].get(sheet_name, sheet_name)
-    ws = ensure_worksheet(ss, ws_name, rows=max(len(df) + 100, 2000), cols=max(len(df.columns) + 10, 20))
+    ws = ensure_worksheet(ss, ws_name, rows=max(len(df) + 100, 3000), cols=max(len(df.columns) + 5, 20))
     ws.clear()
-
     values = [df.columns.tolist()] + df.fillna("").astype(str).values.tolist()
     ws.update("A1", values)
     log(f"Google Sheets書込完了: {ws_name} / {len(df)}件")
@@ -171,7 +164,10 @@ def write_df_to_gsheet(ss, sheet_name: str, df: pd.DataFrame):
 
 def append_run_log(ss, level: str, message: str):
     ws = ensure_worksheet(ss, "run_log", rows=5000, cols=10)
-    ws.append_row([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), level, message], value_input_option="USER_ENTERED")
+    ws.append_row(
+        [datetime.now().strftime("%Y-%m-%d %H:%M:%S"), level, message],
+        value_input_option="USER_ENTERED"
+    )
 
 
 def write_run_summary(ss, summary: Dict[str, Any]):
@@ -190,20 +186,12 @@ def write_run_summary(ss, summary: Dict[str, Any]):
 # =========================================================
 # ブラウザ
 # =========================================================
-def build_driver(download_dir: Path):
+def build_driver():
     if BROWSER == "edge":
         options = EdgeOptions()
     else:
         options = ChromeOptions()
 
-    prefs = {
-        "download.default_directory": str(download_dir),
-        "download.prompt_for_download": False,
-        "download.directory_upgrade": True,
-        "plugins.always_open_pdf_externally": True,
-        "safebrowsing.enabled": True,
-    }
-    options.add_experimental_option("prefs", prefs)
     options.add_argument("--start-maximized")
     options.add_argument("--disable-popup-blocking")
     options.add_argument("--disable-notifications")
@@ -214,12 +202,12 @@ def build_driver(download_dir: Path):
     else:
         driver = webdriver.Chrome(options=options)
 
-    driver.set_page_load_timeout(PDF_WAIT)
+    driver.set_page_load_timeout(120)
     return driver
 
 
 # =========================================================
-# Selenium 共通
+# Selenium共通
 # =========================================================
 def wait_visible(driver, by, value, timeout=30):
     return WebDriverWait(driver, timeout).until(
@@ -230,12 +218,6 @@ def wait_visible(driver, by, value, timeout=30):
 def wait_present(driver, by, value, timeout=30):
     return WebDriverWait(driver, timeout).until(
         EC.presence_of_element_located((by, value))
-    )
-
-
-def wait_clickable(driver, by, value, timeout=30):
-    return WebDriverWait(driver, timeout).until(
-        EC.element_to_be_clickable((by, value))
     )
 
 
@@ -386,285 +368,339 @@ def set_view_by_100(driver):
     time.sleep(4)
     debug_dump(driver, "after_view_by_100")
 
+def normalize_text(s: str) -> str:
+    return re.sub(r"\s+", " ", str(s or "")).strip()
+
+
+def score_row_text(text: str) -> int:
+    """
+    Unit Availabilityの1行っぽさをざっくり点数化する。
+    """
+    t = normalize_text(text)
+    if not t:
+        return 0
+
+    score = 0
+
+    keywords = [
+        "avail", "onhold", "reserved", "sold",
+        "condo", "parking", "service area",
+        "php",
+    ]
+    for kw in keywords:
+        if kw in t.lower():
+            score += 2
+
+    # 価格っぽい
+    if re.search(r"php\s*[\d,]+(?:\.\d{2})?", t, re.I):
+        score += 3
+
+    # 日付っぽい
+    if re.search(r"\b\d{1,2}/\d{1,2}/\d{4}\b", t):
+        score += 2
+
+    # 面積っぽい
+    if re.search(r"\b\d+(?:\.\d+)?\b", t):
+        score += 1
+
+    # 長すぎるのはむしろ行っぽい
+    if len(t) >= 30:
+        score += 1
+
+    return score
+
+
+def split_cells_from_text(text: str) -> List[str]:
+    """
+    divベースの行を雑にセル分割する。
+    まず複数スペースで区切り、だめなら単語列のまま返す。
+    """
+    t = normalize_text(text)
+    if not t:
+        return []
+
+    # 2個以上スペース区切り優先
+    parts = [p.strip() for p in re.split(r"\s{2,}", t) if p.strip()]
+    if len(parts) >= 4:
+        return parts
+
+    # fallback: 単一スペース区切り
+    parts = [p.strip() for p in t.split(" ") if p.strip()]
+    return parts
 
 # =========================================================
-# Summary PDF
+# 一覧表直読み
 # =========================================================
-def cleanup_pdf_dir():
-    for p in PDF_DIR.glob("*"):
+def parse_html_table(driver) -> List[Dict[str, Any]]:
+    """
+    table固定ではなく、
+    - table/tr
+    - role=row
+    - divの繰り返し行
+    を総当たりで探す。
+    """
+
+    # -----------------------------------------------------
+    # 1) まず table を探す
+    # -----------------------------------------------------
+    tables = driver.find_elements(By.XPATH, "//table")
+    best_records: List[Dict[str, Any]] = []
+    best_meta: Dict[str, Any] = {"mode": None, "headers": [], "count": 0}
+
+    for idx, table in enumerate(tables, start=1):
         try:
-            p.unlink()
+            rows = table.find_elements(By.XPATH, ".//tr")
+            if len(rows) < 2:
+                continue
+
+            header_cells = rows[0].find_elements(By.XPATH, ".//th|.//td")
+            headers = [normalize_text(c.text) for c in header_cells]
+
+            if len(headers) < 4:
+                continue
+
+            records = []
+            for tr in rows[1:]:
+                cells = tr.find_elements(By.XPATH, ".//td")
+                vals = [normalize_text(c.text) for c in cells]
+                if not vals:
+                    continue
+
+                joined = normalize_text(" ".join(vals))
+                if score_row_text(joined) < 2 and len(vals) < 4:
+                    continue
+
+                row = {}
+                for i, h in enumerate(headers):
+                    key = h if h else f"col_{i+1}"
+                    row[key] = vals[i] if i < len(vals) else ""
+                records.append(row)
+
+            if len(records) > len(best_records):
+                best_records = records
+                best_meta = {
+                    "mode": "table",
+                    "headers": headers,
+                    "count": len(records),
+                    "table_index": idx,
+                }
         except Exception:
-            pass
+            continue
 
+    if best_records:
+        dump_json(best_meta, JSON_DIR / f"table_detect_meta_{now_tag()}.json")
+        return best_records
 
-def click_summary_pdf(driver):
-    export_candidates = [
-        "//img[contains(@src, 'exportpdf')]",
-        "//div[@id='viewbyindex']//img",
-        "//img[contains(@style, 'margin-top')]",
+    # -----------------------------------------------------
+    # 2) role=row を探す
+    # -----------------------------------------------------
+    role_rows = driver.find_elements(By.XPATH, "//*[@role='row']")
+    role_records = []
+
+    for i, row_elem in enumerate(role_rows, start=1):
+        try:
+            txt = normalize_text(row_elem.text)
+            if score_row_text(txt) < 3:
+                continue
+
+            cells = row_elem.find_elements(By.XPATH, ".//*[@role='cell'] | .//div | .//span")
+            vals = [normalize_text(c.text) for c in cells if normalize_text(c.text)]
+            if len(vals) < 3:
+                vals = split_cells_from_text(txt)
+
+            if len(vals) < 3:
+                continue
+
+            role_records.append({
+                "raw_text": txt,
+                **{f"col_{j+1}": v for j, v in enumerate(vals)}
+            })
+        except Exception:
+            continue
+
+    if role_records:
+        dump_json(
+            {
+                "mode": "role_row",
+                "count": len(role_records),
+                "sample": role_records[:5],
+            },
+            JSON_DIR / f"table_detect_meta_{now_tag()}.json"
+        )
+        return role_records
+
+    # -----------------------------------------------------
+    # 3) divベースの繰り返しブロックを探す
+    # -----------------------------------------------------
+    candidate_xpaths = [
+        "//div[contains(@class,'row')]",
+        "//div[contains(@class,'grid')]//div",
+        "//div[contains(@class,'item')]",
+        "//div[contains(@class,'data')]//div",
+        "//div[contains(@class,'list')]//div",
+        "//*[contains(@class,'datatable')]//*[self::div or self::li]",
+        "//*[contains(@id,'datatable')]//*[self::div or self::li]",
     ]
 
-    export_elem = None
-    for xp in export_candidates:
-        try:
-            export_elem = wait_present(driver, By.XPATH, xp, timeout=10)
-            hover(driver, export_elem)
-            time.sleep(2)
-            break
-        except Exception:
-            continue
+    all_candidates = []
+    seen_texts = set()
 
-    if export_elem is None:
-        raise RuntimeError("DOWNLOAD PDFアイコンが見つからないある")
-
-    for _ in range(3):
-        try:
-            robust_click_xpath(
-                driver,
-                [
-                    "//a[contains(., 'Summary')]",
-                    "//*[self::a or self::button][contains(., 'Summary')]",
-                ],
-                timeout=8,
-            )
-            time.sleep(3)
-            debug_dump(driver, "after_summary_click")
-            return
-        except Exception:
-            hover(driver, export_elem)
-            time.sleep(2)
-
-    raise RuntimeError("Summary がクリックできなかったある")
-
-
-def wait_download_complete(timeout=600) -> Path:
-    start = time.time()
-    last_pdf = None
-
-    while time.time() - start < timeout:
-        pdfs = list(PDF_DIR.glob("*.pdf"))
-        crs = list(PDF_DIR.glob("*.crdownload"))
-
-        if pdfs:
-            last_pdf = max(pdfs, key=lambda p: p.stat().st_mtime)
-
-        if last_pdf and not crs:
-            time.sleep(2)
-            return last_pdf
-
-        time.sleep(2)
-
-    raise TimeoutException("PDFダウンロード待ちタイムアウトある")
-
-
-def close_extra_windows(driver, base_handle: str):
-    for h in driver.window_handles:
-        if h != base_handle:
+    for xp in candidate_xpaths:
+        elems = driver.find_elements(By.XPATH, xp)
+        for e in elems:
             try:
-                driver.switch_to.window(h)
-                driver.close()
-            except Exception:
-                pass
-    driver.switch_to.window(base_handle)
+                txt = normalize_text(e.text)
+                if not txt:
+                    continue
+                if txt in seen_texts:
+                    continue
+                seen_texts.add(txt)
 
+                score = score_row_text(txt)
+                if score < 4:
+                    continue
 
-def download_summary_pdf(driver, logical_name: str) -> Path:
-    cleanup_pdf_dir()
+                vals = split_cells_from_text(txt)
+                if len(vals) < 3:
+                    continue
 
-    base_handle = driver.current_window_handle
-    before_handles = set(driver.window_handles)
-
-    click_summary_pdf(driver)
-    time.sleep(5)
-
-    after_handles = set(driver.window_handles)
-    new_handles = list(after_handles - before_handles)
-    if new_handles:
-        try:
-            driver.switch_to.window(new_handles[-1])
-            debug_dump(driver, f"new_window_{logical_name}")
-        except Exception:
-            pass
-
-    pdf_path = wait_download_complete(timeout=PDF_WAIT)
-    target = PDF_DIR / f"{safe_filename(logical_name)}.pdf"
-    if target.exists():
-        target.unlink()
-    shutil.move(str(pdf_path), str(target))
-
-    close_extra_windows(driver, base_handle)
-    return target
-
-
-# =========================================================
-# テーブル直読み fallback
-# =========================================================
-def extract_html_table_rows(driver) -> List[Dict[str, str]]:
-    rows = []
-    tr_list = driver.find_elements(By.XPATH, "//table//tr")
-    for tr in tr_list:
-        tds = tr.find_elements(By.TAG_NAME, "td")
-        vals = [td.text.strip() for td in tds]
-        if not vals:
-            continue
-        if len(vals) >= 8:
-            rows.append({
-                "col1": vals[0] if len(vals) > 0 else "",
-                "col2": vals[1] if len(vals) > 1 else "",
-                "col3": vals[2] if len(vals) > 2 else "",
-                "col4": vals[3] if len(vals) > 3 else "",
-                "col5": vals[4] if len(vals) > 4 else "",
-                "col6": vals[5] if len(vals) > 5 else "",
-                "col7": vals[6] if len(vals) > 6 else "",
-                "col8": vals[7] if len(vals) > 7 else "",
-                "raw": " | ".join(vals),
-            })
-    return rows
-
-
-def collect_all_pages_table(driver, logical_name: str) -> pd.DataFrame:
-    all_rows = []
-    page_no = 1
-
-    while True:
-        time.sleep(2)
-        page_rows = extract_html_table_rows(driver)
-        for r in page_rows:
-            r["page_no"] = page_no
-        all_rows.extend(page_rows)
-
-        debug_dump(driver, f"table_page_{logical_name}_{page_no}")
-
-        next_candidates = [
-            "//a[contains(., 'Next')]",
-            "//button[contains(., 'Next')]",
-            "//*[contains(@class,'paginate')]//*[contains(., 'Next')]",
-        ]
-
-        moved = False
-        for xp in next_candidates:
-            try:
-                elems = driver.find_elements(By.XPATH, xp)
-                for e in elems:
-                    txt = (e.text or "").strip().lower()
-                    cls = (e.get_attribute("class") or "").lower()
-                    if "disabled" in cls:
-                        continue
-                    if e.is_displayed():
-                        robust_click(driver, e)
-                        moved = True
-                        page_no += 1
-                        time.sleep(3)
-                        break
-                if moved:
-                    break
+                all_candidates.append({
+                    "score": score,
+                    "raw_text": txt,
+                    "vals": vals,
+                    "xpath_source": xp,
+                })
             except Exception:
                 continue
 
-        if not moved:
-            break
+    # スコア高い順に並べる
+    all_candidates = sorted(all_candidates, key=lambda x: (-x["score"], -len(x["vals"])))
 
-    if not all_rows:
-        raise RuntimeError(f"一覧テーブル直読みも0件だったある: {logical_name}")
+    div_records = []
+    for item in all_candidates:
+        div_records.append({
+            "raw_text": item["raw_text"],
+            **{f"col_{i+1}": v for i, v in enumerate(item["vals"])}
+        })
 
-    return pd.DataFrame(all_rows)
+    if div_records:
+        dump_json(
+            {
+                "mode": "div_rows",
+                "count": len(div_records),
+                "sample": div_records[:5],
+            },
+            JSON_DIR / f"table_detect_meta_{now_tag()}.json"
+        )
+        return div_records
 
-
-# =========================================================
-# PDF解析
-# =========================================================
-HEADER_KEYWORDS = [
-    "DMCI Seller's Portal",
-    "Unit Availability List",
-    "As of ",
-    "Page:",
-    "Generated Date:",
-    "Generated by:",
-]
-
-ROW_PATTERN_STRICT = re.compile(
-    r"""
-    ^
-    (?P<Property>\S+)\s+
-    (?P<Building>.+?)\s+
-    (?P<Unit>\S+)\s+
-    (?P<Tower>\S+)\s+
-    (?P<Floor>\S+)\s+
-    (?P<Status>\S+)\s+
-    (?P<Category>\S+)\s+
-    (?P<Type>\S+)\s+
-    (?P<GrossArea>\d+(?:\.\d+)?)\s+
-    (?P<Location>.+?)\s+
-    (?P<PropertyUnit>\S+)\s+
-    (?P<RFODate>\d{1,2}/\d{1,2}/\d{4})
-    (?:\s+(?P<TandemPackage>.*?))?
-    \s+(?P<ListPrice>Php\s*[\d,]+\.\d{2})
-    $
-    """,
-    re.VERBOSE,
-)
-
-ROW_PATTERN_RELAXED = re.compile(
-    r"""
-    ^
-    (?P<Property>\S+)\s+
-    (?P<Building>.+?)\s+
-    (?P<Unit>\S+)\s+
-    (?P<Tower>\S+)\s+
-    (?P<Floor>\S+)\s+
-    (?P<Status>\S+)\s+
-    (?P<Category>\S+)\s+
-    (?P<Type>\S+)\s+
-    (?P<GrossArea>\d+(?:\.\d+)?)\s+
-    (?P<Location>.+?)\s+
-    (?P<PropertyUnit>\S+)
-    (?:\s+(?P<RFODate>\d{1,2}/\d{1,2}/\d{4}))?
-    (?:\s+(?P<TandemPackage>.*?))?
-    \s+(?P<ListPrice>Php\s*[\d,]+\.\d{2})
-    $
-    """,
-    re.VERBOSE,
-)
+    # -----------------------------------------------------
+    # 4) 全滅ならデバッグ保存して落とす
+    # -----------------------------------------------------
+    debug_dump(driver, f"no_table_like_structure_{now_tag()}")
+    raise RuntimeError("table/div行構造が見つからないある")
 
 
-def is_header_line(s: str) -> bool:
-    s = (s or "").strip()
-    if not s:
-        return True
-    if s.startswith("Property Building Unit Tower Floor Status"):
-        return True
-    for kw in HEADER_KEYWORDS:
-        if s.startswith(kw):
-            return True
-    return False
+def find_next_button(driver):
+    candidates = driver.find_elements(
+        By.XPATH,
+        "//a | //button | //span"
+    )
 
+    for e in candidates:
+        try:
+            txt = (e.text or "").strip().lower()
+            cls = (e.get_attribute("class") or "").lower()
+            aria = (e.get_attribute("aria-label") or "").strip().lower()
 
-def parse_line(line: str) -> Optional[Dict[str, str]]:
-    s = line.strip()
-    if is_header_line(s):
-        return None
-    m = ROW_PATTERN_STRICT.match(s)
-    if m:
-        return m.groupdict()
-    m = ROW_PATTERN_RELAXED.match(s)
-    if m:
-        return m.groupdict()
+            if txt in ("next", ">", "next ›", "›") or "next" in aria:
+                if "disabled" in cls:
+                    continue
+                if e.is_displayed():
+                    return e
+        except Exception:
+            continue
+
+    # DataTablesっぽい next
+    xpaths = [
+        "//a[contains(@id, '_next')]",
+        "//li[contains(@class,'next')]/a",
+        "//a[contains(., 'Next')]",
+        "//button[contains(., 'Next')]",
+    ]
+    for xp in xpaths:
+        elems = driver.find_elements(By.XPATH, xp)
+        for e in elems:
+            try:
+                cls = (e.get_attribute("class") or "").lower()
+                if "disabled" in cls:
+                    continue
+                if e.is_displayed():
+                    return e
+            except Exception:
+                continue
+
     return None
 
 
-def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return df
+def get_page_signature(records: List[Dict[str, Any]]) -> str:
+    if not records:
+        return "EMPTY"
+    sample = records[:3]
+    return json.dumps(sample, ensure_ascii=False, sort_keys=True)
+
+
+def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    取れた列名をなるべく統一する。
+    """
+    rename_map = {}
+
+    for c in df.columns:
+        lc = str(c).strip().lower()
+
+        if lc == "property":
+            rename_map[c] = "Property"
+        elif lc == "building":
+            rename_map[c] = "Building"
+        elif lc == "unit":
+            rename_map[c] = "Unit"
+        elif lc == "tower":
+            rename_map[c] = "Tower"
+        elif lc == "floor":
+            rename_map[c] = "Floor"
+        elif lc == "status":
+            rename_map[c] = "Status"
+        elif lc == "category":
+            rename_map[c] = "Category"
+        elif lc == "type":
+            rename_map[c] = "Type"
+        elif "gross" in lc and "area" in lc:
+            rename_map[c] = "GrossArea"
+        elif lc == "location":
+            rename_map[c] = "Location"
+        elif "property unit" in lc:
+            rename_map[c] = "PropertyUnit"
+        elif "rfo" in lc and "date" in lc:
+            rename_map[c] = "RFODate"
+        elif "tandem" in lc or "package" in lc:
+            rename_map[c] = "TandemPackage"
+        elif "list" in lc and "price" in lc:
+            rename_map[c] = "ListPrice"
+
+    df = df.rename(columns=rename_map)
 
     if "Property" in df.columns:
         df = df.drop(columns=["Property"])
 
+    if "GrossArea" in df.columns:
+        df["GrossArea"] = pd.to_numeric(
+            df["GrossArea"].astype(str).str.replace(",", "", regex=False),
+            errors="coerce"
+        )
+
     if "RFODate" in df.columns:
         df["RFODate"] = pd.to_datetime(df["RFODate"], errors="coerce")
-
-    if "GrossArea" in df.columns:
-        df["GrossArea"] = pd.to_numeric(df["GrossArea"], errors="coerce")
 
     if "ListPrice" in df.columns:
         df["ListPrice"] = (
@@ -691,40 +727,84 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         "TandemPackage",
         "ListPrice",
     ]
-    return df[[c for c in ordered_cols if c in df.columns]]
+    ordered_existing = [c for c in ordered_cols if c in df.columns]
+    other_cols = [c for c in df.columns if c not in ordered_existing]
+
+    return df[ordered_existing + other_cols]
 
 
-def parse_pdf_to_dataframe(pdf_path: Path, logical_name: str) -> pd.DataFrame:
-    rows = []
-    unmatched = []
+def collect_all_pages_table(driver, logical_name: str) -> pd.DataFrame:
+    all_rows: List[Dict[str, Any]] = []
+    seen_signatures = set()
+    page_no = 1
+    max_pages = 50  # 暴走防止
 
-    with pdfplumber.open(str(pdf_path)) as pdf:
-        for i, page in enumerate(pdf.pages, start=1):
-            text = page.extract_text() or ""
-            lines = text.splitlines()
-            for line in lines:
-                parsed = parse_line(line)
-                if parsed:
-                    rows.append(parsed)
-                else:
-                    s = line.strip()
-                    if s and not is_header_line(s):
-                        unmatched.append({"page": i, "line": s})
+    while page_no <= max_pages:
+        time.sleep(2)
+        debug_dump(driver, f"table_page_{logical_name}_{page_no}")
 
-    dump_json(
-        {
-            "sheet": logical_name,
-            "rows": len(rows),
-            "unmatched_sample": unmatched[:200]
-        },
-        JSON_DIR / f"pdf_parse_{safe_filename(logical_name)}.json"
-    )
+        rows = parse_html_table(driver)
+        sig = get_page_signature(rows)
 
-    if not rows:
-        raise RuntimeError(f"PDFから1件も取れなかったある: {logical_name}")
+        if sig in seen_signatures:
+            log(f"{logical_name}: 同じページ署名を検出、巡回終了")
+            break
 
-    df = pd.DataFrame(rows)
-    return normalize_dataframe(df)
+        seen_signatures.add(sig)
+
+        for r in rows:
+            r["_page_no"] = page_no
+        all_rows.extend(rows)
+
+        next_btn = find_next_button(driver)
+        if not next_btn:
+            log(f"{logical_name}: Nextボタンなし、巡回終了")
+            break
+
+        before_url = driver.current_url
+        before_sig = sig
+
+        try:
+            robust_click(driver, next_btn)
+            time.sleep(4)
+
+            # ページ変化待ち
+            changed = False
+            for _ in range(10):
+                time.sleep(1)
+                try:
+                    new_rows = parse_html_table(driver)
+                    new_sig = get_page_signature(new_rows)
+                    if new_sig != before_sig:
+                        changed = True
+                        break
+                except Exception:
+                    pass
+
+            if not changed:
+                log(f"{logical_name}: Nextクリック後に内容変化なし、巡回終了")
+                break
+
+            page_no += 1
+
+        except Exception as e:
+            log(f"{logical_name}: Nextクリック失敗、巡回終了 / {e}")
+            break
+
+    if not all_rows:
+        raise RuntimeError(f"一覧データ取得が0件だったある: {logical_name}")
+
+    df = pd.DataFrame(all_rows)
+
+    # 列の型を雑に整える
+    if "raw_text" in df.columns and len(df.columns) <= 4:
+        # 完全に生テキストしか取れてない場合も、そのまま保存できるようにする
+        log(f"{logical_name}: 生テキスト主体で保存するある / rows={len(df)}")
+        return df
+
+    df = normalize_columns(df)
+    log(f"{logical_name}: 一覧直読み完了 / {len(df)}件 / {page_no}ページ")
+    return df
 
 
 # =========================================================
@@ -784,8 +864,7 @@ def process_task(driver, task: Dict, ss) -> Dict[str, Any]:
         "entity_code": task["entity_code"],
         "status": "running",
         "row_count": 0,
-        "source_mode": None,
-        "pdf_path": None,
+        "source_mode": "html_table",
         "xlsx_path": None,
         "error": None,
     }
@@ -799,17 +878,12 @@ def process_task(driver, task: Dict, ss) -> Dict[str, Any]:
         retry(lambda: run_search_if_needed(driver, task), retries=3, wait_sec=3, label=f"{name}_run_search")
         retry(lambda: set_view_by_100(driver), retries=3, wait_sec=3, label=f"{name}_viewby")
 
-        # まずPDF
-        try:
-            pdf_path = retry(lambda: download_summary_pdf(driver, name), retries=2, wait_sec=5, label=f"{name}_pdf_download")
-            df = parse_pdf_to_dataframe(pdf_path, name)
-            result["source_mode"] = "pdf"
-            result["pdf_path"] = str(pdf_path)
-        except Exception as pdf_err:
-            log(f"{name}: PDF方式失敗 -> テーブル直読みにfallback / {pdf_err}")
-            append_run_log(ss, "WARN", f"{name}: PDF方式失敗 -> fallback")
-            df = collect_all_pages_table(driver, name)
-            result["source_mode"] = "html_table"
+        df = retry(
+            lambda: collect_all_pages_table(driver, name),
+            retries=2,
+            wait_sec=5,
+            label=f"{name}_table_collect"
+        )
 
         result["row_count"] = int(len(df))
 
@@ -820,7 +894,7 @@ def process_task(driver, task: Dict, ss) -> Dict[str, Any]:
         write_df_to_gsheet(ss, name, df)
 
         result["status"] = "success"
-        append_run_log(ss, "INFO", f"成功: {name} / {len(df)}件 / mode={result['source_mode']}")
+        append_run_log(ss, "INFO", f"成功: {name} / {len(df)}件 / mode=html_table")
         return {"result": result, "df": df}
 
     except Exception as e:
@@ -828,6 +902,7 @@ def process_task(driver, task: Dict, ss) -> Dict[str, Any]:
         result["error"] = str(e)
         debug_dump(driver, f"task_failed_{name}")
         append_run_log(ss, "ERROR", f"失敗: {name} / {e}")
+        traceback.print_exc()
         return {"result": result, "df": None}
 
 
@@ -853,7 +928,7 @@ def main():
     final_items = []
 
     try:
-        driver = build_driver(PDF_DIR)
+        driver = build_driver()
 
         for task in TASKS:
             out = process_task(driver, task, ss)
