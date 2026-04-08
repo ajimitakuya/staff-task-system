@@ -43,8 +43,8 @@ TASKS = CFG["tasks"]
 TODAY_STR = datetime.now().strftime("%Y%m%d")
 STAMP_STR = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-DESKTOP = Path.home() / "Desktop"
-WORK_DIR = DESKTOP / f"{CFG.get('desktop_output_dir_name_prefix', 'DMCI_TABLE_AUTORUN')}_{STAMP_STR}"
+BASE_SAVE_DIR = Path(r"Y:\これが見えたら成功してるよ！！！！\もういらないけど捨てない( ´艸｀)\新しいフォルダー\S_H\dmci\保存")
+WORK_DIR = BASE_SAVE_DIR / f"DMCI_SUPER_AUTORUN_{STAMP_STR}"
 XLSX_DIR = WORK_DIR / "xlsx"
 DEBUG_DIR = WORK_DIR / "debug"
 LOG_DIR = WORK_DIR / "logs"
