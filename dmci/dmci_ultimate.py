@@ -1,3 +1,4 @@
+import os
 import json
 import re
 import time
@@ -43,7 +44,8 @@ TASKS = CFG["tasks"]
 TODAY_STR = datetime.now().strftime("%Y%m%d")
 STAMP_STR = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-BASE_SAVE_DIR = Path(r"Y:\これが見えたら成功してるよ！！！！\もういらないけど捨てない( ´艸｀)\新しいフォルダー\S_H\dmci\保存")
+DEFAULT_SAVE_DIR = Path(r"Y:\これが見えたら成功してるよ！！！！\もういらないけど捨てない( ´艸｀)\新しいフォルダー\S_H\dmci\保存")
+BASE_SAVE_DIR = Path(os.environ.get("DMCI_FIXED_SAVE_DIR", str(DEFAULT_SAVE_DIR)))
 WORK_DIR = BASE_SAVE_DIR / f"DMCI_SUPER_AUTORUN_{STAMP_STR}"
 XLSX_DIR = WORK_DIR / "xlsx"
 DEBUG_DIR = WORK_DIR / "debug"
@@ -187,10 +189,18 @@ def write_run_summary(ss, summary: Dict[str, Any]):
 # ブラウザ
 # =========================================================
 def build_driver():
+    local_appdata = Path(os.environ["LOCALAPPDATA"])
+    profile_root = local_appdata / "DBKI_DMCI" / "chrome_profile"
+    profile_root.mkdir(parents=True, exist_ok=True)
+
     if BROWSER == "edge":
         options = EdgeOptions()
+        options.add_argument(f"--user-data-dir={str(profile_root)}")
+        options.add_argument("--profile-directory=Default")
     else:
         options = ChromeOptions()
+        options.add_argument(f"--user-data-dir={str(profile_root)}")
+        options.add_argument("--profile-directory=Default")
 
     options.add_argument("--start-maximized")
     options.add_argument("--disable-popup-blocking")
@@ -204,7 +214,6 @@ def build_driver():
 
     driver.set_page_load_timeout(120)
     return driver
-
 
 # =========================================================
 # Selenium共通

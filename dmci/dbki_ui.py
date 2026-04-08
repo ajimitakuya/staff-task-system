@@ -17,7 +17,10 @@ from flask import Flask, request, redirect, url_for, render_template_string
 # =========================================================
 
 APP = Flask(__name__)
-BASE_DIR = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent
 DMCI_SCRIPT = BASE_DIR / "dmci_ultimate.py"
 CONFIG_FILE = BASE_DIR / "config_local.json"
 DEFAULT_OUTPUT_DIR = BASE_DIR / "保存"
@@ -77,22 +80,22 @@ HTML = """
 <body>
 <div class="wrap">
   <div class="card">
-    <h1>DBKI（どぶんけえいんたーふえーす）</h1>
+    <h1>DBK I（どぶんけえいんたーふえーす(￣ｍ￣〃)ぷぷっ!）</h1>
     <div class="status {{ status_class }}">{{ state.current_status }}</div>
-    <div class="muted small">dmci_ultimate.py をボタン1つで実行するローカルサイトある。</div>
+    <div class="muted small">dmci_ultimate.py をボタン1つで実行するローカルサイトある🥳🥳🥳。</div>
   </div>
 
   <div class="card">
-    <h2>今の状態</h2>
+    <h2>今の状態🤔</h2>
     <div class="grid small">
       <div><b>自動実行:</b> {{ 'ON' if state.auto_enabled else 'OFF' }}</div>
-      <div><b>実行間隔:</b> {{ state.interval_hours }} 時間ごと</div>
-      <div><b>前回開始:</b> {{ state.last_run_started_at or 'まだない' }}</div>
-      <div><b>前回終了:</b> {{ state.last_run_finished_at or 'まだない' }}</div>
-      <div><b>前回結果:</b> {{ state.last_run_result or 'まだない' }}</div>
-      <div><b>返り値:</b> {{ state.last_run_returncode if state.last_run_returncode is not none else 'まだない' }}</div>
-      <div><b>次回予定:</b> {{ state.next_run_at or '未設定' }}</div>
-      <div><b>PID:</b> {{ state.current_pid or 'なし' }}</div>
+      <div><b>実行間隔:</b> {{ state.interval_hours }} 時間ごとに実行するある👀</div>
+      <div><b>前回開始:</b> {{ state.last_run_started_at or 'まだないある😩' }}</div>
+      <div><b>前回終了:</b> {{ state.last_run_finished_at or 'まだないある😩' }}</div>
+      <div><b>前回結果:</b> {{ state.last_run_result or 'まだないある😩' }}</div>
+      <div><b>返り値:</b> {{ state.last_run_returncode if state.last_run_returncode is not none else 'まだないある😩' }}</div>
+      <div><b>次回予定:</b> {{ state.next_run_at or '未設定❌' }}</div>
+      <div><b>PID:</b> {{ state.current_pid or 'なし🍐' }}</div>
       <div><b>保存先:</b> {{ state.save_dir }}</div>
       <div><b>スクリプト:</b> {{ script_path }}</div>
     </div>
