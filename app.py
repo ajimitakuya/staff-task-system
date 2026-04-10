@@ -60,17 +60,19 @@ def render_sticky_app_header():
     st.markdown(
         f"""
         <style>
-        .sba-sticky-header {{
-            position: sticky;
+        .sba-fixed-header {{
+            position: fixed;
             top: 0;
+            left: 0;
+            right: 0;
             z-index: 9999;
             background: white;
-            padding: 10px 18px 12px 18px;
+            padding: 12px 24px 10px 24px;
             border-bottom: 1px solid #e5e7eb;
-            margin-bottom: 18px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.05);
         }}
 
-        .sba-sticky-title {{
+        .sba-fixed-title {{
             font-size: 22px;
             font-weight: 700;
             color: #1f2937;
@@ -78,22 +80,21 @@ def render_sticky_app_header():
             margin: 0;
         }}
 
-        .sba-sticky-company {{
+        .sba-fixed-company {{
             font-size: 14px;
             font-weight: 600;
             color: #4b5563;
             margin-top: 4px;
         }}
 
-        /* Streamlit本文がヘッダーに隠れにくくする */
         .block-container {{
-            padding-top: 1rem;
+            padding-top: 90px !important;
         }}
         </style>
 
-        <div class="sba-sticky-header">
-            <div class="sba-sticky-title">Sue for Bee Assistance System</div>
-            <div class="sba-sticky-company">現在の事業所：{company_name}</div>
+        <div class="sba-fixed-header">
+            <div class="sba-fixed-title">Sue for Bee Assistance System</div>
+            <div class="sba-fixed-company">現在の事業所：{company_name}</div>
         </div>
         """,
         unsafe_allow_html=True
@@ -6266,6 +6267,9 @@ if st.session_state.get("bee_menu_unlocked", False):
     if st.sidebar.button("🐝knowbe日誌一括入力🐝", key="knowbe_bulk_menu_button", use_container_width=True):
         st.session_state.current_page = "🐝knowbe日誌一括入力🐝"
         st.rerun()
+
+if st.session_state.get("logged_in", False):
+    render_sticky_app_header()
 
 # ===== 💻 他事業所へ登録（条件表示） =====
 if st.session_state.get("other_office_register_unlocked", False):
@@ -16369,6 +16373,8 @@ elif page == "書類_基本シート":
 
 elif page == "書類_就労分野シート":
     run_page_debug("書類_就労分野シート", lambda: render_work_sheet_form_page("就労分野シート"))
+
+
 
 elif page == "🐝knowbe日誌入力🐝":
     run_page_debug("🐝knowbe日誌入力🐝", render_bee_journal_page)
