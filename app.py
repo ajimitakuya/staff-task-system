@@ -10020,10 +10020,12 @@ def render_bulk_knowbe_diary_page():
                     disabled=inputs_disabled,
                 )
 
-                btn_wrap_cols = st.columns([5.2, 1.3])
+                btn_wrap_cols = st.columns([4.9, 1.1])
                 with btn_wrap_cols[1]:
                     st.markdown(
-                        "<div style='height: 6px;'></div>",
+                        """
+                        <div style="margin-top: -8px;"></div>
+                        """,
                         unsafe_allow_html=True
                     )
 
