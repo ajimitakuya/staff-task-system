@@ -10020,10 +10020,62 @@ def render_bulk_knowbe_diary_page():
                     disabled=inputs_disabled,
                 )
 
-                _, bottom_btn_col = st.columns([6, 2])
-                with bottom_btn_col:
-                    st.write("")
+            with c9:
+                end_memo = st.text_area(
+                    "終了メモ",
+                    value=st.session_state.get(f"{block_key}_end_memo", ""),
+                    height=140,
+                    key=f"{block_key}_end_memo",
+                    disabled=inputs_disabled,
+                )
+
+                btn_wrap_cols = st.columns([5.2, 1.3])
+                with btn_wrap_cols[1]:
+                    st.markdown(
+                        """
+                        <div style="height: 6px;"></div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
                     btn_label = "保存" if edit_mode else "編集"
+
+                    if st.button(
+                        btn_label,
+                        key=f"{block_key}_edit_or_save_bottom",
+                        use_container_width=True
+                    ):
+                        if edit_mode:
+                            # まだ一度もロードしていないとき、保存前にだけ既存下書きを読み込んで上書き先をつかむ
+                            # （自動読込はしない。保存ボタンを押した時だけ確認する）
+                            if not str(st.session_state.get(f"{block_key}_loaded_record_id", "")).strip():
+                                if latest_record_id and isinstance(latest_saved_json, dict):
+                                    st.session_state[f"{block_key}_loaded_record_id"] = latest_record_id
+
+                            saved_id, created_new = _save_single_bulk_entry(resident_id, resident_name)
+                            st.session_state[f"{block_key}_edit_mode"] = False
+
+                            if saved_id:
+                                if created_new:
+                                    st.success(f"{resident_name} を保存しました。")
+                                else:
+                                    st.success(f"{resident_name} を上書き保存しました。")
+                            else:
+                                st.warning("保存に失敗しました。")
+
+                            st.rerun()
+                        else:
+                            # 編集ボタンを押した時だけ、初めて保存済み内容を読み込む
+                            if latest_record_id and isinstance(latest_saved_json, dict):
+                                _load_saved_entry_into_state(
+                                    resident_id=resident_id,
+                                    saved_json=latest_saved_json,
+                                    record_id=latest_record_id,
+                                    updated_at=latest_updated_at,
+                                )
+
+                            st.session_state[f"{block_key}_edit_mode"] = True
+                            st.rerun()
 
                     if st.button(
                         btn_label,
@@ -10241,7 +10293,7 @@ def render_bulk_knowbe_diary_page():
 
             progress.progress((runtime_next_index + 1) / total_count)
             st.rerun()
-            
+
 def render_bee_journal_page():
     st.title("🐝knowbe日誌入力🐝")
     st.caption("Sue for Bee Assistance 専用の裏メニューです。")
