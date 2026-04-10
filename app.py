@@ -9613,69 +9613,12 @@ def get_piecework_options_for_bulk(company_id: str):
     return cleaned
 
 def render_bulk_knowbe_diary_page():
-    st.title("🐝 knowbe日誌入力（一括）【2026-04-10 NEW】")
+    st.title("🐝 knowbe日誌入力（一括）")
 
     current_company_id = str(st.session_state.get("company_id", "")).strip()
     login_staff_name = str(
         st.session_state.get("user", "") or st.session_state.get("display_name", "")
     ).strip()
-
-    # ===== pending load 適用 =====
-    pending_bulk_json = st.session_state.pop("bulk_knowbe_pending_load_json", None)
-    if isinstance(pending_bulk_json, dict):
-        target_date_str = str(pending_bulk_json.get("target_date", "")).strip()
-        if target_date_str:
-            try:
-                st.session_state["bulk_target_date"] = pd.to_datetime(target_date_str).date()
-            except Exception:
-                pass
-
-        entries = pending_bulk_json.get("entries", [])
-        if isinstance(entries, list):
-            for item in entries:
-                resident_id = str(item.get("resident_id", "")).strip()
-                if not resident_id:
-                    continue
-
-                block_key = f"bulk_{resident_id}"
-
-                st.session_state[f"{block_key}_enabled"] = bool(item.get("enabled", True))
-                st.session_state[f"{block_key}_start_time"] = str(item.get("start_time", "")).strip()
-                st.session_state[f"{block_key}_end_time"] = str(item.get("end_time", "")).strip()
-                st.session_state[f"{block_key}_meal_flag"] = str(item.get("meal_flag", "なし")).strip() or "なし"
-                st.session_state[f"{block_key}_service_type"] = str(item.get("service_type", "在宅")).strip() or "在宅"
-                st.session_state[f"{block_key}_work_start_time"] = str(item.get("work_start_time", "")).strip()
-                st.session_state[f"{block_key}_work_end_time"] = str(item.get("work_end_time", "")).strip()
-                st.session_state[f"{block_key}_break_time"] = str(item.get("break_time", "")).strip()
-                st.session_state[f"{block_key}_staff_name"] = str(item.get("staff_name", "")).strip()
-
-                remark_mode = str(item.get("remark_mode", "候補から選ぶ")).strip()
-                if remark_mode not in ["候補から選ぶ", "直接入力"]:
-                    remark_mode = "候補から選ぶ"
-                st.session_state[f"{block_key}_remark_mode"] = remark_mode
-
-                remark_text = str(item.get("remark_text", "")).strip()
-                st.session_state[f"{block_key}_remark_text"] = remark_text
-                st.session_state[f"{block_key}_remark_text_select"] = remark_text if remark_text else "在宅利用"
-
-                st.session_state[f"{block_key}_start_memo"] = str(item.get("start_memo", "")).strip()
-                st.session_state[f"{block_key}_end_memo"] = str(item.get("end_memo", "")).strip()
-
-                send_mode = str(item.get("send_mode", "raw")).strip()
-                st.session_state[f"{block_key}_send_mode"] = (
-                    "Geminiで編集して送信" if send_mode == "gemini" else "入力文のまま送信"
-                )
-
-                st.session_state[f"{block_key}_generated_start_memo"] = str(item.get("generated_start_memo", "")).strip()
-                st.session_state[f"{block_key}_generated_end_memo"] = str(item.get("generated_end_memo", "")).strip()
-
-                st.session_state[f"{block_key}_piecework_id"] = str(item.get("piecework_id", "")).strip()
-                st.session_state[f"{block_key}_piecework_name"] = str(item.get("piecework_name", "")).strip()
-                st.session_state[f"{block_key}_piecework_quantity"] = str(item.get("piecework_quantity", "")).strip()
-
-    bulk_load_msg = st.session_state.pop("bulk_knowbe_load_message", "")
-    if bulk_load_msg:
-        st.success(bulk_load_msg)
 
     if not current_company_id:
         st.error("事業所情報が取得できません。")
@@ -9723,52 +9666,75 @@ def render_bulk_knowbe_diary_page():
         st.warning("この事業所の利用中利用者がいません。")
         return
 
-    # ===== 共通日付 =====
     bulk_target_date = st.date_input(
         "対象日（全員共通）",
         value=st.session_state.get("bulk_target_date", date.today()),
         key="bulk_target_date"
     )
 
-    def _apply_single_saved_entry_to_bulk_state(resident_id: str, saved_json: dict):
+    # ========= helper =========
+    def _block_key(resident_id: str) -> str:
+        return f"bulk_{resident_id}"
+
+    def _ensure_block_defaults(resident_id: str):
+        block_key = _block_key(resident_id)
+
+        defaults = {
+            f"{block_key}_enabled": True,
+            f"{block_key}_edit_mode": False,
+            f"{block_key}_start_time": "10:00",
+            f"{block_key}_end_time": "10:50",
+            f"{block_key}_meal_flag": "なし",
+            f"{block_key}_service_type": "在宅",
+            f"{block_key}_work_start_time": "",
+            f"{block_key}_work_end_time": "",
+            f"{block_key}_break_time": "",
+            f"{block_key}_staff_name": login_staff_name,
+            f"{block_key}_remark_mode": "候補から選ぶ",
+            f"{block_key}_remark_text": "",
+            f"{block_key}_remark_text_select": "在宅利用",
+            f"{block_key}_start_memo": "",
+            f"{block_key}_end_memo": "",
+            f"{block_key}_send_mode": "入力文のまま送信",
+            f"{block_key}_generated_start_memo": "",
+            f"{block_key}_generated_end_memo": "",
+            f"{block_key}_piecework_id": "",
+            f"{block_key}_piecework_name": "",
+            f"{block_key}_piecework_quantity": "",
+            f"{block_key}_loaded_record_id": "",
+            f"{block_key}_saved_updated_at": "",
+        }
+
+        for k, v in defaults.items():
+            if k not in st.session_state:
+                st.session_state[k] = v
+
+    def _load_saved_entry_into_state(resident_id: str, saved_json: dict, record_id: str = "", updated_at: str = ""):
         if not isinstance(saved_json, dict):
             return
 
-        block_key = f"bulk_{resident_id}"
+        block_key = _block_key(resident_id)
 
-        st.session_state[f"{block_key}_enabled"] = True
-        st.session_state[f"{block_key}_start_time"] = str(saved_json.get("start_time", "")).strip()
-        st.session_state[f"{block_key}_end_time"] = str(saved_json.get("end_time", "")).strip()
+        st.session_state[f"{block_key}_start_time"] = str(saved_json.get("start_time", "10:00")).strip() or "10:00"
+        st.session_state[f"{block_key}_end_time"] = str(saved_json.get("end_time", "10:50")).strip() or "10:50"
         st.session_state[f"{block_key}_meal_flag"] = str(saved_json.get("meal_flag", "なし")).strip() or "なし"
         st.session_state[f"{block_key}_service_type"] = str(saved_json.get("service_type", "在宅")).strip() or "在宅"
         st.session_state[f"{block_key}_work_start_time"] = str(saved_json.get("work_start_time", "")).strip()
         st.session_state[f"{block_key}_work_end_time"] = str(saved_json.get("work_end_time", "")).strip()
-        st.session_state[f"{block_key}_break_time"] = str(
-            saved_json.get("work_break_time", saved_json.get("break_time", ""))
-        ).strip()
-        st.session_state[f"{block_key}_staff_name"] = str(
-            saved_json.get("staff_name", login_staff_name)
-        ).strip() or login_staff_name
+        st.session_state[f"{block_key}_break_time"] = str(saved_json.get("work_break_time", saved_json.get("break_time", ""))).strip()
+        st.session_state[f"{block_key}_staff_name"] = str(saved_json.get("staff_name", login_staff_name)).strip() or login_staff_name
 
-        st.session_state[f"{block_key}_piecework_id"] = str(saved_json.get("piecework_id", "")).strip()
-        st.session_state[f"{block_key}_piecework_name"] = str(saved_json.get("piecework_name", "")).strip()
-        st.session_state[f"{block_key}_piecework_quantity"] = str(saved_json.get("piecework_quantity", "")).strip()
+        note_mode = str(saved_json.get("note_mode", saved_json.get("remark_mode", "候補から選ぶ"))).strip()
+        if note_mode not in ["候補から選ぶ", "直接入力"]:
+            note_mode = "候補から選ぶ"
+        st.session_state[f"{block_key}_remark_mode"] = note_mode
 
-        remark_mode = str(saved_json.get("note_mode", saved_json.get("remark_mode", "候補から選ぶ"))).strip()
-        if remark_mode not in ["候補から選ぶ", "直接入力"]:
-            remark_mode = "候補から選ぶ"
-        st.session_state[f"{block_key}_remark_mode"] = remark_mode
+        note_text = str(saved_json.get("note_text", saved_json.get("remark_text", ""))).strip()
+        st.session_state[f"{block_key}_remark_text"] = note_text
+        st.session_state[f"{block_key}_remark_text_select"] = note_text if note_text else "在宅利用"
 
-        remark_text = str(saved_json.get("note_text", saved_json.get("remark_text", ""))).strip()
-        st.session_state[f"{block_key}_remark_text"] = remark_text
-        st.session_state[f"{block_key}_remark_text_select"] = remark_text if remark_text else "在宅利用"
-
-        st.session_state[f"{block_key}_start_memo"] = str(
-            saved_json.get("start_memo_raw", saved_json.get("start_memo", ""))
-        ).strip()
-        st.session_state[f"{block_key}_end_memo"] = str(
-            saved_json.get("end_memo_raw", saved_json.get("end_memo", ""))
-        ).strip()
+        st.session_state[f"{block_key}_start_memo"] = str(saved_json.get("start_memo_raw", saved_json.get("start_memo", ""))).strip()
+        st.session_state[f"{block_key}_end_memo"] = str(saved_json.get("end_memo_raw", saved_json.get("end_memo", ""))).strip()
 
         send_mode = str(saved_json.get("send_mode", "raw")).strip()
         st.session_state[f"{block_key}_send_mode"] = (
@@ -9782,8 +9748,17 @@ def render_bulk_knowbe_diary_page():
             saved_json.get("end_memo_generated", saved_json.get("generated_end_memo", ""))
         ).strip()
 
+        st.session_state[f"{block_key}_piecework_id"] = str(saved_json.get("piecework_id", "")).strip()
+        st.session_state[f"{block_key}_piecework_name"] = str(saved_json.get("piecework_name", "")).strip()
+        st.session_state[f"{block_key}_piecework_quantity"] = str(saved_json.get("piecework_quantity", "")).strip()
+
+        if record_id:
+            st.session_state[f"{block_key}_loaded_record_id"] = record_id
+        if updated_at:
+            st.session_state[f"{block_key}_saved_updated_at"] = updated_at
+
     def _save_single_bulk_entry(resident_id: str, resident_name: str):
-        block_key = f"bulk_{resident_id}"
+        block_key = _block_key(resident_id)
 
         note_mode = str(st.session_state.get(f"{block_key}_remark_mode", "候補から選ぶ")).strip()
         if note_mode == "候補から選ぶ":
@@ -9822,21 +9797,42 @@ def render_bulk_knowbe_diary_page():
         }
 
         loaded_record_id = str(st.session_state.get(f"{block_key}_loaded_record_id", "")).strip()
+
         if loaded_record_id:
             update_document_record(loaded_record_id, form_data)
-            return loaded_record_id, False
+            saved_id = loaded_record_id
+            created_new = False
+        else:
+            saved_id = save_document_record(
+                resident_id=resident_id,
+                resident_name=resident_name,
+                doc_type="knowbe日誌下書き",
+                form_data=form_data
+            )
+            created_new = True
 
-        new_id = save_document_record(
-            resident_id=resident_id,
-            resident_name=resident_name,
-            doc_type="knowbe日誌下書き",
-            form_data=form_data
-        )
-        st.session_state[f"{block_key}_loaded_record_id"] = new_id
-        return new_id, True
+        st.session_state[f"{block_key}_loaded_record_id"] = saved_id
+        st.session_state[f"{block_key}_saved_updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+        return saved_id, created_new
 
-    send_targets = []
+    def _get_latest_saved_record(resident_id: str):
+        saved_df = get_knowbe_diary_saved_records(resident_id)
+        if saved_df is None or saved_df.empty:
+            return "", "", None
 
+        try:
+            if "updated_at" in saved_df.columns:
+                saved_df = saved_df.sort_values("updated_at", ascending=False)
+        except Exception:
+            pass
+
+        row = saved_df.iloc[0]
+        record_id = str(row.get("record_id", "")).strip()
+        updated_at = str(row.get("updated_at", "")).strip()
+        saved_json = load_document_json(record_id) if record_id else None
+        return record_id, updated_at, saved_json
+
+    # ========= 各利用者ブロック =========
     for _, r in residents_df.iterrows():
         resident_id = str(r.get("resident_id", "")).strip()
         resident_name = str(r.get("resident_name", "")).strip()
@@ -9844,10 +9840,26 @@ def render_bulk_knowbe_diary_page():
         if not resident_id or not resident_name:
             continue
 
-        block_key = f"bulk_{resident_id}"
+        _ensure_block_defaults(resident_id)
+        block_key = _block_key(resident_id)
+
+        latest_record_id, latest_updated_at, latest_saved_json = _get_latest_saved_record(resident_id)
+
+        # 初回だけ保存済み存在情報を表示用に持つ（自動読込はしない）
+        if latest_updated_at and not str(st.session_state.get(f"{block_key}_saved_updated_at", "")).strip():
+            st.session_state[f"{block_key}_saved_updated_at"] = latest_updated_at
+
+        edit_mode = bool(st.session_state.get(f"{block_key}_edit_mode", False))
+        inputs_disabled = not edit_mode
 
         with st.container():
             st.subheader(f"{resident_name}")
+
+            saved_info = str(st.session_state.get(f"{block_key}_saved_updated_at", "")).strip()
+            if saved_info:
+                st.caption(f"保存済みあり: {saved_info}")
+            else:
+                st.caption("保存済みなし")
 
             enabled = st.checkbox(
                 "この利用者を送信対象にする",
@@ -9861,19 +9873,25 @@ def render_bulk_knowbe_diary_page():
                     "開始時間",
                     value=st.session_state.get(f"{block_key}_start_time", "10:00"),
                     key=f"{block_key}_start_time",
+                    disabled=inputs_disabled,
                 )
             with c2:
                 end_time = st.text_input(
                     "終了時間",
                     value=st.session_state.get(f"{block_key}_end_time", "10:50"),
                     key=f"{block_key}_end_time",
+                    disabled=inputs_disabled,
                 )
             with c3:
+                current_meal = st.session_state.get(f"{block_key}_meal_flag", "なし")
+                if current_meal not in ["なし", "あり"]:
+                    current_meal = "なし"
                 meal_flag = st.selectbox(
                     "食事提供",
                     ["なし", "あり"],
-                    index=0 if st.session_state.get(f"{block_key}_meal_flag", "なし") == "なし" else 1,
+                    index=["なし", "あり"].index(current_meal),
                     key=f"{block_key}_meal_flag",
+                    disabled=inputs_disabled,
                 )
             with c4:
                 current_service = st.session_state.get(f"{block_key}_service_type", "在宅")
@@ -9884,6 +9902,7 @@ def render_bulk_knowbe_diary_page():
                     ["在宅", "通所", "施設外就労"],
                     index=["在宅", "通所", "施設外就労"].index(current_service),
                     key=f"{block_key}_service_type",
+                    disabled=inputs_disabled,
                 )
 
             c5, c6, c7 = st.columns(3)
@@ -9893,6 +9912,7 @@ def render_bulk_knowbe_diary_page():
                     value=st.session_state.get(f"{block_key}_work_start_time", ""),
                     placeholder="必要な事業所だけ入力",
                     key=f"{block_key}_work_start_time",
+                    disabled=inputs_disabled,
                 )
             with c6:
                 work_end_time = st.text_input(
@@ -9900,6 +9920,7 @@ def render_bulk_knowbe_diary_page():
                     value=st.session_state.get(f"{block_key}_work_end_time", ""),
                     placeholder="必要な事業所だけ入力",
                     key=f"{block_key}_work_end_time",
+                    disabled=inputs_disabled,
                 )
             with c7:
                 break_time = st.text_input(
@@ -9907,6 +9928,7 @@ def render_bulk_knowbe_diary_page():
                     value=st.session_state.get(f"{block_key}_break_time", ""),
                     placeholder="必要な事業所だけ入力",
                     key=f"{block_key}_break_time",
+                    disabled=inputs_disabled,
                 )
 
             st.caption("※ 作業時間は任意です。入力しなくても送信できます。Knowbe側に欄がない事業所もあります。")
@@ -9915,6 +9937,7 @@ def render_bulk_knowbe_diary_page():
                 "日誌入力者",
                 value=st.session_state.get(f"{block_key}_staff_name", login_staff_name),
                 key=f"{block_key}_staff_name",
+                disabled=inputs_disabled,
             )
 
             remark_mode = st.radio(
@@ -9922,6 +9945,7 @@ def render_bulk_knowbe_diary_page():
                 ["候補から選ぶ", "直接入力"],
                 horizontal=True,
                 key=f"{block_key}_remark_mode",
+                disabled=inputs_disabled,
             )
 
             if remark_mode == "候補から選ぶ":
@@ -9935,12 +9959,14 @@ def render_bulk_knowbe_diary_page():
                     remark_candidates,
                     index=remark_candidates.index(default_remark),
                     key=f"{block_key}_remark_text_select",
+                    disabled=inputs_disabled,
                 )
             else:
                 remark_text = st.text_input(
                     "備考",
                     value=st.session_state.get(f"{block_key}_remark_text", ""),
                     key=f"{block_key}_remark_text",
+                    disabled=inputs_disabled,
                 )
 
             piecework_options = get_piecework_options_for_bulk(current_company_id)
@@ -9957,6 +9983,7 @@ def render_bulk_knowbe_diary_page():
                     piecework_names,
                     index=piecework_names.index(saved_piecework_name) if saved_piecework_name in piecework_names else 0,
                     key=f"{block_key}_piecework_name",
+                    disabled=inputs_disabled,
                 )
 
                 matched_piecework_id = ""
@@ -9972,6 +9999,7 @@ def render_bulk_knowbe_diary_page():
                     value=st.session_state.get(f"{block_key}_piecework_quantity", ""),
                     placeholder="任意",
                     key=f"{block_key}_piecework_quantity",
+                    disabled=inputs_disabled,
                 )
 
             c8, c9 = st.columns(2)
@@ -9981,6 +10009,7 @@ def render_bulk_knowbe_diary_page():
                     value=st.session_state.get(f"{block_key}_start_memo", ""),
                     height=140,
                     key=f"{block_key}_start_memo",
+                    disabled=inputs_disabled,
                 )
             with c9:
                 end_memo = st.text_area(
@@ -9988,303 +10017,130 @@ def render_bulk_knowbe_diary_page():
                     value=st.session_state.get(f"{block_key}_end_memo", ""),
                     height=140,
                     key=f"{block_key}_end_memo",
+                    disabled=inputs_disabled,
                 )
+
+                _, bottom_btn_col = st.columns([6, 2])
+                with bottom_btn_col:
+                    st.write("")
+                    btn_label = "保存" if edit_mode else "編集"
+
+                    if st.button(
+                        btn_label,
+                        key=f"{block_key}_edit_or_save_bottom",
+                        use_container_width=True
+                    ):
+                        if edit_mode:
+                            # まだ一度もロードしていないとき、保存前にだけ既存下書きを読み込んで上書き先をつかむ
+                            # （自動読込はしない。保存ボタンを押した時だけ確認する）
+                            if not str(st.session_state.get(f"{block_key}_loaded_record_id", "")).strip():
+                                if latest_record_id and isinstance(latest_saved_json, dict):
+                                    st.session_state[f"{block_key}_loaded_record_id"] = latest_record_id
+
+                            saved_id, created_new = _save_single_bulk_entry(resident_id, resident_name)
+                            st.session_state[f"{block_key}_edit_mode"] = False
+
+                            if saved_id:
+                                if created_new:
+                                    st.success(f"{resident_name} を保存しました。")
+                                else:
+                                    st.success(f"{resident_name} を上書き保存しました。")
+                            else:
+                                st.warning("保存に失敗しました。")
+
+                            st.rerun()
+                        else:
+                            # 編集ボタンを押した時だけ、初めて保存済み内容を読み込む
+                            if latest_record_id and isinstance(latest_saved_json, dict):
+                                _load_saved_entry_into_state(
+                                    resident_id=resident_id,
+                                    saved_json=latest_saved_json,
+                                    record_id=latest_record_id,
+                                    updated_at=latest_updated_at,
+                                )
+
+                            st.session_state[f"{block_key}_edit_mode"] = True
+                            st.rerun()
 
             send_mode = st.radio(
                 "送信方式",
                 ["Geminiで編集して送信", "入力文のまま送信"],
                 horizontal=True,
                 key=f"{block_key}_send_mode",
+                disabled=inputs_disabled,
             )
 
             st.markdown("---")
 
-            send_targets.append({
-                "enabled": enabled,
-                "resident_id": resident_id,
-                "resident_name": resident_name,
-                "target_date": bulk_target_date.strftime("%Y-%m-%d"),
-                "start_time": start_time,
-                "end_time": end_time,
-                "meal_flag": meal_flag,
-                "service_type": service_type,
-                "work_start_time": work_start_time,
-                "work_end_time": work_end_time,
-                "break_time": break_time,
-                "staff_name": diary_input_staff,
-                "remark_mode": remark_mode,
-                "remark_text": remark_text,
-                "start_memo": start_memo,
-                "end_memo": end_memo,
-                "send_mode": "gemini" if send_mode == "Geminiで編集して送信" else "raw",
-                "generated_start_memo": st.session_state.get(f"{block_key}_generated_start_memo", ""),
-                "generated_end_memo": st.session_state.get(f"{block_key}_generated_end_memo", ""),
-                "piecework_id": st.session_state.get(f"{block_key}_piecework_id", ""),
-                "piecework_name": st.session_state.get(f"{block_key}_piecework_name", ""),
-                "piecework_quantity": st.session_state.get(f"{block_key}_piecework_quantity", ""),
-            })
-
-    st.caption(f"利用中利用者数: {len(residents_df)} / 送信候補数: {len(send_targets)}")
-
-    bulk_form_data = {
-        "company_id": current_company_id,
-        "target_date": bulk_target_date.strftime("%Y-%m-%d"),
-        "staff_name": login_staff_name,
-        "entries": send_targets,
-        "save_stage": "draft",
-    }
-
-    def _build_auto_entries_for_bulk_save():
-        auto_entries = []
-        for item in send_targets:
-            rid = str(item.get("resident_id", "")).strip()
-            auto_entries.append({
-                "enabled": item.get("enabled", True),
-                "resident_id": rid,
-                "resident_name": item.get("resident_name", ""),
-                "target_date": item.get("target_date", ""),
-                "start_time": item.get("start_time", ""),
-                "end_time": item.get("end_time", ""),
-                "meal_flag": item.get("meal_flag", ""),
-                "service_type": item.get("service_type", ""),
-                "work_start_time": item.get("work_start_time", ""),
-                "work_end_time": item.get("work_end_time", ""),
-                "break_time": item.get("break_time", ""),
-                "staff_name": item.get("staff_name", ""),
-                "remark_mode": item.get("remark_mode", "候補から選ぶ"),
-                "remark_text": item.get("remark_text", ""),
-                "start_memo": item.get("start_memo", ""),
-                "end_memo": item.get("end_memo", ""),
-                "send_mode": item.get("send_mode", "raw"),
-                "generated_start_memo": st.session_state.get(
-                    f"bulk_{rid}_generated_start_memo",
-                    item.get("generated_start_memo", "")
-                ),
-                "generated_end_memo": st.session_state.get(
-                    f"bulk_{rid}_generated_end_memo",
-                    item.get("generated_end_memo", "")
-                ),
-                "piecework_id": st.session_state.get(
-                    f"bulk_{rid}_piecework_id",
-                    item.get("piecework_id", "")
-                ),
-                "piecework_name": st.session_state.get(
-                    f"bulk_{rid}_piecework_name",
-                    item.get("piecework_name", "")
-                ),
-                "piecework_quantity": st.session_state.get(
-                    f"bulk_{rid}_piecework_quantity",
-                    item.get("piecework_quantity", "")
-                ),
-            })
-        return auto_entries
-
-    def _ensure_bulk_record_id():
-        rid = st.session_state.get("bulk_knowbe_loaded_record_id")
-        if rid:
-            return rid
-
-        new_id = save_document_record(
-            resident_id="BULK",
-            resident_name=f"{bulk_target_date.strftime('%Y-%m-%d')} 一括日誌",
-            doc_type="knowbe日誌一括下書き",
-            form_data=bulk_form_data
-        )
-        st.session_state["bulk_knowbe_loaded_record_id"] = new_id
-        return new_id
-
-    def _save_bulk_checkpoint(next_index, last_name, results, finished=False, stop_requested=False):
-        rid = _ensure_bulk_record_id()
-
-        checkpoint_data = {
-            "company_id": current_company_id,
-            "target_date": bulk_target_date.strftime("%Y-%m-%d"),
-            "staff_name": login_staff_name,
-            "entries": _build_auto_entries_for_bulk_save(),
-            "save_stage": "generated" if finished else "sending",
-            "resume_next_index": int(next_index),
-            "resume_last_name": str(last_name or "").strip(),
-            "resume_results": list(results or []),
-            "resume_finished": bool(finished),
-            "resume_stop_requested": bool(stop_requested),
-        }
-
-        update_document_record(rid, checkpoint_data)
-
-    bulk_loaded_record_id = st.session_state.get("bulk_knowbe_loaded_record_id")
-
-    saved_resume_index = 0
-    saved_resume_last_name = ""
-    saved_resume_results = []
-    saved_resume_finished = False
-
-    if bulk_loaded_record_id:
-        try:
-            loaded_json = load_document_json(bulk_loaded_record_id)
-        except Exception:
-            loaded_json = None
-
-        if isinstance(loaded_json, dict):
-            try:
-                saved_resume_index = int(loaded_json.get("resume_next_index", 0) or 0)
-            except Exception:
-                saved_resume_index = 0
-
-            saved_resume_last_name = str(loaded_json.get("resume_last_name", "")).strip()
-
-            loaded_results = loaded_json.get("resume_results", [])
-            if isinstance(loaded_results, list):
-                saved_resume_results = loaded_results
-            else:
-                saved_resume_results = []
-
-            saved_resume_finished = bool(loaded_json.get("resume_finished", False))
-
-    st.caption(f"利用中利用者数: {len(residents_df)} / 送信候補数: {len(send_targets)}")
-
-    st.markdown("## 一括下書き保存")
-
-    bulk_save_cols = st.columns([1, 1, 1, 1, 3])
-
-    with bulk_save_cols[0]:
-        if st.button("途中保存", key="bulk_knowbe_save_new", use_container_width=True):
-            new_id = save_document_record(
-                resident_id="BULK",
-                resident_name=f"{bulk_target_date.strftime('%Y-%m-%d')} 一括日誌",
-                doc_type="knowbe日誌一括下書き",
-                form_data=bulk_form_data
-            )
-            st.session_state["bulk_knowbe_loaded_record_id"] = new_id
-            st.success(f"途中保存しました！ record_id = {new_id}")
-
-    with bulk_save_cols[1]:
-        if st.button("上書き保存", key="bulk_knowbe_save_update", use_container_width=True):
-            if bulk_loaded_record_id:
-                ok = update_document_record(bulk_loaded_record_id, bulk_form_data)
-                if ok:
-                    st.success(f"上書き保存しました！ record_id = {bulk_loaded_record_id}")
-                else:
-                    st.warning("上書き対象が見つかりません。")
-            else:
-                st.warning("先に途中保存してください。")
-
-    with bulk_save_cols[2]:
-        if st.button("中断", key="bulk_knowbe_stop_button", use_container_width=True):
-            st.session_state["bulk_send_stop_requested"] = True
-            _save_bulk_checkpoint(
-                next_index=int(st.session_state.get("bulk_send_next_index", saved_resume_index)),
-                last_name=str(st.session_state.get("bulk_send_last_name", saved_resume_last_name)).strip(),
-                results=st.session_state.get("bulk_send_results", saved_resume_results),
-                finished=False,
-                stop_requested=True,
-            )
-            st.warning("中断要求を受け付けました。次の1件の前で停止します。")
-
-    with bulk_save_cols[3]:
-        if st.button("最初から実行", key="bulk_knowbe_restart_from_top", use_container_width=True):
-            active_targets = [x for x in send_targets if x["enabled"]]
-
-            valid_targets = []
-            invalid_messages = []
-
-            for item in active_targets:
-                if not str(item.get("staff_name", "")).strip():
-                    invalid_messages.append(f"{item['resident_name']}：日誌入力者が未入力")
-                    continue
-                valid_targets.append(item)
-
-            if invalid_messages:
-                st.warning("一部送信されない利用者があります：")
-                for msg in invalid_messages:
-                    st.warning(msg)
-
-            if not valid_targets:
-                st.warning("送信できる利用者が1人もいません。")
-            else:
-                st.session_state["bulk_send_runtime_targets"] = valid_targets
-                st.session_state["bulk_send_next_index"] = 0
-                st.session_state["bulk_send_results"] = []
-                st.session_state["bulk_send_running"] = True
-                st.session_state["bulk_send_stop_requested"] = False
-                st.session_state["bulk_send_finished"] = False
-                st.session_state["bulk_send_last_name"] = ""
-
-                _ensure_bulk_record_id()
-                _save_bulk_checkpoint(
-                    next_index=0,
-                    last_name="",
-                    results=[],
-                    finished=False,
-                    stop_requested=False,
-                )
-
-                st.success("1件目からそのまま実行開始するある！")
-                st.rerun()
-
-    if saved_resume_index > 0 and not saved_resume_finished:
-        st.info(
-            f"前回の続きがあります。次回は "
-            f"{saved_resume_index + 1}件目から再開します。"
-            f"（直前: {saved_resume_last_name or '不明'}）"
-        )
-
     st.markdown("## 送信")
+
+    if st.button("保存済みの利用者を一括送信", type="primary", use_container_width=True):
+        enabled_residents = []
+        for _, r in residents_df.iterrows():
+            resident_id = str(r.get("resident_id", "")).strip()
+            resident_name = str(r.get("resident_name", "")).strip()
+            if not resident_id or not resident_name:
+                continue
+
+            block_key = _block_key(resident_id)
+            if bool(st.session_state.get(f"{block_key}_enabled", True)):
+                enabled_residents.append({
+                    "resident_id": resident_id,
+                    "resident_name": resident_name,
+                })
+
+        if not enabled_residents:
+            st.warning("送信対象の利用者がいません。")
+            return
+
+        send_targets = []
+        invalid_messages = []
+
+        for item in enabled_residents:
+            resident_id = item["resident_id"]
+            resident_name = item["resident_name"]
+
+            latest_record_id, latest_updated_at, latest_saved_json = _get_latest_saved_record(resident_id)
+
+            if not latest_record_id or not isinstance(latest_saved_json, dict):
+                invalid_messages.append(f"{resident_name}：保存済み日誌がありません")
+                continue
+
+            # 対象日が違ってもそのまま使うのではなく、画面の対象日に更新して送る
+            payload = dict(latest_saved_json)
+            payload["target_date"] = bulk_target_date.strftime("%Y-%m-%d")
+            payload["resident_id"] = resident_id
+            payload["resident_name"] = resident_name
+
+            staff_name = str(payload.get("staff_name", "")).strip()
+            if not staff_name:
+                invalid_messages.append(f"{resident_name}：日誌入力者が未入力")
+                continue
+
+            send_targets.append(payload)
+
+        if invalid_messages:
+            st.warning("送信できない利用者があります：")
+            for msg in invalid_messages:
+                st.warning(msg)
+
+        if not send_targets:
+            st.warning("送信できる利用者が1人もいません。")
+            return
+
+        st.session_state["bulk_send_runtime_targets"] = send_targets
+        st.session_state["bulk_send_next_index"] = 0
+        st.session_state["bulk_send_results"] = []
+        st.session_state["bulk_send_running"] = True
+        st.session_state["bulk_send_stop_requested"] = False
+        st.session_state["bulk_send_last_name"] = ""
+        st.rerun()
 
     runtime_targets = st.session_state.get("bulk_send_runtime_targets", [])
     runtime_next_index = int(st.session_state.get("bulk_send_next_index", 0) or 0)
     runtime_results = st.session_state.get("bulk_send_results", [])
     runtime_running = bool(st.session_state.get("bulk_send_running", False))
     runtime_stop_requested = bool(st.session_state.get("bulk_send_stop_requested", False))
-
-    if st.button("knowbeへ送信する", type="primary", use_container_width=True):
-        active_targets = [x for x in send_targets if x["enabled"]]
-
-        valid_targets = []
-        invalid_messages = []
-
-        for item in active_targets:
-            if not str(item.get("staff_name", "")).strip():
-                invalid_messages.append(f"{item['resident_name']}：日誌入力者が未入力")
-                continue
-            valid_targets.append(item)
-
-        st.write(f"send_targets件数: {len(send_targets)}")
-        st.write(f"active_targets件数: {len(active_targets)}")
-        st.write(f"valid_targets件数: {len(valid_targets)}")
-
-        if invalid_messages:
-            st.warning("一部送信されない利用者があります：")
-            for msg in invalid_messages:
-                st.warning(msg)
-
-        if not valid_targets:
-            st.warning("送信できる利用者が1人もいません。")
-        else:
-            resume_index = 0
-            resume_results = []
-
-            if saved_resume_index > 0 and not saved_resume_finished:
-                resume_index = min(saved_resume_index, len(valid_targets))
-                resume_results = list(saved_resume_results)
-
-            st.session_state["bulk_send_runtime_targets"] = valid_targets
-            st.session_state["bulk_send_next_index"] = resume_index
-            st.session_state["bulk_send_results"] = resume_results
-            st.session_state["bulk_send_running"] = True
-            st.session_state["bulk_send_stop_requested"] = False
-            st.session_state["bulk_send_finished"] = False
-            st.session_state["bulk_send_last_name"] = saved_resume_last_name if resume_index > 0 else ""
-
-            _ensure_bulk_record_id()
-            _save_bulk_checkpoint(
-                next_index=resume_index,
-                last_name=saved_resume_last_name if resume_index > 0 else "",
-                results=resume_results,
-                finished=False,
-                stop_requested=False,
-            )
-
-            st.rerun()
 
     if runtime_targets:
         st.write(f"実行対象件数: {len(runtime_targets)}")
@@ -10301,13 +10157,6 @@ def render_bulk_knowbe_diary_page():
 
         if runtime_stop_requested:
             st.session_state["bulk_send_running"] = False
-            _save_bulk_checkpoint(
-                next_index=runtime_next_index,
-                last_name=st.session_state.get("bulk_send_last_name", ""),
-                results=runtime_results,
-                finished=False,
-                stop_requested=True,
-            )
             status_box.warning(
                 f"送信を中断しました。次回は {runtime_next_index + 1}件目から再開します。"
             )
@@ -10317,18 +10166,8 @@ def render_bulk_knowbe_diary_page():
             error_count = len([x for x in runtime_results if str(x).startswith("ERR:") or str(x).startswith("NG:")])
 
             st.session_state["bulk_send_running"] = False
-            st.session_state["bulk_send_finished"] = True
-
-            _save_bulk_checkpoint(
-                next_index=runtime_next_index,
-                last_name=st.session_state.get("bulk_send_last_name", ""),
-                results=runtime_results,
-                finished=True,
-                stop_requested=False,
-            )
-
             status_box.success(
-                f"送信完了：成功 {success_count}件 / エラー {error_count}件 / 自動保存完了"
+                f"送信完了：成功 {success_count}件 / エラー {error_count}件"
             )
 
         else:
@@ -10339,23 +10178,21 @@ def render_bulk_knowbe_diary_page():
             status_box.info(f"{runtime_next_index + 1}/{total_count} 送信中: {resident_name}")
 
             try:
-                start_memo_to_send = item["start_memo"]
-                end_memo_to_send = item["end_memo"]
+                start_memo_to_send = str(item.get("start_memo_generated", "")).strip() or str(item.get("start_memo_raw", item.get("start_memo", ""))).strip()
+                end_memo_to_send = str(item.get("end_memo_generated", "")).strip() or str(item.get("end_memo_raw", item.get("end_memo", ""))).strip()
 
-                if item["send_mode"] == "gemini":
+                send_mode = str(item.get("send_mode", "raw")).strip()
+                if send_mode == "gemini":
                     start_memo_to_send = edit_text_with_gemini_for_start_memo(
                         resident_name=resident_name,
-                        original_text=item["start_memo"],
-                        remark_text=item["remark_text"],
+                        original_text=str(item.get("start_memo_raw", item.get("start_memo", ""))).strip(),
+                        remark_text=str(item.get("note_text", item.get("remark_text", ""))).strip(),
                     )
                     end_memo_to_send = edit_text_with_gemini_for_end_memo(
                         resident_name=resident_name,
-                        original_text=item["end_memo"],
-                        remark_text=item["remark_text"],
+                        original_text=str(item.get("end_memo_raw", item.get("end_memo", ""))).strip(),
+                        remark_text=str(item.get("note_text", item.get("remark_text", ""))).strip(),
                     )
-
-                    st.session_state[f"bulk_{item['resident_id']}_generated_start_memo"] = start_memo_to_send
-                    st.session_state[f"bulk_{item['resident_id']}_generated_end_memo"] = end_memo_to_send
 
                 piece_name = str(item.get("piecework_name", "")).strip()
                 piece_qty = str(item.get("piecework_quantity", "")).strip()
@@ -10370,20 +10207,20 @@ def render_bulk_knowbe_diary_page():
 
                 ok = send_to_knowbe_from_bee(
                     company_id=current_company_id,
-                    target_date=item["target_date"],
+                    target_date=str(item.get("target_date", bulk_target_date.strftime("%Y-%m-%d"))).strip(),
                     resident_name=resident_name,
-                    service_type=item["service_type"],
-                    start_time=item["start_time"],
-                    end_time=item["end_time"],
-                    meal_flag=item["meal_flag"],
-                    note_text=item["remark_text"],
+                    service_type=str(item.get("service_type", "在宅")).strip() or "在宅",
+                    start_time=str(item.get("start_time", "")).strip(),
+                    end_time=str(item.get("end_time", "")).strip(),
+                    meal_flag=str(item.get("meal_flag", "なし")).strip() or "なし",
+                    note_text=str(item.get("note_text", item.get("remark_text", ""))).strip(),
                     generated_status=start_memo_to_send,
                     generated_support=end_memo_to_send,
-                    staff_name=item["staff_name"],
-                    knowbe_target="bulk_gemini" if item["send_mode"] == "gemini" else "bulk_raw",
-                    work_start_time=item["work_start_time"],
-                    work_end_time=item["work_end_time"],
-                    work_break_time=item.get("break_time", ""),
+                    staff_name=str(item.get("staff_name", "")).strip(),
+                    knowbe_target="bulk_gemini" if send_mode == "gemini" else "bulk_raw",
+                    work_start_time=str(item.get("work_start_time", "")).strip(),
+                    work_end_time=str(item.get("work_end_time", "")).strip(),
+                    work_break_time=str(item.get("work_break_time", item.get("break_time", ""))).strip(),
                     work_memo=work_memo_text,
                     login_username=resolved_knowbe_user,
                     login_password=resolved_knowbe_pw,
@@ -10402,18 +10239,9 @@ def render_bulk_knowbe_diary_page():
             st.session_state["bulk_send_results"] = runtime_results
             st.session_state["bulk_send_next_index"] = runtime_next_index + 1
 
-            _save_bulk_checkpoint(
-                next_index=runtime_next_index + 1,
-                last_name=resident_name,
-                results=runtime_results,
-                finished=False,
-                stop_requested=False,
-            )
-
             progress.progress((runtime_next_index + 1) / total_count)
-
             st.rerun()
-
+            
 def render_bee_journal_page():
     st.title("🐝knowbe日誌入力🐝")
     st.caption("Sue for Bee Assistance 専用の裏メニューです。")
