@@ -52,6 +52,53 @@ def get_genai_client():
 st.set_page_config(page_title="作業管理システム", layout="wide")
 # st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
 
+def render_sticky_app_header():
+    company_name = str(st.session_state.get("company_name", "")).strip()
+    if not company_name:
+        company_name = "事業所未選択"
+
+    st.markdown(
+        f"""
+        <style>
+        .sba-sticky-header {{
+            position: sticky;
+            top: 0;
+            z-index: 9999;
+            background: white;
+            padding: 10px 18px 12px 18px;
+            border-bottom: 1px solid #e5e7eb;
+            margin-bottom: 18px;
+        }}
+
+        .sba-sticky-title {{
+            font-size: 22px;
+            font-weight: 700;
+            color: #1f2937;
+            line-height: 1.2;
+            margin: 0;
+        }}
+
+        .sba-sticky-company {{
+            font-size: 14px;
+            font-weight: 600;
+            color: #4b5563;
+            margin-top: 4px;
+        }}
+
+        /* Streamlit本文がヘッダーに隠れにくくする */
+        .block-container {{
+            padding-top: 1rem;
+        }}
+        </style>
+
+        <div class="sba-sticky-header">
+            <div class="sba-sticky-title">Sue for Bee Assistance System</div>
+            <div class="sba-sticky-company">現在の事業所：{company_name}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 # --- 🔌 スプレッドシート接続設定 ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -10070,7 +10117,7 @@ def render_bulk_knowbe_diary_page():
 
                             st.session_state[f"{block_key}_edit_mode"] = True
                             st.rerun()
-                            
+
             send_mode = st.radio(
                 "送信方式",
                 ["Geminiで編集して送信", "入力文のまま送信"],
