@@ -10020,11 +10020,17 @@ def render_bulk_knowbe_diary_page():
                     disabled=inputs_disabled,
                 )
 
-                btn_wrap_cols = st.columns([4.9, 1.1])
+                btn_wrap_cols = st.columns([5.35, 1.05])
                 with btn_wrap_cols[1]:
                     st.markdown(
                         """
-                        <div style="margin-top: -8px;"></div>
+                        <style>
+                        div[data-testid="stButton"] button[kind="secondary"],
+                        div[data-testid="stButton"] button[kind="primary"] {
+                            min-height: 42px;
+                        }
+                        </style>
+                        <div style="margin-top:-42px;"></div>
                         """,
                         unsafe_allow_html=True
                     )
@@ -10064,7 +10070,7 @@ def render_bulk_knowbe_diary_page():
 
                             st.session_state[f"{block_key}_edit_mode"] = True
                             st.rerun()
-
+                            
             send_mode = st.radio(
                 "送信方式",
                 ["Geminiで編集して送信", "入力文のまま送信"],
