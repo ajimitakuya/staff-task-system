@@ -9733,7 +9733,7 @@ def render_bulk_knowbe_diary_page():
             if not isinstance(saved_json, dict):
                 continue
 
-            block_key = _block_key(resident_id)
+            block_key = f"bulk_{resident_id}"
 
             st.session_state[f"{block_key}_start_time"] = str(saved_json.get("start_time", "10:00")).strip() or "10:00"
             st.session_state[f"{block_key}_end_time"] = str(saved_json.get("end_time", "10:50")).strip() or "10:50"
