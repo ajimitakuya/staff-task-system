@@ -1,4 +1,4 @@
-from common import now_jst, mask_secret_text, safe_text, heart_label, parse_time_range, _to_minutes, _normalize_weekday_label, is_time_overlap, get_saturday_dates_for_month, get_sheet_name_candidates, get_sheet_name, get_next_numeric_id, normalize_company_scoped_df, filter_by_company_id
+ƒfrom common import now_jst, mask_secret_text, safe_text, heart_label, parse_time_range, _to_minutes, _normalize_weekday_label, is_time_overlap, get_saturday_dates_for_month, get_sheet_name_candidates, get_sheet_name, get_next_numeric_id, normalize_company_scoped_df, filter_by_company_id
 from data_access import load_db, save_db, get_companies_df, get_users_df, get_user_company_permissions_df, get_task_required_cols, get_tasks_df, get_urgent_tasks_df, get_resident_master_df, get_resident_schedule_df, get_resident_notes_df, get_attendance_logs_df, get_attendance_logs_df, get_attendance_display_settings_df
 import streamlit as st
 import pandas as pd
@@ -9717,6 +9717,74 @@ def render_bulk_knowbe_diary_page():
         st.warning("この事業所の利用中利用者がいません。")
         return
 
+    def _apply_pending_bulk_loads():
+        pending_map = st.session_state.pop("bulk_pending_load_map", None)
+        if not isinstance(pending_map, dict):
+            return
+
+        for resident_id, payload in pending_map.items():
+            if not isinstance(payload, dict):
+                continue
+
+            saved_json = payload.get("saved_json")
+            record_id = str(payload.get("record_id", "")).strip()
+            updated_at = str(payload.get("updated_at", "")).strip()
+
+            if not isinstance(saved_json, dict):
+                continue
+
+            block_key = _block_key(resident_id)
+
+            st.session_state[f"{block_key}_start_time"] = str(saved_json.get("start_time", "10:00")).strip() or "10:00"
+            st.session_state[f"{block_key}_end_time"] = str(saved_json.get("end_time", "10:50")).strip() or "10:50"
+            st.session_state[f"{block_key}_meal_flag"] = str(saved_json.get("meal_flag", "なし")).strip() or "なし"
+            st.session_state[f"{block_key}_service_type"] = str(saved_json.get("service_type", "在宅")).strip() or "在宅"
+            st.session_state[f"{block_key}_work_start_time"] = str(saved_json.get("work_start_time", "")).strip()
+            st.session_state[f"{block_key}_work_end_time"] = str(saved_json.get("work_end_time", "")).strip()
+            st.session_state[f"{block_key}_break_time"] = str(
+                saved_json.get("work_break_time", saved_json.get("break_time", ""))
+            ).strip()
+            st.session_state[f"{block_key}_staff_name"] = str(
+                saved_json.get("staff_name", login_staff_name)
+            ).strip() or login_staff_name
+
+            note_mode = str(saved_json.get("note_mode", saved_json.get("remark_mode", "候補から選ぶ"))).strip()
+            if note_mode not in ["候補から選ぶ", "直接入力"]:
+                note_mode = "候補から選ぶ"
+            st.session_state[f"{block_key}_remark_mode"] = note_mode
+
+            note_text = str(saved_json.get("note_text", saved_json.get("remark_text", ""))).strip()
+            st.session_state[f"{block_key}_remark_text"] = note_text
+            st.session_state[f"{block_key}_remark_text_select"] = note_text if note_text else "在宅利用"
+
+            st.session_state[f"{block_key}_start_memo"] = str(
+                saved_json.get("start_memo_raw", saved_json.get("start_memo", ""))
+            ).strip()
+            st.session_state[f"{block_key}_end_memo"] = str(
+                saved_json.get("end_memo_raw", saved_json.get("end_memo", ""))
+            ).strip()
+
+            send_mode = str(saved_json.get("send_mode", "raw")).strip()
+            st.session_state[f"{block_key}_send_mode"] = (
+                "Geminiで編集して送信" if send_mode == "gemini" else "入力文のまま送信"
+            )
+
+            st.session_state[f"{block_key}_generated_start_memo"] = str(
+                saved_json.get("start_memo_generated", saved_json.get("generated_start_memo", ""))
+            ).strip()
+            st.session_state[f"{block_key}_generated_end_memo"] = str(
+                saved_json.get("end_memo_generated", saved_json.get("generated_end_memo", ""))
+            ).strip()
+
+            st.session_state[f"{block_key}_piecework_id"] = str(saved_json.get("piecework_id", "")).strip()
+            st.session_state[f"{block_key}_piecework_name"] = str(saved_json.get("piecework_name", "")).strip()
+            st.session_state[f"{block_key}_piecework_quantity"] = str(saved_json.get("piecework_quantity", "")).strip()
+
+            if record_id:
+                st.session_state[f"{block_key}_loaded_record_id"] = record_id
+            if updated_at:
+                st.session_state[f"{block_key}_saved_updated_at"] = updated_at
+    
     bulk_target_date = st.date_input(
         "対象日（全員共通）",
         value=st.session_state.get("bulk_target_date", date.today()),
