@@ -9790,7 +9790,8 @@ def render_bulk_knowbe_diary_page():
         value=st.session_state.get("bulk_target_date", date.today()),
         key="bulk_target_date"
     )
-
+    _apply_pending_bulk_loads()
+    
     # ========= helper =========
     def _block_key(resident_id: str) -> str:
         return f"bulk_{resident_id}"
@@ -10179,14 +10180,18 @@ def render_bulk_knowbe_diary_page():
 
                             st.rerun()
                         else:
+                            pending_map = st.session_state.get("bulk_pending_load_map", {})
+                            if not isinstance(pending_map, dict):
+                                pending_map = {}
+                        
                             if latest_record_id and isinstance(latest_saved_json, dict):
-                                _load_saved_entry_into_state(
-                                    resident_id=resident_id,
-                                    saved_json=latest_saved_json,
-                                    record_id=latest_record_id,
-                                    updated_at=latest_updated_at,
-                                )
-
+                                pending_map[resident_id] = {
+                                    "saved_json": latest_saved_json,
+                                    "record_id": latest_record_id,
+                                    "updated_at": latest_updated_at,
+                                }
+                        
+                            st.session_state["bulk_pending_load_map"] = pending_map
                             st.session_state[f"{block_key}_edit_mode"] = True
                             st.rerun()
 
