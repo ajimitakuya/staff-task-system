@@ -26,52 +26,6 @@ def _get_gemini_api_key():
     return str(api_key or "").strip()
 
 
-def generate_json_with_gemini_local(prompt: str):
-    api_key = _get_gemini_api_key()
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY が見つかりません")
-
-    genai.configure(api_key=api_key)
-
-    model_candidates = ["gemini-2.5-flash"]
-    last_error = None
-    last_text = ""
-
-    for model_name in model_candidates:
-        for attempt in range(3):
-            try:
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(prompt)
-                text = str(getattr(response, "text", "")).strip()
-                last_text = text
-
-                if not text:
-                    last_error = RuntimeError(f"{model_name} empty response")
-                    continue
-
-                text = text.replace("```json", "").replace("```", "").strip()
-
-                start = text.find("{")
-                end = text.rfind("}")
-                if start != -1 and end != -1 and end > start:
-                    text = text[start:end + 1].strip()
-
-                return json.loads(text)
-
-            except Exception as e:
-                last_error = e
-                msg = str(e)
-                if "429" in msg:
-                    continue
-                break
-
-    preview = (last_text or "")[:1000]
-    raise RuntimeError(
-        f"Gemini JSON生成失敗: {last_error}\n"
-        f"--- preview start ---\n{preview}\n--- preview end ---"
-    )
-
-
 # =========================================
 # ログ書き込み
 # =========================================
@@ -91,37 +45,87 @@ def append_journal_log(row_dict):
 # =========================================
 # 月単位の日誌再生成
 # =========================================
-def generate_month_diary_with_gemini(text: str):
+def generate_json_with_gemini_local(page_text: str):
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY が見つかりません")
+
+    genai.configure(api_key=api_key)
+
+    system_instruction = """
+【ダイアモンドルール：福祉記録リライトの鉄則（決定版）】
+
+1. 事実死守・捏造禁止
+元の記録にある事実（作業内容、連絡、体調）以外の「新しい活動」は絶対に追加しない。
+ただし、「開始→作業→終了」というプロセスの肉付けは必須とする。
+
+2. 「体調良好」という単語の使用禁止
+「体調良好」という定型句は使わず、客観的な観察事実として表現すること。
+
+3. 成果物の数量化
+作業完了時には、必ず具体的な数字を文章に組み込むこと。
+
+4. 支援内容の記述
+必ず最後に「職員がどう関わったか」という支援視点を入れること。
+
+5. 文体と体裁
+「〜された」「〜伺えた」という丁寧な公用文体で書く。
+利用者状態と職員考察は必ず分ける。
+"""
+
     prompt = f"""
-以下は就労継続支援B型の支援記録ページを丸ごとコピーしたテキストです。
+以下はKnowbeの支援記録ページを月単位で取得した本文です。
+本文を読み取り、日付ごとに「利用者状態」と「職員考察」をJSONのみで返してください。
 
-【絶対ルール】
-・嘘を書かない
-・書いていないことは絶対に補完しない
-・事実をそのまま丁寧な文章にする
-・利用者状態と職員考察を必ず分ける
-・各日ごとに生成する
-・本文がない日は出力しない
-・出力はJSONのみ
+【絶対条件】
+- 出力はJSONのみ
+- キーは YYYY-MM-DD
+- 値は user_state / staff_note の2つ
+- 本文が不十分で、その日付の本文が作れない日は出力しない
+- 捏造禁止
+- 事実から逸脱しない
+- 利用者状態と職員考察を分ける
 
-出力形式：
+【出力形式】
 {{
-  "2026-04-01": {{
+  "2025-08-01": {{
     "user_state": "利用者状態の本文",
     "staff_note": "職員考察の本文"
   }},
-  "2026-04-02": {{
+  "2025-08-02": {{
     "user_state": "利用者状態の本文",
     "staff_note": "職員考察の本文"
   }}
 }}
 
-本文：
-{text}
+【支援記録本文】
+{page_text}
 """
-    return generate_json_with_gemini_local(prompt)
 
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        system_instruction=system_instruction
+    )
 
+    response = model.generate_content(prompt)
+    text = str(getattr(response, "text", "")).strip()
+
+    if not text:
+        raise RuntimeError("Geminiの応答が空です")
+
+    text = text.replace("```json", "").replace("```", "").strip()
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise RuntimeError(f"GeminiのJSON抽出に失敗しました: {text[:500]}")
+
+    json_text = text[start:end + 1]
+
+    try:
+        return json.loads(json_text)
+    except Exception as e:
+        raise RuntimeError(f"Gemini JSON解析失敗: {e}\nJSON本文:\n{json_text[:1000]}")
 # =========================================
 # 1ヶ月処理
 # =========================================
@@ -164,20 +168,31 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
             })
             return
 
-        result_json = generate_month_diary_with_gemini(page_text)
+        result_json = generate_json_with_gemini_local(page_text)
+
+        if not isinstance(result_json, dict):
+            raise RuntimeError("Geminiの返却値がdictではありません")
+
         success_count = 0
 
         for date_str, content in result_json.items():
             try:
+                if not isinstance(content, dict):
+                    continue
+
+                user_state = str(content.get("user_state", "")).strip()
+                staff_note = str(content.get("staff_note", "")).strip()
+
+                if not user_state and not staff_note:
+                    continue
+
                 open_day_edit_modal(driver, date_str)
-                update_day_fields(
-                    driver,
-                    str(content.get("user_state", "")).strip(),
-                    str(content.get("staff_note", "")).strip()
-                )
+                update_day_fields(driver, user_state, staff_note)
                 save_day(driver)
+
                 success_count += 1
                 time.sleep(0.8)
+
             except Exception as e:
                 print("日付処理失敗:", date_str, e, flush=True)
 
@@ -205,7 +220,6 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
             "count": 0,
             "message": str(e)
         })
-
 
 # =========================================
 # メイン処理
