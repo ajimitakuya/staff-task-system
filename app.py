@@ -156,6 +156,9 @@ def render_support_record_audit_page():
     st.header("過去日誌照合")
     st.caption("Knowbeの支援記録を期間指定で読み込み、登録区分と日誌内容の判定結果を一覧化します。")
 
+    if st.sidebar.button("📝過去日誌参照", key="journal_rewrite_menu_button", use_container_width=True):
+        go_page("journal_rewrite")
+
     if not st.session_state.get("is_admin", False):
         st.error("このページは管理者専用です。")
         return
@@ -6022,6 +6025,7 @@ page_options = [
     "ICカード管理",
     "勤怠管理",
     "過去日誌照合",
+    "journal_rewrite",
     "🐝knowbe日誌一括入力🐝",
 ]
 
@@ -16510,5 +16514,8 @@ elif page == "過去日誌照合":
     else:
         run_page_debug("過去日誌照合", render_support_record_audit_page)
 
-elif st.session_state.get("current_page") == "journal_rewrite":
-    render_journal_rewrite_page()
+elif page == "journal_rewrite":
+    if not st.session_state.get("is_admin", False):
+        st.error("このページは管理者専用です。")
+    else:
+        run_page_debug("journal_rewrite", render_journal_rewrite_page)
