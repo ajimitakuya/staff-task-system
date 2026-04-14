@@ -4502,47 +4502,25 @@ def fetch_support_record_page_text(driver):
     return driver.find_element(By.TAG_NAME, "body").text
 
 
-def open_day_edit_modal(driver, date_str: str):
-    import re
+def enter_edit_mode(driver):
+    print("[FIX] 編集モードに入る", flush=True)
 
-    # "2025-09-09" → "9日"
-    m = re.search(r"\d{4}-\d{2}-(\d{1,2})", date_str)
-    if not m:
-        raise RuntimeError(f"日付解析失敗: {date_str}")
+    btns = driver.find_elements(By.TAG_NAME, "button")
 
-    target_day = int(m.group(1))
-    target_label = f"{target_day}日"
-
-    print(f"[FIX] target = {target_label}", flush=True)
-
-    rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
-
-    found_row = None
-
-    for row in rows:
-        txt = row.text
-        if target_label in txt:
-            found_row = row
+    for b in btns:
+        txt = (b.text or "").strip()
+        if txt == "編集":
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", b)
+            time.sleep(0.3)
+            b.click()
             break
 
-    if not found_row:
-        print(f"[SKIP] 日付が存在しない: {target_label}", flush=True)
-        return  # ←これ重要（止める）
-
-    # スクロール
-    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", found_row)
-    time.sleep(0.3)
-
-    # 鉛筆クリック
-    if not click_pencil_in_row(driver, found_row):
-        raise RuntimeError(f"編集ボタン押せない: {target_label}")
-
-    # モーダル待機
+    # 👉 編集モードになるまで待つ
     WebDriverWait(driver, 10).until(
-        lambda d: len(d.find_elements(By.CSS_SELECTOR, "[role='dialog']")) > 0
+        lambda d: any("保存" in (x.text or "") for x in d.find_elements(By.TAG_NAME, "button"))
     )
 
-    print(f"[FIX] modal opened: {target_label}", flush=True)
+    print("[FIX] 編集モードON", flush=True)
     time.sleep(0.5)
 
 def update_day_fields(driver, user_state: str, staff_note: str):
