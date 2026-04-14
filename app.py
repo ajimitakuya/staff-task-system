@@ -6273,9 +6273,6 @@ if st.session_state.get("bee_menu_unlocked", False):
         st.session_state.current_page = "🐝knowbe日誌一括入力🐝"
         st.rerun()
 
-if st.sidebar.button("📝過去日誌参照", key="journal_rewrite_menu_button", use_container_width=True):
-    go_page("journal_rewrite")
-
 if st.session_state.get("logged_in", False):
     render_sticky_app_header()
 
