@@ -127,7 +127,7 @@ def generate_json_with_gemini_local(page_text: str):
 """
 
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
+        model_name="gemini-2.5-flash",
         system_instruction=system_instruction
     )
 
