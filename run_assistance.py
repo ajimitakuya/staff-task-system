@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+﻿﻿# -*- coding: utf-8 -*-
 """
 knowbe 日誌入力スクリプト（安定統合版・2026-02-23 / dropdown強化fix）
 - Excelは必ずTEMPにコピーしてから openpyxl で読む（Y:直読み破損対策）
@@ -4495,6 +4495,30 @@ def send_one_record_from_app(
             driver.quit()
         except Exception:
             pass
+
+def fetch_support_record_page_text(driver):
+    return driver.find_element(By.TAG_NAME, "body").text
+
+
+def open_day_edit_modal(driver, date_str):
+    # 日付クリック（ここはあとで微調整OK）
+    el = driver.find_element(By.XPATH, f"//*[contains(text(), '{int(date_str[-2:])}日')]")
+    el.click()
+    time.sleep(1)
+
+
+def update_day_fields(driver, user_text, staff_text):
+    textareas = driver.find_elements(By.TAG_NAME, "textarea")
+    textareas[0].clear()
+    textareas[0].send_keys(user_text)
+    textareas[1].clear()
+    textareas[1].send_keys(staff_text)
+
+
+def save_day(driver):
+    btn = driver.find_element(By.XPATH, "//button[contains(.,'保存')]")
+    btn.click()
+    time.sleep(1)
 
 def main():
     # =========================================

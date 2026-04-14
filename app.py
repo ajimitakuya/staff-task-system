@@ -1,5 +1,6 @@
 from common import now_jst, mask_secret_text, safe_text, heart_label, parse_time_range, _to_minutes, _normalize_weekday_label, is_time_overlap, get_saturday_dates_for_month, get_sheet_name_candidates, get_sheet_name, get_next_numeric_id, normalize_company_scoped_df, filter_by_company_id
 from data_access import load_db, save_db, get_companies_df, get_users_df, get_user_company_permissions_df, get_task_required_cols, get_tasks_df, get_urgent_tasks_df, get_resident_master_df, get_resident_schedule_df, get_resident_notes_df, get_attendance_logs_df, get_attendance_logs_df, get_attendance_display_settings_df
+from journal_rewrite import render_journal_rewrite_page
 import streamlit as st
 import pandas as pd
 import base64
@@ -6267,6 +6268,9 @@ if st.session_state.get("bee_menu_unlocked", False):
     if st.sidebar.button("🐝knowbe日誌一括入力🐝", key="knowbe_bulk_menu_button", use_container_width=True):
         st.session_state.current_page = "🐝knowbe日誌一括入力🐝"
         st.rerun()
+
+if st.sidebar.button("📝過去日誌参照", key="journal_rewrite_menu_button", use_container_width=True):
+    go_page("journal_rewrite")
 
 if st.session_state.get("logged_in", False):
     render_sticky_app_header()
@@ -16505,3 +16509,6 @@ elif page == "過去日誌照合":
         st.error("このページは管理者専用です。")
     else:
         run_page_debug("過去日誌照合", render_support_record_audit_page)
+
+elif st.session_state.get("current_page") == "journal_rewrite":
+    render_journal_rewrite_page()
