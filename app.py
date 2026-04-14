@@ -6106,8 +6106,8 @@ if st.session_state.get("is_admin", False):
         st.session_state.current_page = "勤怠管理"
         st.rerun()
 
-    if st.sidebar.button("過去日誌照合", key="menu_support_record_audit", use_container_width=True):
-        st.session_state.current_page = "過去日誌照合"
+    if st.sidebar.button("過去日誌訂正", key="menu_support_record_audit", use_container_width=True):
+        st.session_state.current_page = "過去日誌訂正"
         st.rerun()
 
 # ===== 最下部 =====
