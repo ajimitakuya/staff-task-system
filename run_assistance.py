@@ -714,9 +714,11 @@ def click_pencil_in_row(driver, row) -> bool:
             last = tds[-1]
             for b in last.find_elements(By.TAG_NAME, "button"):
                 if safe_click(driver, b):
+                    time.sleep(0.5)  # ←ここ！！！！
                     return True
             for svg in last.find_elements(By.TAG_NAME, "svg"):
                 if safe_click(driver, svg):
+                    time.sleep(0.5)  # ←ここ！！！！
                     return True
     except Exception:
         pass
@@ -4501,27 +4503,47 @@ def fetch_support_record_page_text(driver):
 
 
 def open_day_edit_modal(driver, date_str: str):
-    print(f"[FIX] open edit modal start: {date_str}", flush=True)
+    import re
 
-    row = find_row_by_name(driver, date_str)
-    if not row:
-        raise RuntimeError(f"日付行が見つからない: {date_str}")
+    # "2025-09-09" → "9日"
+    m = re.search(r"\d{4}-\d{2}-(\d{1,2})", date_str)
+    if not m:
+        raise RuntimeError(f"日付解析失敗: {date_str}")
 
-    # スクロールして被り防止
-    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", row)
-    time.sleep(0.5)
+    target_day = int(m.group(1))
+    target_label = f"{target_day}日"
 
-    if not click_pencil_in_row(driver, row):
-        raise RuntimeError(f"編集ボタン押せない: {date_str}")
+    print(f"[FIX] target = {target_label}", flush=True)
 
-    # 👉 モーダルが出るまで待つ（超重要）
+    rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
+
+    found_row = None
+
+    for row in rows:
+        txt = row.text
+        if target_label in txt:
+            found_row = row
+            break
+
+    if not found_row:
+        print(f"[SKIP] 日付が存在しない: {target_label}", flush=True)
+        return  # ←これ重要（止める）
+
+    # スクロール
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", found_row)
+    time.sleep(0.3)
+
+    # 鉛筆クリック
+    if not click_pencil_in_row(driver, found_row):
+        raise RuntimeError(f"編集ボタン押せない: {target_label}")
+
+    # モーダル待機
     WebDriverWait(driver, 10).until(
         lambda d: len(d.find_elements(By.CSS_SELECTOR, "[role='dialog']")) > 0
     )
 
-    print(f"[FIX] modal opened: {date_str}", flush=True)
+    print(f"[FIX] modal opened: {target_label}", flush=True)
     time.sleep(0.5)
-
 
 def update_day_fields(driver, user_state: str, staff_note: str):
     dlg = driver.find_elements(By.CSS_SELECTOR, "[role='dialog']")[-1]
