@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 knowbe 日誌入力スクリプト（安定統合版・2026-02-23 / dropdown強化fix）
 - Excelは必ずTEMPにコピーしてから openpyxl で読む（Y:直読み破損対策）
@@ -4500,25 +4500,75 @@ def fetch_support_record_page_text(driver):
     return driver.find_element(By.TAG_NAME, "body").text
 
 
-def open_day_edit_modal(driver, date_str):
-    # 日付クリック（ここはあとで微調整OK）
-    el = driver.find_element(By.XPATH, f"//*[contains(text(), '{int(date_str[-2:])}日')]")
-    el.click()
-    time.sleep(1)
+def open_day_edit_modal(driver, date_str: str):
+    print(f"[FIX] open edit modal start: {date_str}", flush=True)
+
+    row = find_row_by_name(driver, date_str)
+    if not row:
+        raise RuntimeError(f"日付行が見つからない: {date_str}")
+
+    # スクロールして被り防止
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", row)
+    time.sleep(0.5)
+
+    if not click_pencil_in_row(driver, row):
+        raise RuntimeError(f"編集ボタン押せない: {date_str}")
+
+    # 👉 モーダルが出るまで待つ（超重要）
+    WebDriverWait(driver, 10).until(
+        lambda d: len(d.find_elements(By.CSS_SELECTOR, "[role='dialog']")) > 0
+    )
+
+    print(f"[FIX] modal opened: {date_str}", flush=True)
+    time.sleep(0.5)
 
 
-def update_day_fields(driver, user_text, staff_text):
-    textareas = driver.find_elements(By.TAG_NAME, "textarea")
-    textareas[0].clear()
-    textareas[0].send_keys(user_text)
-    textareas[1].clear()
-    textareas[1].send_keys(staff_text)
+def update_day_fields(driver, user_state: str, staff_note: str):
+    dlg = driver.find_elements(By.CSS_SELECTOR, "[role='dialog']")[-1]
+
+    textareas = dlg.find_elements(By.TAG_NAME, "textarea")
+
+    if len(textareas) < 2:
+        raise RuntimeError("textarea不足（モーダル取得ミス）")
+
+    # 利用者状態
+    set_input_value(driver, textareas[0], user_state)
+
+    # 職員考察
+    set_input_value(driver, textareas[1], staff_note)
+
+    print("[FIX] fields updated", flush=True)
 
 
 def save_day(driver):
-    btn = driver.find_element(By.XPATH, "//button[contains(.,'保存')]")
-    btn.click()
-    time.sleep(1)
+    dlg = driver.find_elements(By.CSS_SELECTOR, "[role='dialog']")[-1]
+
+    # 👉 保存ボタンを探す（編集→保存に変わるやつ）
+    buttons = dlg.find_elements(By.TAG_NAME, "button")
+
+    saved = False
+
+    for b in buttons:
+        try:
+            txt = (b.text or "").strip()
+
+            if "保存" in txt or "更新" in txt:
+                if safe_click(driver, b):
+                    saved = True
+                    break
+        except Exception:
+            continue
+
+    if not saved:
+        raise RuntimeError("保存ボタンが見つからない")
+
+    # 👉 モーダルが閉じるまで待つ
+    WebDriverWait(driver, 10).until(
+        lambda d: len(d.find_elements(By.CSS_SELECTOR, "[role='dialog']")) == 0
+    )
+
+    print("[FIX] saved & modal closed", flush=True)
+    time.sleep(0.5)
 
 def main():
     # =========================================
