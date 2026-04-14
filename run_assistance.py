@@ -1,4 +1,4 @@
-﻿﻿# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 knowbe 日誌入力スクリプト（安定統合版・2026-02-23 / dropdown強化fix）
 - Excelは必ずTEMPにコピーしてから openpyxl で読む（Y:直読み破損対策）
