@@ -278,7 +278,7 @@ def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m):
 def render_journal_rewrite_page():
     from run_assistance import build_chrome_driver, get_knowbe_login_credentials, manual_login_wait
 
-    st.header("過去日誌参照（自動上書き）")
+    st.header("過去日誌訂正（自動上書き）")
     st.caption("Knowbeの支援記録を月単位で取得し、Geminiで利用者状態と職員考察を再生成して上書きします。")
 
     if not st.session_state.get("is_admin", False):
