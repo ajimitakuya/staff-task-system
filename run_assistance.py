@@ -667,23 +667,90 @@ def find_row_by_name(driver, name: str):
     last_sig = ""
     stuck = 0
 
-    for step in range(30):
+    for step in range(40):
         try:
             driver.execute_script("arguments[0].scrollIntoView({block:'center'});", table)
-            time.sleep(0.2)
+            time.sleep(0.15)
         except Exception:
             pass
 
+        # まず現在の見えている行を取る
+        row, visible = scan_rows()
+
+        sig = " | ".join(visible)
+        log(f"[DEBUG] pre-step={step+1} rows={len(visible)}")
+        for i, txt in enumerate(visible[:10], 1):
+            log(f"[DEBUG] pre visible row {i}: {txt}")
+
+        if row is not None:
+            return row
+
+        # 同じ表示が続いたら小さく刻んで追加スクロール
+        if sig == last_sig:
+            stuck += 1
+            scroll_amount = 120
+        else:
+            stuck = 0
+            last_sig = sig
+            scroll_amount = 220
+
         # Selenium 4 の wheel アクション
+        moved = False
         try:
-            ActionChains(driver).move_to_element(table).pause(0.1).scroll_by_amount(0, 500).perform()
+            ActionChains(driver).move_to_element(table).pause(0.08).scroll_by_amount(0, scroll_amount).perform()
+            moved = True
         except Exception:
-            # 保険：JSスクロール
+            pass
+
+        # 保険：JSスクロール
+        if not moved:
             try:
-                driver.execute_script("window.scrollBy(0, 500);")
+                driver.execute_script("window.scrollBy(0, arguments[0]);", scroll_amount)
             except Exception:
                 pass
 
+        time.sleep(0.45)
+
+        # スクロール後に再取得
+        row, visible = scan_rows()
+
+        sig_after = " | ".join(visible)
+        log(f"[DEBUG] post-step={step+1} rows={len(visible)} scroll={scroll_amount}")
+        for i, txt in enumerate(visible[:10], 1):
+            log(f"[DEBUG] post visible row {i}: {txt}")
+
+        if row is not None:
+            return row
+
+        # スクロールしても画面が変わっていないなら、もう少しだけ細かく送る
+        if sig_after == sig:
+            try:
+                ActionChains(driver).move_to_element(table).pause(0.05).scroll_by_amount(0, 80).perform()
+            except Exception:
+                try:
+                    driver.execute_script("window.scrollBy(0, 80);")
+                except Exception:
+                    pass
+            time.sleep(0.25)
+
+            row, visible = scan_rows()
+            if row is not None:
+                return row
+
+            sig_after2 = " | ".join(visible)
+            if sig_after2 == sig_after:
+                stuck += 1
+            else:
+                stuck = 0
+                last_sig = sig_after2
+        else:
+            stuck = 0
+            last_sig = sig_after
+
+        if stuck >= 5:
+            log("[DEBUG] scrolling appears stuck")
+            break
+        
         time.sleep(0.8)
 
         row, visible = scan_rows()
@@ -1811,6 +1878,53 @@ def set_input_value(driver, el, value: str):
         _js_set_value_and_fire(driver, el, value)
     except Exception:
         pass
+
+def enter_edit_mode(driver):
+    import time
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    btns = driver.find_elements(By.TAG_NAME, "button")
+
+    for b in btns:
+        txt = (b.text or "").strip()
+        if txt == "編集":
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", b)
+            time.sleep(0.3)
+            if not safe_click(driver, b):
+                driver.execute_script("arguments[0].click();", b)
+            break
+    else:
+        raise RuntimeError("編集ボタンが見つからない")
+
+    WebDriverWait(driver, 10).until(
+        lambda d: any("保存" in ((x.text or "").strip()) for x in d.find_elements(By.TAG_NAME, "button"))
+    )
+
+    time.sleep(0.5)
+    print("[FIX] 編集モードON", flush=True)
+
+
+def save_all(driver):
+    import time
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    btns = driver.find_elements(By.TAG_NAME, "button")
+
+    for b in btns:
+        txt = (b.text or "").strip()
+        if "保存" in txt:
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", b)
+            time.sleep(0.2)
+            if not safe_click(driver, b):
+                driver.execute_script("arguments[0].click();", b)
+            break
+    else:
+        raise RuntimeError("保存ボタンが見つからない")
+
+    time.sleep(1.0)
+    print("[FIX] 保存完了", flush=True)
 
 # =========================
 # ドロップダウン選択（強化版）
@@ -4503,25 +4617,25 @@ def fetch_support_record_page_text(driver):
 
 
 def enter_edit_mode(driver):
-    print("[FIX] 編集モードに入る", flush=True)
+    import time
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
 
     btns = driver.find_elements(By.TAG_NAME, "button")
 
     for b in btns:
-        txt = (b.text or "").strip()
-        if txt == "編集":
+        if (b.text or "").strip() == "編集":
             driver.execute_script("arguments[0].scrollIntoView({block:'center'});", b)
             time.sleep(0.3)
             b.click()
             break
 
-    # 👉 編集モードになるまで待つ
     WebDriverWait(driver, 10).until(
         lambda d: any("保存" in (x.text or "") for x in d.find_elements(By.TAG_NAME, "button"))
     )
 
-    print("[FIX] 編集モードON", flush=True)
     time.sleep(0.5)
+    print("[FIX] 編集モードON", flush=True)
 
 def update_day_fields(driver, user_state: str, staff_note: str):
     dlg = driver.find_elements(By.CSS_SELECTOR, "[role='dialog']")[-1]
