@@ -273,12 +273,11 @@ def _is_short_user_state(text: str) -> bool:
 
     short_keywords = ["体調良好", "体調普通", "良好", "普通", "元気"]
 
-    # 完全一致じゃなく「含む」にする ← ここが重要
-    if any(k in t for k in short_keywords):
+    # 完全一致だけ許可 ← ここが核心
+    if t in short_keywords:
         return True
 
     return len(t) <= 12
-
 
 def _rebuild_user_state_from_existing(before_user: str, before_staff: str, work_label: str) -> str:
     """
