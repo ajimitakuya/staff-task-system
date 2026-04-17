@@ -188,14 +188,13 @@ def _set_react_textarea_value(driver, el, value: str):
         el.dispatchEvent(new Event('blur', { bubbles: true }));
     """, el, value)
 
-    import time
     time.sleep(0.2)
+
 
 def _find_row_textareas_for_support_record(row):
     areas = []
     for ta in row.find_elements(By.TAG_NAME, "textarea"):
         try:
-            # is_enabled を外す ← これが原因
             if ta.is_displayed():
                 areas.append(ta)
         except Exception:
@@ -267,25 +266,17 @@ def _work_default_unit(work: str):
 
 def _is_short_user_state(text: str) -> bool:
     t = str(text or "").replace("\u3000", " ").strip()
-
     if not t:
         return True
 
     short_keywords = ["体調良好", "体調普通", "良好", "普通", "元気"]
-
-    # 完全一致だけ許可 ← ここが核心
     if t in short_keywords:
         return True
 
     return len(t) <= 12
 
+
 def _rebuild_user_state_from_existing(before_user: str, before_staff: str, work_label: str) -> str:
-    """
-    6日・16日のように
-    利用者状態 = 体調良好
-    職員考察 = 開始連絡、体調、終了報告、作業量
-    になっている行を、その場で再構成する
-    """
     user_text = str(before_user or "").replace("\u3000", " ").strip()
     staff_text = str(before_staff or "").replace("\u3000", " ").strip()
     work = str(work_label or "").strip() or "作業"
@@ -295,7 +286,6 @@ def _rebuild_user_state_from_existing(before_user: str, before_staff: str, work_
         return user_text
 
     text = staff_text
-
     start_sentence = ""
     if "作業開始" in text or "開始の連絡" in text or "電話連絡" in text:
         if "体調いい" in text or "体調はいい" in text or "体調良好" in text or "体調が良好" in text:
@@ -306,29 +296,25 @@ def _rebuild_user_state_from_existing(before_user: str, before_staff: str, work_
             start_sentence = "作業開始の連絡があり、体調について報告がありました。"
 
     amount_sentence = ""
-    import re
 
-    # 明確な数量
     m = re.search(rf"{re.escape(work)}を\s*(\d+)\s*({unit})", text)
     if m:
         amount_sentence = f"作業終了の連絡があり、{work}を{m.group(1)}{m.group(2)}やりましたと報告がありました。"
 
-    # 「3枚やりました」型（作業名なし）
     if not amount_sentence:
         m2 = re.search(r"(\d+)\s*(枚|個|膳|本|羽)\s*(やりました|出来ました|できました|実施)", text)
         if m2:
             amount_sentence = f"作業終了の連絡があり、{work}を{m2.group(1)}{m2.group(2)}やりましたと報告がありました。"
 
-    # 曖昧量 → 1以上に補正
     if not amount_sentence and ("8割" in text or "半分" in text or "少し" in text or "ちょっと" in text):
         amount_sentence = f"作業終了の連絡があり、{work}を1{unit}やりましたと報告がありました。"
 
-    # 終了報告だけあるが量不明
     if not amount_sentence and ("終了の連絡" in text or "作業終了" in text or "やりました" in text or "出来ました" in text or "できました" in text):
         amount_sentence = f"作業終了の連絡があり、{work}に取り組まれたことを報告されました。"
 
     rebuilt = " ".join([s for s in [start_sentence, amount_sentence] if s]).strip()
     return rebuilt or user_text
+
 
 def _split_support_record_blocks(page_text: str):
     text = _normalize_text(page_text)
@@ -374,7 +360,6 @@ def _normalize_work_quantity_phrase(text: str, work: str):
     if not s or not work:
         return s
 
-    # 二重付与の解消
     s = s.replace(f"{work}を{work}を", f"{work}を")
     s = s.replace(f"{work}作業を{work}を", f"{work}を")
     s = s.replace(f"{work}を{work}", f"{work}")
@@ -397,7 +382,6 @@ def _normalize_work_quantity_phrase(text: str, work: str):
     for pat, rep in replacements:
         s = re.sub(pat, rep, s)
 
-    # ありがちな重複を最後に再清掃
     while f"{work}を{work}を" in s:
         s = s.replace(f"{work}を{work}を", f"{work}を")
 
@@ -468,7 +452,6 @@ def _compose_user_state_from_raw(work: str, raw_user: str, raw_staff: str):
     elif raw_user and _looks_like_short_health_only(raw_user):
         sentences.append(raw_user.rstrip("。") + "です。")
 
-    # 終了時の本人報告
     q = re.search(r"「([^」]{1,80})」", source)
     if q:
         quote = q.group(1).strip()
@@ -477,14 +460,12 @@ def _compose_user_state_from_raw(work: str, raw_user: str, raw_staff: str):
         if quote:
             sentences.append(f"作業終了の連絡があり、「{quote}」と報告がありました。")
     else:
-        # 明示数量
         qty = re.search(rf"{re.escape(work)}[^。]*?(\d+\s*(?:枚|個|膳|本|羽)|[一二三四五六七八九十]+\s*(?:枚|個|膳|本|羽))[^。]*", source) if work else None
         if qty:
             sentences.append(qty.group(0).rstrip("。") + "。")
         elif allow_zero:
             sentences.append(f"作業終了時には、{work}は実施できなかったとの報告がありました。")
         else:
-            # 8割、半分、少し、または作業実施のみ
             if re.search(r"8割|半分|少し|やりました|できました|出来ました|順調に", source):
                 sentences.append(f"作業終了の連絡があり、{work}を1{unit}やりましたと報告がありました。")
 
@@ -495,14 +476,13 @@ def _compose_user_state_from_raw(work: str, raw_user: str, raw_staff: str):
     return result.strip()
 
 
-def _postprocess_gemini_result(page_text: str, result_json: dict):
+def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, month: int):
     blocks = _split_support_record_blocks(page_text)
     fixed = {}
 
     for date_str, content in (result_json or {}).items():
         m = re.search(r"\d{4}-\d{2}-(\d{1,2})", str(date_str))
         if not m:
-            fixed[date_str] = content
             continue
 
         day = int(m.group(1))
@@ -540,6 +520,24 @@ def _postprocess_gemini_result(page_text: str, result_json: dict):
             "staff_note": staff_note,
         }
 
+    # Gemini が返さなかった日も raw から補完する
+    for day, block in blocks.items():
+        key = f"{year:04d}-{month:02d}-{day:02d}"
+        if key in fixed:
+            continue
+
+        work = _normalize_text(block.get("work", ""))
+        raw_user = _normalize_text(block.get("user_state_raw", ""))
+        raw_staff = _normalize_text(block.get("staff_note_raw", ""))
+
+        rebuilt_user = _compose_user_state_from_raw(work, raw_user, raw_staff)
+        rebuilt_staff = raw_staff
+
+        fixed[key] = {
+            "user_state": rebuilt_user,
+            "staff_note": rebuilt_staff,
+        }
+
     return fixed
 
 
@@ -572,7 +570,7 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
             return
 
         result_json = generate_json_with_gemini_local(page_text_str, outside_workplace)
-        result_json = _postprocess_gemini_result(page_text_str, result_json)
+        result_json = _postprocess_gemini_result(page_text_str, result_json, year, month)
 
         print("[FIX] 編集モードへ", flush=True)
         enter_edit_mode(driver)
@@ -614,13 +612,8 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         print(f"[FIX] before user_state = {before_user[:80]}", flush=True)
                         print(f"[FIX] before staff_note = {before_staff[:80]}", flush=True)
 
-                        # 6日・16日対策：
-                        # 新しく作られた user_state が短すぎる場合は、
-                        # 画面に既にある職員考察(before_staff)からその場で再構成する
                         final_user_state = str(user_state or "").strip()
-
-                        # ★ここを変更
-                        if _is_short_user_state(before_user):
+                        if _is_short_user_state(final_user_state):
                             row_text = row.text
                             work_label = ""
                             if "塗り絵" in row_text:
@@ -661,21 +654,6 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                                 f"staff_match={after_staff == str(staff_note).strip()}"
                             )
 
-                        after_user = _textarea_value(user_state_el)
-                        after_staff = _textarea_value(staff_note_el)
-
-                        print(f"[FIX] after user_state = {after_user[:80]}", flush=True)
-                        print(f"[FIX] after staff_note = {after_staff[:80]}", flush=True)
-
-                        if after_user == str(user_state).strip() and after_staff == str(staff_note).strip():
-                            success_count += 1
-                            print(f"[FIX] 入力成功: {target_label}", flush=True)
-                        else:
-                            raise RuntimeError(
-                                f"入力反映失敗: {target_label} / "
-                                f"user_match={after_user == str(user_state).strip()} / "
-                                f"staff_match={after_staff == str(staff_note).strip()}"
-                            )
                         break
 
             except Exception as e:
