@@ -476,7 +476,7 @@ def _compose_user_state_from_raw(work: str, raw_user: str, raw_staff: str):
     return result.strip()
 
 
-def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, month: int):
+def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, month: int, outside_workplace: str = ""):
     blocks = _split_support_record_blocks(page_text)
     fixed = {}
 
@@ -487,12 +487,25 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
 
         day = int(m.group(1))
         block = blocks.get(day, {})
+
         work = _normalize_text(block.get("work", ""))
         raw_user = _normalize_text(block.get("user_state_raw", ""))
         raw_staff = _normalize_text(block.get("staff_note_raw", ""))
 
         user_state = _normalize_text((content or {}).get("user_state", ""))
         staff_note = _normalize_text((content or {}).get("staff_note", ""))
+
+        # ===== 施設外就労判定（追加） =====
+        all_text = " ".join([work, raw_user, raw_staff])
+
+        is_outside_day = any(k in all_text for k in [
+            "施設外就労",
+            "清掃",
+            "居酒屋",
+            "琴",
+            "エバーグリーン",
+        ])
+        # ==============================
 
         source_all = " ".join([user_state, staff_note, raw_user, raw_staff]).strip()
         allow_zero = _contains_explicit_no_work_reason(source_all)
@@ -514,6 +527,17 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
             rebuilt = _compose_user_state_from_raw(work, raw_user, raw_staff)
             if rebuilt:
                 user_state = rebuilt
+
+        # ===== 施設外就労の日だけ就労先を反映（追加） =====
+        if is_outside_day and outside_workplace and outside_workplace != "未指定":
+            place = outside_workplace.strip()
+
+            if place not in user_state and place not in staff_note:
+                if user_state:
+                    user_state = f"{place}での作業として、" + user_state
+                else:
+                    staff_note = f"{place}での作業として、" + staff_note
+        # ============================================
 
         fixed[date_str] = {
             "user_state": user_state,
@@ -570,7 +594,7 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
             return
 
         result_json = generate_json_with_gemini_local(page_text_str, outside_workplace)
-        result_json = _postprocess_gemini_result(page_text_str, result_json, year, month)
+        result_json = _postprocess_gemini_result(page_text_str, result_json, year, month, outside_workplace)
 
         print("[FIX] 編集モードへ", flush=True)
         enter_edit_mode(driver)
