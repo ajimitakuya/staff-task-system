@@ -578,7 +578,8 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
         rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
         success_count = 0
 
-        for date_str, content in result_json.items():
+        for date_str in sorted(result_json.keys()):
+            content = result_json[date_str]
             try:
                 m = re.search(r"\d{4}-\d{2}-(\d{1,2})", date_str)
                 if not m:
@@ -596,7 +597,8 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                 print(f"[FIX] 入力対象: {target_label}", flush=True)
 
                 for row in rows:
-                    if target_label in row.text:
+                    row_text_full = row.text.strip()
+                    if re.match(rf"^{target_day}日（", row_text_full):
                         areas = _find_row_textareas_for_support_record(row)
                         print(f"[FIX] {target_label} textarea count = {len(areas)}", flush=True)
 
@@ -612,31 +614,55 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         print(f"[FIX] before user_state = {before_user[:80]}", flush=True)
                         print(f"[FIX] before staff_note = {before_staff[:80]}", flush=True)
 
-                        final_user_state = str(user_state or "").strip()
-                        if _is_short_user_state(final_user_state):
-                            row_text = row.text
-                            work_label = ""
-                            if "塗り絵" in row_text:
-                                work_label = "塗り絵"
-                            elif "箱" in row_text:
-                                work_label = "箱の組み立て"
-                            elif "袋" in row_text:
-                                work_label = "袋詰め"
-                            elif "箸" in row_text:
-                                work_label = "箸入れ"
-                            elif "チラシ" in row_text:
-                                work_label = "チラシ作業"
-                            elif "折り鶴" in row_text or "鶴" in row_text:
-                                work_label = "折り鶴"
+                        row_text = row.text
+                        work_label = ""
+                        if "塗り絵" in row_text:
+                            work_label = "塗り絵"
+                        elif "箱" in row_text:
+                            work_label = "箱の組み立て"
+                        elif "袋" in row_text:
+                            work_label = "袋詰め"
+                        elif "箸" in row_text:
+                            work_label = "箸入れ"
+                        elif "チラシ" in row_text:
+                            work_label = "チラシ作業"
+                        elif "折り鶴" in row_text or "鶴" in row_text:
+                            work_label = "折り鶴"
 
-                            final_user_state = _rebuild_user_state_from_existing(
+                        final_user_state = _normalize_text(user_state)
+                        final_staff_note = _normalize_text(staff_note)
+
+                        # 既存画面の利用者状態が短い、または Gemini 結果が短い日は、
+                        # 画面上の既存データから強制再構成する
+                        need_force_rebuild = (
+                            _is_short_user_state(before_user)
+                            or _looks_like_short_health_only(final_user_state)
+                            or len(_sentencize_jp(final_user_state)) < 2
+                        )
+
+                        if need_force_rebuild:
+                            rebuilt = _rebuild_user_state_from_existing(
                                 before_user=before_user,
                                 before_staff=before_staff,
                                 work_label=work_label,
                             )
+                            if rebuilt:
+                                final_user_state = rebuilt
+
+                        # 作業名・数量の最終補正
+                        allow_zero = _contains_explicit_no_work_reason(
+                            " ".join([final_user_state, final_staff_note, before_user, before_staff])
+                        )
+                        final_user_state = _normalize_work_quantity_phrase(final_user_state, work_label)
+                        final_user_state = _convert_ambiguous_quantity_to_one_or_more(
+                            final_user_state, work_label, allow_zero
+                        )
+                        final_user_state = _append_default_quantity_if_missing(
+                            final_user_state, work_label, allow_zero
+                        )
 
                         _set_react_textarea_value(driver, user_state_el, final_user_state)
-                        _set_react_textarea_value(driver, staff_note_el, staff_note)
+                        _set_react_textarea_value(driver, staff_note_el, final_staff_note)
 
                         after_user = _textarea_value(user_state_el)
                         after_staff = _textarea_value(staff_note_el)
@@ -644,14 +670,14 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         print(f"[FIX] after user_state = {after_user[:80]}", flush=True)
                         print(f"[FIX] after staff_note = {after_staff[:80]}", flush=True)
 
-                        if after_user == str(final_user_state).strip() and after_staff == str(staff_note).strip():
+                        if after_user == str(final_user_state).strip() and after_staff == str(final_staff_note).strip():
                             success_count += 1
                             print(f"[FIX] 入力成功: {target_label}", flush=True)
                         else:
                             raise RuntimeError(
                                 f"入力反映失敗: {target_label} / "
                                 f"user_match={after_user == str(final_user_state).strip()} / "
-                                f"staff_match={after_staff == str(staff_note).strip()}"
+                                f"staff_match={after_staff == str(final_staff_note).strip()}"
                             )
 
                         break
