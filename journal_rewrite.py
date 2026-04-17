@@ -618,7 +618,9 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         # 新しく作られた user_state が短すぎる場合は、
                         # 画面に既にある職員考察(before_staff)からその場で再構成する
                         final_user_state = str(user_state or "").strip()
-                        if _is_short_user_state(final_user_state):
+
+                        # ★ここを変更
+                        if _is_short_user_state(before_user):
                             row_text = row.text
                             work_label = ""
                             if "塗り絵" in row_text:
