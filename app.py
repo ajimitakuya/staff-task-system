@@ -22,7 +22,6 @@ from run_assistance import (
     build_chrome_driver,
     get_knowbe_login_credentials,
     manual_login_wait,
-    fetch_user_support_record_text_from_app,
     run_support_record_kind_export,
 )
 from attendance import render_attendance_page, flush_attendance_before_page_change
@@ -15642,38 +15641,13 @@ def fetch_home_eval_support_record_text(
 ):
     """
     在宅評価シート用に Knowbe の支援記録本文を取得する
-    ※ 実際の取得は run_assistance.py の
-       fetch_user_support_record_text_from_app() を使う
+    既存の audit 取得ルートを使う
     """
-    ctx = resolve_bee_company_context(
-        company_login_id="",
-        company_login_password="",
-        knowbe_login_username="",
-        knowbe_login_password="",
-    )
-
-    if not ctx.get("ok", False):
-        raise RuntimeError(ctx.get("error", "Knowbeログイン情報が取得できませんでした。"))
-
-    login_username = str(ctx.get("knowbe_login_username", "")).strip()
-    login_password = str(ctx.get("knowbe_login_password", "")).strip()
-
-    if not login_username or not login_password:
-        raise RuntimeError("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
-
-    support_record_text = fetch_user_support_record_text_from_app(
+    return get_support_record_text_via_audit_route(
         resident_name=resident_name,
-        target_year=int(str(create_year).strip()),
-        target_month=int(str(create_month).strip()),
-        login_username=login_username,
-        login_password=login_password,
+        year_val=str(create_year).strip(),
+        month_val=str(create_month).strip(),
     )
-
-    # ★ 利用実績なし・支援記録なしのときはここで止める
-    if not support_record_text or not str(support_record_text).strip():
-        return ""
-
-    return support_record_text
 
 def render_secret_home_eval_auto_page():
     st.title("🤫在宅評価シート🤫")
