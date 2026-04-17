@@ -553,15 +553,32 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
         work = _normalize_text(block.get("work", ""))
         raw_user = _normalize_text(block.get("user_state_raw", ""))
         raw_staff = _normalize_text(block.get("staff_note_raw", ""))
+        all_text = " ".join([work, raw_user, raw_staff])
 
         rebuilt_user = _compose_user_state_from_raw(work, raw_user, raw_staff)
         rebuilt_staff = raw_staff
+
+        is_outside_day = any(k in all_text for k in [
+            "施設外就労",
+            "清掃",
+            "居酒屋",
+            "琴",
+            "エバーグリーン",
+        ])
+
+        if is_outside_day and outside_workplace and outside_workplace != "未指定":
+            place = outside_workplace.strip()
+
+            if place not in rebuilt_user and place not in rebuilt_staff:
+                if rebuilt_user:
+                    rebuilt_user = f"{place}での作業として、" + rebuilt_user
+                else:
+                    rebuilt_staff = f"{place}での作業として、" + rebuilt_staff
 
         fixed[key] = {
             "user_state": rebuilt_user,
             "staff_note": rebuilt_staff,
         }
-
     return fixed
 
 
