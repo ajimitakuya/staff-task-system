@@ -15748,7 +15748,7 @@ def render_secret_home_eval_auto_page():
         )
 
     # ===== 1人分作成 =====
-    if generate:
+    if single_generate:
         if not resident_name:
             st.error("利用者を選択してください。")
             return
