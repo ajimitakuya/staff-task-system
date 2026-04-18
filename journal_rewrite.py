@@ -690,13 +690,14 @@ def _force_diamond_user_state(
     before_user: str,
     before_staff: str,
     work_label: str,
+    mode: str = "",
 ) -> str:
     """
     ダイアモンドルール:
-    ①作業開始と作業終了がわかる言葉
+    ①開始〜終了の流れがわかる
     ②体調に関する記述
-    ③作業内容と成果物の数量（数量が自然な場合のみ）
-    を必ず入れる
+    ③作業内容と成果物の数量（自然な場合のみ）
+    ただし施設外日は「作業開始の連絡」等を強制しない
     """
     out = _normalize_text(user_state)
     source = " ".join([
@@ -722,18 +723,22 @@ def _force_diamond_user_state(
 
     parts = []
 
-    # ①開始 + ②体調
-    if not has_start or not has_health:
-        if "来所" in source or "通所" in source:
-            parts.append(f"作業開始時には、{health_sentence.rstrip('。')}。")
-        else:
-            parts.append(f"作業開始の連絡があり、{health_sentence.rstrip('。')}。")
+    # 施設外日は「開始の連絡」を強制しない
+    if mode != "施設外":
+        if not has_start or not has_health:
+            if "来所" in source or "通所" in source:
+                parts.append(f"作業開始時には、{health_sentence.rstrip('。')}。")
+            else:
+                parts.append(f"作業開始の連絡があり、{health_sentence.rstrip('。')}。")
+    else:
+        # 施設外日は体調記述だけ足す
+        if not has_health:
+            parts.append(health_sentence.rstrip("。") + "。")
 
-    # Gemini本文そのもの
     if out:
         parts.append(out)
 
-    # ③作業内容・数量
+    # 作業内容・数量
     if not has_work:
         if work_result.endswith("に取り組まれました") or work_result.endswith("の作業に取り組まれました"):
             parts.append(work_result.rstrip("。") + "。")
@@ -742,12 +747,13 @@ def _force_diamond_user_state(
     elif not has_qty and ("を" in work_result and any(u in work_result for u in ["枚", "個", "膳", "本", "羽"])):
         parts.append(f"{work_result}実施されました。")
 
-    # ①終了
-    if not has_end:
-        if work_result.endswith("に取り組まれました") or work_result.endswith("の作業に取り組まれました"):
-            parts.append(f"作業終了時には、{work_result.rstrip('。')}ことを報告されました。")
-        else:
-            parts.append(f"作業終了時には、{work_result}行ったことを報告されました。")
+    # 施設外日は「作業終了時には」を強制しない
+    if mode != "施設外":
+        if not has_end:
+            if work_result.endswith("に取り組まれました") or work_result.endswith("の作業に取り組まれました"):
+                parts.append(f"作業終了時には、{work_result.rstrip('。')}ことを報告されました。")
+            else:
+                parts.append(f"作業終了時には、{work_result}行ったことを報告されました。")
 
     result = " ".join([p for p in parts if _normalize_text(p)])
     result = _normalize_work_quantity_phrase(result, _normalize_text(work_label))
@@ -755,10 +761,18 @@ def _force_diamond_user_state(
     allow_zero = _contains_explicit_no_work_reason(source)
     result = _convert_ambiguous_quantity_to_one_or_more(result, _normalize_text(work_label), allow_zero)
 
-    # 数量補完は「単一かつ数量化が自然な作業」のときだけ
     work_items = _split_work_items(work_label)
     if len(work_items) == 1 and _is_quantifiable_work(work_items[0]):
         result = _append_default_quantity_if_missing(result, _normalize_text(work_label), allow_zero)
+
+    # 施設外日は最後に余計な開始/終了表現を削る
+    if mode == "施設外":
+        result = re.sub(r"作業開始の連絡があり、", "", result)
+        result = re.sub(r"作業開始時には、", "", result)
+        result = re.sub(r"作業終了時には、", "", result)
+        result = result.replace("合同会社エバーグリーン", "")
+        result = result.replace("居酒屋 琴", "")
+        result = result.replace("居酒屋琴", "")
 
     result = _dedupe_sentences(result)
     return result.strip()
@@ -845,29 +859,35 @@ def _apply_mode_prefix_to_user_state(mode: str, user_state: str) -> str:
     if not text:
         return text
 
-    # ❌ 不自然な「場所＋来て」を削除
-    text = re.sub(r"(合同会社エバーグリーン|居酒屋.?琴)[^。]*来て[^。]*。?", "", text)
+    # 会社名・店名の直接表現は除去
+    text = text.replace("合同会社エバーグリーン", "")
+    text = text.replace("居酒屋 琴", "")
+    text = text.replace("居酒屋琴", "")
 
-    # 二重付与防止
-    if mode == "在宅" and "在宅" in text:
-        return text
-    if mode == "施設外" and "施設外" in text:
-        return text
+    # 不自然な「場所＋来て」「場所＋作業開始」を削除
+    text = re.sub(r"(施設外就労先|施設外|居酒屋.?琴|合同会社エバーグリーン)[^。]*来て[^。]*。?", "", text)
+    text = re.sub(r"(施設外就労先|施設外|居酒屋.?琴|合同会社エバーグリーン)[^。]*作業開始[^。]*。?", "", text)
 
+    # 施設外の日は、文頭に余計な接頭辞を付けない
+    if mode == "施設外":
+        text = re.sub(r"^施設外就労として、", "", text)
+        text = re.sub(r"^施設外就労先にて、", "", text)
+        text = re.sub(r"^施設外にて、", "", text)
+        text = re.sub(r"^施設外にて作業開始[^。]*。?", "", text)
+        text = re.sub(r"^作業開始の連絡があり、", "", text)
+        text = re.sub(r"^作業開始時には、", "", text)
+        return _dedupe_sentences(text)
+
+    # 在宅だけ軽く補正
     if mode == "在宅":
+        if "在宅" in text:
+            return _dedupe_sentences(text)
         if "作業開始" in text:
             text = text.replace("作業開始", "在宅で作業開始", 1)
         else:
             text = "在宅にて、" + text
 
-    elif mode == "施設外":
-        # 👍 ゆるい自然表現だけ付与
-        if "作業開始" in text:
-            text = text.replace("作業開始", "施設外にて作業開始", 1)
-        else:
-            text = "施設外就労先にて、" + text
-
-    return text
+    return _dedupe_sentences(text)
 
 
 def _apply_mode_prefix_to_staff_note(mode: str, staff_note: str) -> str:
@@ -928,20 +948,29 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
             if rebuilt:
                 user_state = rebuilt
 
-        # 施設外の書き出し補正（会社名は禁止）
+        # 施設外の書き出し補正（会社名・施設外前置きは禁止）
         if is_outside_day:
-            # 文頭に会社名が来てたら削除
+            user_state = user_state.replace("合同会社エバーグリーン", "")
+            user_state = user_state.replace("居酒屋 琴", "")
+            user_state = user_state.replace("居酒屋琴", "")
+            staff_note = staff_note.replace("合同会社エバーグリーン", "")
+            staff_note = staff_note.replace("居酒屋 琴", "")
+            staff_note = staff_note.replace("居酒屋琴", "")
+
             user_state = re.sub(r'^.*?での作業として、', '', user_state)
             staff_note = re.sub(r'^.*?での作業として、', '', staff_note)
 
-            # 完全に会社名を排除
-            user_state = user_state.replace("合同会社エバーグリーン", "")
-            staff_note = staff_note.replace("合同会社エバーグリーン", "")            
+            user_state = re.sub(r'^施設外就労として、', '', user_state)
+            user_state = re.sub(r'^施設外就労先にて、', '', user_state)
+            user_state = re.sub(r'^施設外にて、', '', user_state)
 
-            # それでも弱い場合だけ軽く補正
-            if user_state and not user_state.startswith("施設外就労"):
-                if len(user_state) < 20:
-                    user_state = f"施設外就労として、{user_state}"
+            user_state = re.sub(r'^作業開始の連絡があり、', '', user_state)
+            user_state = re.sub(r'^作業開始時には、', '', user_state)
+            user_state = re.sub(r'^作業終了の連絡があり、', '', user_state)
+            user_state = re.sub(r'^作業終了時には、', '', user_state)
+
+            user_state = _dedupe_sentences(user_state)
+            staff_note = _dedupe_sentences(staff_note)
 
         fixed[date_str] = {
             "user_state": user_state,
@@ -966,13 +995,16 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
             "施設外就労", "清掃", "居酒屋", "琴", "エバーグリーン"
         ])
 
-        if is_outside_day and outside_workplace and outside_workplace != "未指定":
-            place = outside_workplace.strip()
-            if place not in rebuilt_user and place not in rebuilt_staff:
-                if rebuilt_user:
-                    rebuilt_user = f"{place}での作業として、{rebuilt_user}"
-                else:
-                    rebuilt_staff = f"{place}での作業として、{rebuilt_staff}"
+        if is_outside_day:
+            rebuilt_user = rebuilt_user.replace("合同会社エバーグリーン", "")
+            rebuilt_user = rebuilt_user.replace("居酒屋 琴", "")
+            rebuilt_user = rebuilt_user.replace("居酒屋琴", "")
+            rebuilt_staff = rebuilt_staff.replace("合同会社エバーグリーン", "")
+            rebuilt_staff = rebuilt_staff.replace("居酒屋 琴", "")
+            rebuilt_staff = rebuilt_staff.replace("居酒屋琴", "")
+
+            rebuilt_user = re.sub(r'^.*?での作業として、', '', rebuilt_user)
+            rebuilt_staff = re.sub(r'^.*?での作業として、', '', rebuilt_staff)
 
         fixed[key] = {
             "user_state": rebuilt_user,
@@ -1116,6 +1148,7 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                             before_user=before_user,
                             before_staff=before_staff,
                             work_label=work_label,
+                            mode=mode,
                         )
                         final_staff_note = _force_diamond_staff_note(
                             staff_note=final_staff_note,
@@ -1137,6 +1170,29 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         final_user_state = _append_default_quantity_if_missing(
                             final_user_state, work_label, allow_zero
                         )
+
+                        if mode == "施設外":
+                            final_user_state = final_user_state.replace("合同会社エバーグリーン", "")
+                            final_user_state = final_user_state.replace("居酒屋 琴", "")
+                            final_user_state = final_user_state.replace("居酒屋琴", "")
+                            final_staff_note = final_staff_note.replace("合同会社エバーグリーン", "")
+                            final_staff_note = final_staff_note.replace("居酒屋 琴", "")
+                            final_staff_note = final_staff_note.replace("居酒屋琴", "")
+
+                            final_user_state = re.sub(r'^.*?での作業として、', '', final_user_state)
+                            final_staff_note = re.sub(r'^.*?での作業として、', '', final_staff_note)
+
+                            final_user_state = re.sub(r'作業開始の連絡があり、', '', final_user_state)
+                            final_user_state = re.sub(r'作業開始時には、', '', final_user_state)
+                            final_user_state = re.sub(r'作業終了の連絡があり、', '', final_user_state)
+                            final_user_state = re.sub(r'作業終了時には、', '', final_user_state)
+
+                            final_user_state = re.sub(r'施設外就労として、', '', final_user_state)
+                            final_user_state = re.sub(r'施設外就労先にて、', '', final_user_state)
+                            final_user_state = re.sub(r'施設外にて、', '', final_user_state)
+
+                            final_user_state = _dedupe_sentences(final_user_state)
+                            final_staff_note = _dedupe_sentences(final_staff_note)                        
 
                         _set_react_textarea_value(driver, user_state_el, final_user_state)
                         _set_react_textarea_value(driver, staff_note_el, final_staff_note)
@@ -1190,42 +1246,30 @@ def generate_journal_from_memo(memo: str, work_label: str, start_time: str = "",
     """
     メモから日誌を生成する（ダイアモンドルール完全適用）
     """
-
     memo = _normalize_text(memo)
-
-    # 作業抽出
     work = _normalize_text(work_label)
 
-    # 数量付き作業文を生成
-    work_phrase = _build_work_result_phrase(work, memo)
-
-    # 利用者状態
-    user_state = memo
-
-    # ダイアモンド補正
-    user_state = _force_diamond_user_state(
-        user_state=user_state,
-        before_user=memo,
-        before_staff="",
-        work_label=work
-    )
-
-    # モード判定
     mode = _detect_service_mode(
         row_text=memo,
         work_text=work,
-        user_text=user_state,
+        user_text=memo,
         staff_text=""
+    )
+
+    user_state = _force_diamond_user_state(
+        user_state=memo,
+        before_user=memo,
+        before_staff="",
+        work_label=work,
+        mode=mode
     )
 
     user_state = _apply_mode_prefix_to_user_state(mode, user_state)
 
-    # 職員考察
     staff_note = _force_diamond_staff_note(
         staff_note="",
         before_staff=memo
     )
-
     staff_note = _apply_mode_prefix_to_staff_note(mode, staff_note)
 
     return {
