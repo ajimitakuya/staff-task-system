@@ -9,7 +9,6 @@ from selenium.webdriver.common.by import By
 from common import now_jst
 from data_access import load_db, save_db, get_companies_df
 
-
 # =========================================
 # Gemini JSON生成
 # =========================================
@@ -46,6 +45,9 @@ def get_current_company_saved_knowbe_info():
         str(row.get("knowbe_login_password", "")).strip(),
     )
 
+def _now_str():
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 # =========================================
 # ログ書き込み
@@ -445,7 +447,7 @@ def _append_default_quantity_if_missing(text: str, work: str, allow_zero: bool):
         return s
 
     # 数量が不自然な作業には補完しない
-    if not _is_quantifiable_work(single):
+    if (not _is_quantifiable_work(single)) or ("清掃" in single):
         return s
 
     if re.search(r"作業|やりました|できました|出来ました|実施|仕上げ|完成|順調に|取り組", s):
@@ -511,6 +513,159 @@ def _extract_sentence_by_keywords(text: str, keywords):
             return s.rstrip("。") + "。"
     return ""
 
+def _split_lines_keep_order(text: str):
+    s = _normalize_text(text)
+    if not s:
+        return []
+    lines = []
+    for line in re.split(r'[\n]+', s):
+        line = line.strip()
+        if line:
+            lines.append(line)
+    return lines
+
+
+def _pick_first_matching_line(text: str, keywords):
+    for line in _split_lines_keep_order(text):
+        if any(k in line for k in keywords):
+            return line.rstrip("。") + "。"
+    return ""
+
+
+def _pick_all_matching_lines(text: str, keywords, max_count=3):
+    out = []
+    for line in _split_lines_keep_order(text):
+        if any(k in line for k in keywords):
+            line2 = line.rstrip("。") + "。"
+            if line2 not in out:
+                out.append(line2)
+        if len(out) >= max_count:
+            break
+    return out
+
+
+def _clean_quote_style(text: str) -> str:
+    s = _normalize_text(text)
+    s = s.replace("『", "「").replace("』", "」")
+    s = re.sub(r'「\s+', '「', s)
+    s = re.sub(r'\s+」', '」', s)
+    s = s.replace("？。", "？").replace("。 」", "。」")
+    return s
+
+
+def _lighten_journal_tone(text: str) -> str:
+    s = _normalize_text(text)
+    replacements = {
+        "してまいります": "していきます",
+        "支援してまいります": "支援していきます",
+        "継続してまいります": "続けていきます",
+        "見守ってまいります": "見守っていきます",
+        "努めていきます": "心掛けていきます",
+        "見受けられました": "見られました",
+        "伺えました": "見られました",
+        "考えられます": "感じられます",
+        "されていました": "していました",
+        "おられました": "いました",
+        "ございます": "あります",
+        "ございました": "ありました",
+    }
+    for k, v in replacements.items():
+        s = s.replace(k, v)
+    s = s.replace("ご本人", "本人")
+    return _clean_quote_style(s)
+
+
+def _mode_opening_phrase(mode: str, source: str) -> str:
+    src = _normalize_text(source)
+
+    if mode == "施設外":
+        for cand in [
+            _pick_first_matching_line(src, ["現場到着", "到着後", "開始前", "作業前", "挨拶"]),
+            _pick_first_matching_line(src, ["体調確認", "体調について確認", "確認を行うと"]),
+        ]:
+            if cand:
+                return cand
+
+        health = _pick_first_matching_line(src, ["体調", "精神", "元気", "しんどい", "不安定", "安定"])
+        if health:
+            return health
+        return ""
+
+    if mode == "通所":
+        for cand in [
+            _pick_first_matching_line(src, ["来所時", "来所後", "開始前", "体調確認"]),
+            _pick_first_matching_line(src, ["体調について確認", "体調確認を行うと"]),
+        ]:
+            if cand:
+                return cand
+        return ""
+
+    # 在宅
+    for cand in [
+        _pick_first_matching_line(src, ["作業開始前に連絡", "開始時の連絡", "作業開始時に", "開始前に連絡"]),
+        _pick_first_matching_line(src, ["体調について確認", "体調確認を行った", "体調確認"]),
+    ]:
+        if cand:
+            return cand
+    return ""
+
+
+def _mode_closing_phrase(mode: str, source: str, work_label: str) -> str:
+    src = _normalize_text(source)
+
+    for cand in [
+        _pick_first_matching_line(src, ["作業終了時に連絡", "終了時に連絡", "終了連絡", "作業終了時には", "作業後には"]),
+        _pick_first_matching_line(src, ["報告があった", "報告がありました", "報告されました"]),
+    ]:
+        if cand:
+            return cand
+
+    qty = _estimate_quantity_phrase(work_label, src)
+    if qty:
+        if mode == "在宅":
+            return f"作業終了時に連絡があり、{qty}行ったとの報告がありました。"
+        return f"作業後には、{qty}取り組んだことを報告されました。"
+
+    return ""
+
+
+def _mode_work_lines(mode: str, source: str, work_label: str):
+    src = _normalize_text(source)
+    lines = []
+
+    # rawに具体作業があるなら優先
+    work_hits = _pick_all_matching_lines(
+        src,
+        ["作業", "水やり", "塗り絵", "内職", "清掃", "掃き掃除", "モップ", "手すり", "ゴミ拾い", "消火器", "配電盤", "検品", "袋詰め", "封入", "チラシ", "折り鶴", "箱折り", "ラベル貼り", "仕分け"],
+        max_count=3
+    )
+    for w in work_hits:
+        if w not in lines:
+            lines.append(w)
+
+    # 何も拾えないときだけ work_label を使う
+    if not lines and _normalize_text(work_label):
+        if mode == "施設外" and "清掃" in work_label:
+            lines.append("廊下の掃き掃除や手すり拭きなどの清掃作業に取り組みました。")
+        else:
+            lines.append(f"{_normalize_text(work_label)}に取り組みました。")
+
+    return lines
+
+
+def _mode_staff_support_sentence(mode: str, merged: str) -> str:
+    src = _normalize_text(merged)
+
+    if any(k in src for k in ["しんどい", "不安定", "優れない", "だるい", "頭痛", "眠れ", "めまい", "痛み"]):
+        return "体調や気分の変化を確認しながら、無理のない範囲で続けられるよう支援していきます。"
+
+    if any(k in src for k in ["意欲", "積極", "頑張", "前向き", "責任感"]):
+        return "取り組みやすい声掛けを続けながら、安定して作業できるよう支援していきます。"
+
+    if mode == "施設外":
+        return "その日の体調や作業の様子を確認しながら、無理なく続けられるよう支援していきます。"
+
+    return "その日の状態を確認しながら、無理なく続けられるよう支援していきます。"
 
 def _dedupe_sentences(text: str) -> str:
     seen = set()
@@ -522,6 +677,88 @@ def _dedupe_sentences(text: str) -> str:
             result.append(s.rstrip("。") + "。")
     return " ".join(result).strip()
 
+def _strip_unwanted_words(text: str) -> str:
+    s = _normalize_text(text)
+
+    # 時刻は不要
+    s = re.sub(r'\b\d{1,2}:\d{2}\b', '', s)
+
+    # 在宅という語は不要
+    s = s.replace("在宅にて、", "")
+    s = s.replace("在宅で", "")
+    s = s.replace("在宅作業開始の電話で", "")
+    s = s.replace("在宅", "")
+
+    # 不自然な敬語・硬すぎる表現を軽くする
+    replacements = {
+        "してまいります": "していきます",
+        "支援してまいります": "支援していきます",
+        "継続してまいります": "続けていきます",
+        "見守ってまいります": "見守っていきます",
+        "伺えました": "見られました",
+        "見受けられました": "見られました",
+        "判断いたします": "考えられます",
+        "評価いたします": "感じられました",
+        "取り組まれていました": "取り組んでいました",
+        "されておられました": "されていました",
+        "ございました": "ありました",
+        "ございます": "あります",
+    }
+    for k, v in replacements.items():
+        s = s.replace(k, v)
+
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+
+def _extract_duration_minutes(text: str) -> int:
+    s = _normalize_text(text)
+    m = re.search(r'(\d{1,2}):(\d{2})\s*〜\s*(\d{1,2}):(\d{2})', s)
+    if not m:
+        return 0
+    sh, sm, eh, em = map(int, m.groups())
+    start = sh * 60 + sm
+    end = eh * 60 + em
+    if end <= start:
+        return 0
+    return end - start
+
+
+def _estimate_quantity_phrase(work_label: str, row_text: str) -> str:
+    work = _normalize_text(work_label)
+    mins = _extract_duration_minutes(row_text)
+
+    if not work or mins <= 0:
+        return ""
+
+    # 清掃・観葉植物は数量化しない
+    if "清掃" in work or "観葉植物" in work:
+        return ""
+
+    # 塗り絵は固定
+    if "塗り絵" in work:
+        return "塗り絵を1枚"
+
+    # 割り箸・箸入れ系は 2分で1膳
+    if "箸" in work or "箸入れ" in work or "お箸" in work:
+        qty = max(1, mins // 2)
+        return f"{work}を{qty}膳"
+
+    # チラシ・袋・箱・コースター・折り鶴は保守的に推定
+    if "チラシ" in work:
+        qty = max(1, mins // 5)
+        return f"{work}を{qty}枚"
+    if "コースター" in work:
+        qty = max(1, mins // 10)
+        return f"{work}を{qty}枚"
+    if "袋" in work or "箱" in work:
+        qty = max(1, mins // 5)
+        return f"{work}を{qty}個"
+    if "折り鶴" in work or "鶴" in work:
+        qty = max(1, mins // 10)
+        return f"{work}を{qty}羽"
+
+    return ""
 
 def _split_work_items(work_label: str):
     work = _normalize_text(work_label)
@@ -633,119 +870,180 @@ def _build_work_result_phrase(work_label: str, *texts) -> str:
 
     return "作業に取り組まれました"
 
+def _facility_cleaning_detail_phrase(text: str) -> str:
+    s = _normalize_text(text)
+
+    # 原文に具体作業があるならそれを優先
+    if any(k in s for k in ["廊下", "モップ", "手すり", "ゴミ拾い", "消火器", "配電盤"]):
+        parts = []
+        if "廊下" in s or "ほうき" in s:
+            parts.append("廊下の掃き掃除")
+        if "モップ" in s:
+            parts.append("モップ掛け")
+        if "手すり" in s:
+            parts.append("手すり拭き")
+        if "ゴミ拾い" in s:
+            parts.append("マンション周囲のゴミ拾い")
+        if "消火器" in s or "配電盤" in s:
+            parts.append("消火器や配電盤の拭き掃除")
+
+        parts = list(dict.fromkeys(parts))
+        if parts:
+            if len(parts) == 1:
+                return parts[0]
+            if len(parts) == 2:
+                return f"{parts[0]}や{parts[1]}"
+            return "、".join(parts[:-1]) + f"や{parts[-1]}"
+
+    # 原文に細目がなくても、施設外清掃の定型を軽く補う
+    return "廊下の掃き掃除や手すり拭きなどの清掃作業"
+
 def _force_diamond_user_state(
     user_state: str,
     before_user: str,
     before_staff: str,
     work_label: str,
     mode: str = "",
+    row_text: str = "",
 ) -> str:
     """
-    ダイアモンドルール:
-    ①開始〜終了の流れがわかる
-    ②体調に関する記述
-    ③作業内容と成果物の数量（自然な場合のみ）
-    ただし施設外日は「作業開始の連絡」等を強制しない
+    利用者状態は「作文」ではなく、rawの事実を時系列で並べる。
+    優先順:
+    1. モード判定（在宅 / 通所 / 施設外）
+    2. raw の事実
+    3. 作業名
+    4. 数量（明示優先、なければ推定）
     """
-    out = _normalize_text(user_state)
-    source = " ".join([
-        _normalize_text(user_state),
-        _normalize_text(before_user),
-        _normalize_text(before_staff),
-    ]).strip()
+    src_user = _normalize_text(user_state)
+    src_before_user = _normalize_text(before_user)
+    src_before_staff = _normalize_text(before_staff)
+    src_row = _normalize_text(row_text)
 
-    work_result = _build_work_result_phrase(work_label, user_state, before_user, before_staff)
+    merged = " ".join([x for x in [src_user, src_before_user, src_before_staff, src_row] if x]).strip()
+    merged = _lighten_journal_tone(merged)
 
-    health_sentence = _extract_sentence_by_keywords(
-        source,
-        ["体調", "精神", "良好", "普通", "不安定", "安定", "元気", "まぁまぁ", "まあまあ", "大丈夫"]
+    opening = _mode_opening_phrase(mode, merged)
+
+    # 本人発言・体調
+    personal_lines = _pick_all_matching_lines(
+        merged,
+        ["本人より", "話があった", "話されていた", "とのことだった", "とのことでした", "元気", "普通", "不安定", "安定", "しんどい", "眠れ", "だるい", "痛い", "体調", "精神"],
+        max_count=3
     )
-    if not health_sentence:
-        health_sentence = "体調について報告がありました。"
 
-    has_start = ("作業開始" in out) or ("開始の連絡" in out) or ("来所時" in out)
-    has_end = ("作業終了" in out) or ("終了の連絡" in out) or ("報告されました" in out)
-    has_health = any(k in out for k in ["体調", "精神", "良好", "普通", "不安定", "安定", "元気"])
-    has_work = bool(_normalize_text(work_label)) and (_normalize_text(work_label).split("、")[0] in out or "作業" in out)
-    has_qty = _has_explicit_quantity(out)
+    # 作業内容
+    work_lines = _mode_work_lines(mode, merged, work_label)
+
+    # 数量
+    qty_line = ""
+    explicit_qty_line = _pick_first_matching_line(
+        merged,
+        ["膳", "枚", "個", "本", "羽", "通", "袋", "仕上げた", "終わった", "やった", "作成", "完成"]
+    )
+    if explicit_qty_line:
+        qty_line = explicit_qty_line
+    else:
+        qty = _estimate_quantity_phrase(work_label, src_row)
+        if qty and not ("清掃" in _normalize_text(work_label) or "観葉植物" in _normalize_text(work_label)):
+            qty_line = f"{qty}実施されました。"
+
+    # 終了
+    closing = _mode_closing_phrase(mode, merged, work_label)
 
     parts = []
 
-    # 施設外日は「開始の連絡」を強制しない
-    if mode != "施設外":
-        if not has_start or not has_health:
-            if "来所" in source or "通所" in source:
-                parts.append(f"作業開始時には、{health_sentence.rstrip('。')}。")
+    if opening:
+        parts.append(opening)
+
+    for line in personal_lines:
+        if line not in parts:
+            parts.append(line)
+
+    for line in work_lines:
+        if line not in parts:
+            parts.append(line)
+
+    if qty_line and qty_line not in parts:
+        parts.append(qty_line)
+
+    if closing and closing not in parts:
+        parts.append(closing)
+
+    # 4大要素の最低保証
+    if not parts:
+        health = _extract_sentence_by_keywords(
+            merged,
+            ["体調", "精神", "元気", "不安定", "安定", "普通", "しんどい"]
+        )
+        if health:
+            parts.append(health)
+
+        if _normalize_text(work_label):
+            if mode == "施設外" and "清掃" in work_label:
+                parts.append("廊下の掃き掃除や手すり拭きなどの清掃作業に取り組みました。")
             else:
-                parts.append(f"作業開始の連絡があり、{health_sentence.rstrip('。')}。")
-    else:
-        # 施設外日は体調記述だけ足す
-        if not has_health:
-            parts.append(health_sentence.rstrip("。") + "。")
+                parts.append(f"{_normalize_text(work_label)}に取り組みました。")
 
-    if out:
-        parts.append(out)
-
-    # 作業内容・数量
-    if not has_work:
-        if work_result.endswith("に取り組まれました") or work_result.endswith("の作業に取り組まれました"):
-            parts.append(work_result.rstrip("。") + "。")
-        else:
-            parts.append(f"{work_result}実施されました。")
-    elif not has_qty and ("を" in work_result and any(u in work_result for u in ["枚", "個", "膳", "本", "羽"])):
-        parts.append(f"{work_result}実施されました。")
-
-    # 施設外日は「作業終了時には」を強制しない
-    if mode != "施設外":
-        if not has_end:
-            if work_result.endswith("に取り組まれました") or work_result.endswith("の作業に取り組まれました"):
-                parts.append(f"作業終了時には、{work_result.rstrip('。')}ことを報告されました。")
-            else:
-                parts.append(f"作業終了時には、{work_result}行ったことを報告されました。")
+        if qty_line:
+            parts.append(qty_line)
 
     result = " ".join([p for p in parts if _normalize_text(p)])
     result = _normalize_work_quantity_phrase(result, _normalize_text(work_label))
 
-    allow_zero = _contains_explicit_no_work_reason(source)
+    allow_zero = _contains_explicit_no_work_reason(merged)
     result = _convert_ambiguous_quantity_to_one_or_more(result, _normalize_text(work_label), allow_zero)
 
-    work_items = _split_work_items(work_label)
-    if len(work_items) == 1 and _is_quantifiable_work(work_items[0]):
-        result = _append_default_quantity_if_missing(result, _normalize_text(work_label), allow_zero)
+    # 清掃・観葉植物は数量にしない
+    if "清掃" in _normalize_text(work_label):
+        result = re.sub(r'清掃を\d+(?:枚|個|膳|本|羽|通|袋)実施されました。?', '清掃に取り組みました。', result)
+        result = re.sub(r'清掃を\d+(?:枚|個|膳|本|羽|通|袋)行ったとの報告がありました。?', '清掃に取り組んだことを報告されました。', result)
 
-    # 施設外日は最後に余計な開始/終了表現を削る
-    if mode == "施設外":
-        result = re.sub(r"作業開始の連絡があり、", "", result)
-        result = re.sub(r"作業開始時には、", "", result)
-        result = re.sub(r"作業終了時には、", "", result)
-        result = result.replace("合同会社エバーグリーン", "")
-        result = result.replace("居酒屋 琴", "")
-        result = result.replace("居酒屋琴", "")
-
+    result = result.replace("清掃作業作業", "清掃作業")
+    result = _lighten_journal_tone(result)
+    result = _strip_unwanted_words(result)
     result = _dedupe_sentences(result)
     return result.strip()
 
 
 def _force_diamond_staff_note(staff_note: str, before_staff: str) -> str:
     """
-    ④支援に関する内容を必ず入れる
+    職員考察は
+    1. 事実に基づく短い評価
+    2. 今後どう支援するか
+    の2段構成で作る
     """
-    out = _normalize_text(staff_note)
+    out = _lighten_journal_tone(_normalize_text(staff_note))
+    raw = _lighten_journal_tone(_normalize_text(before_staff))
+    merged = " ".join([x for x in [out, raw] if x]).strip()
 
-    if out and any(k in out for k in ["支援", "声掛け", "お伝え", "見守", "配慮", "継続", "確認", "促し"]):
-        return _dedupe_sentences(out)
-
-    fallback = _extract_sentence_by_keywords(
-        before_staff,
-        ["支援", "声掛け", "お伝え", "見守", "配慮", "継続", "確認", "促し"]
+    # 1文目: 事実評価
+    eval_line = _pick_first_matching_line(
+        merged,
+        [
+            "作業量", "集中", "体調", "精神", "不安定", "安定", "意欲", "積極",
+            "無理をせず", "継続", "自己調整", "報告", "具体的", "丁寧", "責任感",
+            "だるい", "痛み", "眠れ", "疲れ", "しんどい"
+        ]
     )
-    if fallback:
-        return _dedupe_sentences(fallback)
 
-    if out:
-        return _dedupe_sentences(out)
+    if not eval_line:
+        if any(k in merged for k in ["不安定", "しんどい", "疲れ", "だるい", "眠れ", "痛み"]):
+            eval_line = "体調や気分に波はあったが、無理のない範囲で作業に取り組めていました。"
+        elif any(k in merged for k in ["意欲", "積極", "前向き", "責任感"]):
+            eval_line = "その日の状態に合わせながら、前向きに取り組めていました。"
+        else:
+            eval_line = "その日の状態に応じて、無理なく作業を進められていました。"
 
-    return "本人の体調や精神面に配慮しながら、無理のない範囲で取り組めるよう支援を継続します。"
+    # 2文目: 支援方針
+    support_line = _pick_first_matching_line(
+        merged,
+        ["支援", "声掛け", "お伝え", "配慮", "継続", "確認", "促し", "無理のない", "見守り"]
+    )
+    if not support_line:
+        support_line = _mode_staff_support_sentence("", merged)
+
+    result = _dedupe_sentences(_lighten_journal_tone(eval_line + " " + support_line))
+    return result
 
 
 def _update_live_status(live_status_box, text: str, level: str = "info"):
@@ -807,34 +1105,37 @@ def _apply_mode_prefix_to_user_state(mode: str, user_state: str) -> str:
     if not text:
         return text
 
+    text = _strip_unwanted_words(text)
+
     # 会社名・店名の直接表現は除去
     text = text.replace("合同会社エバーグリーン", "")
     text = text.replace("居酒屋 琴", "")
     text = text.replace("居酒屋琴", "")
 
-    # 不自然な「場所＋来て」「場所＋作業開始」を削除
-    text = re.sub(r"(施設外就労先|施設外|居酒屋.?琴|合同会社エバーグリーン)[^。]*来て[^。]*。?", "", text)
-    text = re.sub(r"(施設外就労先|施設外|居酒屋.?琴|合同会社エバーグリーン)[^。]*作業開始[^。]*。?", "", text)
-
-    # 施設外の日は、文頭に余計な接頭辞を付けない
+    # 施設外の禁忌表現
+    forbidden_patterns = [
+        r'作業開始の連絡がありましたが、',
+        r'作業開始の連絡がありました。',
+        r'作業開始の連絡があり、',
+        r'作業開始時には、',
+        r'作業終了の連絡がありましたが、',
+        r'作業終了の連絡がありました。',
+        r'作業終了の連絡があり、',
+        r'作業終了時には、',
+        r'施設外就労として、',
+        r'施設外就労先にて、',
+        r'施設外にて、',
+        r'にて施設外就労の',
+    ]
     if mode == "施設外":
-        text = re.sub(r"^施設外就労として、", "", text)
-        text = re.sub(r"^施設外就労先にて、", "", text)
-        text = re.sub(r"^施設外にて、", "", text)
-        text = re.sub(r"^施設外にて作業開始[^。]*。?", "", text)
-        text = re.sub(r"^作業開始の連絡があり、", "", text)
-        text = re.sub(r"^作業開始時には、", "", text)
-        return _dedupe_sentences(text)
+        for pat in forbidden_patterns:
+            text = re.sub(pat, '', text)
 
-    # 在宅だけ軽く補正
+    # 在宅は「在宅」という語を出さない
     if mode == "在宅":
-        if "在宅" in text:
-            return _dedupe_sentences(text)
-        if "作業開始" in text:
-            text = text.replace("作業開始", "在宅で作業開始", 1)
-        else:
-            text = "在宅にて、" + text
+        text = text.replace("在宅", "")
 
+    text = re.sub(r'\s+', ' ', text).strip()
     return _dedupe_sentences(text)
 
 
@@ -853,10 +1154,85 @@ def _apply_mode_prefix_to_staff_note(mode: str, staff_note: str) -> str:
         return _dedupe_sentences(text)
 
     # 在宅だけ軽く補正
-    if mode == "在宅" and "在宅" not in text:
-        return _dedupe_sentences("在宅での取り組み状況を踏まえ、" + text)
+    if mode == "在宅":
+        return _dedupe_sentences(text)
 
     return _dedupe_sentences(text)
+
+def _enforce_mode_phrasing(mode: str, user_state: str, staff_note: str):
+    user = _normalize_text(user_state)
+    staff = _normalize_text(staff_note)
+
+    # 共通で時刻は消す
+    user = re.sub(r'\b\d{1,2}:\d{2}\b', '', user)
+    staff = re.sub(r'\b\d{1,2}:\d{2}\b', '', staff)
+
+    if mode == "在宅":
+        # 来所・施設外は禁止
+        forbidden_user = [
+            r'時間通りに来所[^。]*。?',
+            r'来所時[^。]*。?',
+            r'来所され[^。]*。?',
+            r'通所され[^。]*。?',
+            r'施設外就労[^。]*。?',
+            r'施設外支援[^。]*。?',
+        ]
+        for pat in forbidden_user:
+            user = re.sub(pat, '', user)
+
+        forbidden_staff = [
+            r'来所時[^。]*。?',
+            r'来所され[^。]*。?',
+            r'施設外就労[^。]*。?',
+            r'施設外支援[^。]*。?',
+        ]
+        for pat in forbidden_staff:
+            staff = re.sub(pat, '', staff)
+
+    elif mode == "通所":
+        # 在宅・電話開始は禁止
+        forbidden_user = [
+            r'在宅[^。]*。?',
+            r'作業開始の電話があり[^。]*。?',
+            r'電話で[^。]*作業開始[^。]*。?',
+            r'施設外就労[^。]*。?',
+            r'施設外支援[^。]*。?',
+        ]
+        for pat in forbidden_user:
+            user = re.sub(pat, '', user)
+
+        forbidden_staff = [
+            r'在宅[^。]*。?',
+            r'施設外就労[^。]*。?',
+            r'施設外支援[^。]*。?',
+        ]
+        for pat in forbidden_staff:
+            staff = re.sub(pat, '', staff)
+
+    elif mode == "施設外":
+        # 電話開始・来所は禁止
+        forbidden_user = [
+            r'作業開始の電話があり[^。]*。?',
+            r'作業開始の連絡があり[^。]*。?',
+            r'来所時[^。]*。?',
+            r'来所され[^。]*。?',
+            r'時間通りに来所[^。]*。?',
+            r'在宅[^。]*。?',
+        ]
+        for pat in forbidden_user:
+            user = re.sub(pat, '', user)
+
+        forbidden_staff = [
+            r'来所時[^。]*。?',
+            r'来所され[^。]*。?',
+            r'在宅[^。]*。?',
+        ]
+        for pat in forbidden_staff:
+            staff = re.sub(pat, '', staff)
+
+    user = _dedupe_sentences(re.sub(r'\s+', ' ', user).strip())
+    staff = _dedupe_sentences(re.sub(r'\s+', ' ', staff).strip())
+    return user, staff
 
 def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, month: int, outside_workplace: str = ""):
     blocks = _split_support_record_blocks(page_text)
@@ -919,10 +1295,22 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
             user_state = re.sub(r'^施設外就労先にて、', '', user_state)
             user_state = re.sub(r'^施設外にて、', '', user_state)
 
-            user_state = re.sub(r'^作業開始の連絡があり、', '', user_state)
-            user_state = re.sub(r'^作業開始時には、', '', user_state)
-            user_state = re.sub(r'^作業終了の連絡があり、', '', user_state)
-            user_state = re.sub(r'^作業終了時には、', '', user_state)
+            forbidden_patterns = [
+                r'作業開始の連絡がありましたが、',
+                r'作業開始の連絡がありました。',
+                r'作業開始の連絡があり、',
+                r'作業開始時には、',
+                r'作業終了の連絡がありましたが、',
+                r'作業終了の連絡がありました。',
+                r'作業終了の連絡があり、',
+                r'作業終了時には、',
+                r'施設外就労として、',
+                r'施設外就労先にて、',
+                r'施設外にて、',
+                r'にて施設外就労の',
+            ]
+            for pat in forbidden_patterns:
+                user_state = re.sub(pat, '', user_state)
 
             user_state = _dedupe_sentences(user_state)
             staff_note = _dedupe_sentences(staff_note)
@@ -1104,7 +1492,23 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                             before_staff=before_staff,
                             work_label=work_label,
                             mode=mode,
+                            row_text=row_text,
                         )
+                        if mode == "施設外" and "清掃" in work_label:
+                            cleaning_detail = _facility_cleaning_detail_phrase(
+                                " ".join([row_text, before_user, before_staff, final_user_state, final_staff_note])
+                            )
+                            if cleaning_detail and cleaning_detail not in final_user_state:
+                                if "清掃" in final_user_state:
+                                    final_user_state = final_user_state.replace(
+                                        "清掃",
+                                        cleaning_detail,
+                                        1
+                                    )
+                                else:
+                                    final_user_state = _dedupe_sentences(
+                                        final_user_state + f" {cleaning_detail}に取り組まれました。"
+                                    )                        
                         final_staff_note = _force_diamond_staff_note(
                             staff_note=final_staff_note,
                             before_staff=before_staff,
@@ -1113,6 +1517,10 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         # 在宅 / 通所 / 施設外 の自動判定を反映
                         final_user_state = _apply_mode_prefix_to_user_state(mode, final_user_state)
                         final_staff_note = _apply_mode_prefix_to_staff_note(mode, final_staff_note)
+
+                        final_user_state, final_staff_note = _enforce_mode_phrasing(
+                            mode, final_user_state, final_staff_note
+                        )                        
 
                         # 作業名・数量の最終補正
                         allow_zero = _contains_explicit_no_work_reason(
@@ -1125,29 +1533,14 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         final_user_state = _append_default_quantity_if_missing(
                             final_user_state, work_label, allow_zero
                         )
+                        
+                    if mode == "施設外":
+                        final_user_state = re.sub(r'^\s*にて', '', final_user_state)
+                        final_user_state = re.sub(r'。+\s*にて', '。', final_user_state)
+                        final_user_state = re.sub(r'施設外就労の\s*', '', final_user_state)
 
-                        if mode == "施設外":
-                            final_user_state = final_user_state.replace("合同会社エバーグリーン", "")
-                            final_user_state = final_user_state.replace("居酒屋 琴", "")
-                            final_user_state = final_user_state.replace("居酒屋琴", "")
-                            final_staff_note = final_staff_note.replace("合同会社エバーグリーン", "")
-                            final_staff_note = final_staff_note.replace("居酒屋 琴", "")
-                            final_staff_note = final_staff_note.replace("居酒屋琴", "")
-
-                            final_user_state = re.sub(r'^.*?での作業として、', '', final_user_state)
-                            final_staff_note = re.sub(r'^.*?での作業として、', '', final_staff_note)
-
-                            final_user_state = re.sub(r'作業開始の連絡があり、', '', final_user_state)
-                            final_user_state = re.sub(r'作業開始時には、', '', final_user_state)
-                            final_user_state = re.sub(r'作業終了の連絡があり、', '', final_user_state)
-                            final_user_state = re.sub(r'作業終了時には、', '', final_user_state)
-
-                            final_user_state = re.sub(r'施設外就労として、', '', final_user_state)
-                            final_user_state = re.sub(r'施設外就労先にて、', '', final_user_state)
-                            final_user_state = re.sub(r'施設外にて、', '', final_user_state)
-
-                            final_user_state = _dedupe_sentences(final_user_state)
-                            final_staff_note = _dedupe_sentences(final_staff_note)                        
+                        final_user_state = _dedupe_sentences(final_user_state)
+                        final_staff_note = _dedupe_sentences(final_staff_note)                     
 
                         _set_react_textarea_value(driver, user_state_el, final_user_state)
                         _set_react_textarea_value(driver, staff_note_el, final_staff_note)
@@ -1226,6 +1619,8 @@ def generate_journal_from_memo(memo: str, work_label: str, start_time: str = "",
         before_staff=memo
     )
     staff_note = _apply_mode_prefix_to_staff_note(mode, staff_note)
+
+    user_state, staff_note = _enforce_mode_phrasing(mode, user_state, staff_note)
 
     return {
         "user_state": user_state,
@@ -1387,12 +1782,6 @@ def render_journal_rewrite_page():
 
     if st.session_state.get("jr_running", False):
         st.info("現在実行中ある。")
-
-    if st.session_state.get("jr_running", False):
-        st.info("現在実行中ある。停止したい場合は『停止予約』を押すある。")
-
-    if st.session_state.get("jr_running", False):
-        st.info("現在実行中ある。停止したい場合は『停止予約』を押すある。")
 
     if run_clicked:
         if not selected_residents:
