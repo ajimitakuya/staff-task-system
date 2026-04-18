@@ -482,23 +482,103 @@ def _extract_sentence_by_keywords(text: str, keywords):
     return ""
 
 
+def _dedupe_sentences(text: str) -> str:
+    seen = set()
+    result = []
+    for s in _sentencize_jp(text):
+        key = re.sub(r"\s+", "", s.rstrip("。"))
+        if key and key not in seen:
+            seen.add(key)
+            result.append(s.rstrip("。") + "。")
+    return " ".join(result).strip()
+
+
+def _split_work_items(work_label: str):
+    work = _normalize_text(work_label)
+    if not work:
+        return []
+    parts = re.split(r"[、,／/・]+", work)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _is_quantifiable_work(work_name: str) -> bool:
+    w = _normalize_text(work_name)
+    quantifiable_keywords = [
+        "塗り絵", "チラシ", "箸", "箸入れ", "お箸",
+        "折り鶴", "箱", "袋", "コースター"
+    ]
+    return any(k in w for k in quantifiable_keywords)
+
+
+def _pick_result_work(work_label: str, source: str) -> str:
+    """
+    数量を紐づける作業を1つだけ選ぶ
+    - 明示的に数量つきで出ている作業を最優先
+    - 複合作業で数量が不明なら、無理に「1枚/1個」を付けない
+    """
+    works = _split_work_items(work_label)
+    src = _normalize_text(source)
+
+    if not works:
+        return ""
+
+    # 明示的に「作業名 + 数量」があるものを最優先
+    for w in works:
+        if re.search(rf"{re.escape(w)}[^。]*?(\d+\s*(?:枚|個|膳|本|羽))", src):
+            return w
+
+    # 明示的な数量がなくても、発言や文脈で最も自然なもの
+    preferred = ["塗り絵", "チラシ", "箸入れ", "お箸", "折り鶴", "箱", "袋", "コースター"]
+    for p in preferred:
+        for w in works:
+            if p in w and p in src:
+                return w
+
+    # 単一作業ならそれを返す
+    if len(works) == 1:
+        return works[0]
+
+    # 複合作業で明確な根拠がないときは空にして無理な数量補完を避ける
+    return ""
+
+
 def _build_work_result_phrase(work_label: str, *texts) -> str:
+    """
+    返り値の考え方:
+    - 明示的な数量がある -> 「塗り絵を1枚」
+    - 数量はないが自然な作業が選べる -> 「塗り絵に取り組まれました」
+    - 複合作業で特定不能 -> 「観葉植物、塗り絵、内職の作業に取り組まれました」
+    """
     work = _normalize_text(work_label) or "作業"
     source = " ".join([_normalize_text(t) for t in texts if _normalize_text(t)])
-    unit = _work_default_unit(work)
 
-    m = re.search(rf"{re.escape(work)}[^。]*?(\d+\s*(?:枚|個|膳|本|羽))", source)
-    if m:
-        return f"{work}を{m.group(1)}"
+    result_work = _pick_result_work(work, source)
 
-    m = re.search(r"(\d+\s*(?:枚|個|膳|本|羽))", source)
-    if m:
-        return f"{work}を{m.group(1)}"
+    # 明示的な数量がある場合
+    if result_work:
+        m = re.search(rf"{re.escape(result_work)}[^。]*?(\d+\s*(?:枚|個|膳|本|羽))", source)
+        if m:
+            return f"{result_work}を{m.group(1)}"
 
-    if any(k in source for k in ["8割", "半分", "少し", "ちょっと"]):
-        return f"{work}を1{unit}"
+        # あいまい数量は、数量を無理に付けず作業実施表現にとどめる
+        if any(k in source for k in ["8割", "半分", "少し", "ちょっと"]):
+            return f"{result_work}に取り組まれました"
 
-    return f"{work}を1{unit}"
+        # 単一かつ数量化が自然なものだけ 1単位補完
+        if len(_split_work_items(work)) == 1 and _is_quantifiable_work(result_work):
+            return f"{result_work}を1{_work_default_unit(result_work)}"
+
+        return f"{result_work}に取り組まれました"
+
+    # 複合作業で特定不能な場合は無理に数量を付けない
+    if len(_split_work_items(work)) >= 2:
+        return f"{work}の作業に取り組まれました"
+
+    # 単一作業でも、数量が不自然なものには付けない
+    if not _is_quantifiable_work(work):
+        return f"{work}の作業に取り組まれました"
+
+    return f"{work}を1{_work_default_unit(work)}"
 
 
 def _force_diamond_user_state(
@@ -511,7 +591,7 @@ def _force_diamond_user_state(
     ダイアモンドルール:
     ①作業開始と作業終了がわかる言葉
     ②体調に関する記述
-    ③作業内容と成果物の数量
+    ③作業内容と成果物の数量（数量が自然な場合のみ）
     を必ず入れる
     """
     out = _normalize_text(user_state)
@@ -519,7 +599,7 @@ def _force_diamond_user_state(
         _normalize_text(user_state),
         _normalize_text(before_user),
         _normalize_text(before_staff),
-    ])
+    ]).strip()
 
     work_result = _build_work_result_phrase(work_label, user_state, before_user, before_staff)
 
@@ -530,39 +610,53 @@ def _force_diamond_user_state(
     if not health_sentence:
         health_sentence = "体調について報告がありました。"
 
-    if "来所" in source or "通所" in source:
-        start_sentence = f"作業開始時には、{health_sentence.rstrip('。')}。"
-    else:
-        start_sentence = f"作業開始の連絡があり、{health_sentence.rstrip('。')}。"
-
-    end_sentence = f"作業終了時には、{work_result}行ったことを報告されました。"
-
     has_start = ("作業開始" in out) or ("開始の連絡" in out) or ("来所時" in out)
     has_end = ("作業終了" in out) or ("終了の連絡" in out) or ("報告されました" in out)
     has_health = any(k in out for k in ["体調", "精神", "良好", "普通", "不安定", "安定", "元気"])
-    has_work = (_normalize_text(work_label) in out) if _normalize_text(work_label) else False
+    has_work = bool(_normalize_text(work_label)) and (_normalize_text(work_label).split("、")[0] in out or "作業" in out)
     has_qty = _has_explicit_quantity(out)
 
     parts = []
 
+    # ①開始 + ②体調
     if not has_start or not has_health:
-        parts.append(start_sentence)
+        if "来所" in source or "通所" in source:
+            parts.append(f"作業開始時には、{health_sentence.rstrip('。')}。")
+        else:
+            parts.append(f"作業開始の連絡があり、{health_sentence.rstrip('。')}。")
 
+    # Gemini本文そのもの
     if out:
         parts.append(out)
 
-    if not has_work or not has_qty:
-        parts.append(f"{work_result}に取り組まれました。")
+    # ③作業内容・数量
+    if not has_work:
+        if work_result.endswith("に取り組まれました") or work_result.endswith("の作業に取り組まれました"):
+            parts.append(work_result.rstrip("。") + "。")
+        else:
+            parts.append(f"{work_result}実施されました。")
+    elif not has_qty and ("を" in work_result and any(u in work_result for u in ["枚", "個", "膳", "本", "羽"])):
+        parts.append(f"{work_result}実施されました。")
 
+    # ①終了
     if not has_end:
-        parts.append(end_sentence)
+        if work_result.endswith("に取り組まれました") or work_result.endswith("の作業に取り組まれました"):
+            parts.append(f"作業終了時には、{work_result.rstrip('。')}ことを報告されました。")
+        else:
+            parts.append(f"作業終了時には、{work_result}行ったことを報告されました。")
 
     result = " ".join([p for p in parts if _normalize_text(p)])
     result = _normalize_work_quantity_phrase(result, _normalize_text(work_label))
+
     allow_zero = _contains_explicit_no_work_reason(source)
     result = _convert_ambiguous_quantity_to_one_or_more(result, _normalize_text(work_label), allow_zero)
-    result = _append_default_quantity_if_missing(result, _normalize_text(work_label), allow_zero)
 
+    # 数量補完は「単一かつ数量化が自然な作業」のときだけ
+    work_items = _split_work_items(work_label)
+    if len(work_items) == 1 and _is_quantifiable_work(work_items[0]):
+        result = _append_default_quantity_if_missing(result, _normalize_text(work_label), allow_zero)
+
+    result = _dedupe_sentences(result)
     return result.strip()
 
 
@@ -573,17 +667,17 @@ def _force_diamond_staff_note(staff_note: str, before_staff: str) -> str:
     out = _normalize_text(staff_note)
 
     if out and any(k in out for k in ["支援", "声掛け", "お伝え", "見守", "配慮", "継続", "確認", "促し"]):
-        return out
+        return _dedupe_sentences(out)
 
     fallback = _extract_sentence_by_keywords(
         before_staff,
         ["支援", "声掛け", "お伝え", "見守", "配慮", "継続", "確認", "促し"]
     )
     if fallback:
-        return fallback
+        return _dedupe_sentences(fallback)
 
     if out:
-        return out
+        return _dedupe_sentences(out)
 
     return "本人の体調や精神面に配慮しながら、無理のない範囲で取り組めるよう支援を継続します。"
 
