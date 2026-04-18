@@ -15917,37 +15917,6 @@ def render_secret_home_eval_auto_page():
                 st.error("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
                 return
 
-            target_names = []
-            try:
-                resident_df = get_resident_master_df()
-                if resident_df is not None and not resident_df.empty:
-                    work = resident_df.copy().fillna("")
-
-                    if "company_id" in work.columns:
-                        current_company_id = str(st.session_state.get("company_id", "")).strip()
-                        if current_company_id:
-                            work = work[
-                                work["company_id"].astype(str).str.strip() == current_company_id
-                            ].copy()
-
-                    if "status" in work.columns:
-                        work = work[
-                            work["status"].astype(str).str.strip().isin(["利用中", "active", "1", ""])
-                        ].copy()
-
-                    if "resident_name" in work.columns:
-                        target_names = [
-                            str(x).strip()
-                            for x in work["resident_name"].tolist()
-                            if str(x).strip()
-                        ]
-            except Exception:
-                target_names = []
-
-            if not target_names:
-                st.error("対象利用者が見つかりません。resident_master を確認してください。")
-                return
-
             with st.spinner("Knowbeへ接続中."):
                 driver = build_chrome_driver()
                 driver.get("https://mgr.knowbe.jp/v2/")
@@ -15956,13 +15925,15 @@ def render_secret_home_eval_auto_page():
 
             progress = st.progress(0)
             status_box = st.empty()
-            total_count = len(target_names)
 
-            for idx, resident_name_loop in enumerate(target_names, start=1):
-                selected_label = str(resident_name_loop).strip()
+            total_count = len(resident_options)
 
-                if not selected_label:
-                    failed_names.append("利用者名取得失敗")
+            for idx, selected_label in enumerate(resident_options, start=1):
+                selected_row = resident_map.get(selected_label, {})
+                resident_name_loop = str(selected_row.get("resident_name", "")).strip()
+
+                if not resident_name_loop:
+                    failed_names.append(f"{selected_label}：利用者名取得失敗")
                     progress.progress(idx / total_count)
                     continue
 
@@ -15976,11 +15947,11 @@ def render_secret_home_eval_auto_page():
                         driver=driver,
                     )
 
-                    # 支援記録が空なら作成しない
                     if not support_record_text or not str(support_record_text).strip():
-                        msg = "この月は利用実績がないため、在宅評価シートは作成できませんでした（入院・未利用の可能性があります）"
+                        msg = "この月は利用実績がないため、在宅評価シートは作成できませんでした（入院・未利用の可能性があります）。"
                         failed_names.append(f"{resident_name_loop}：{msg}")
                         st.warning(f"{resident_name_loop}：{msg}")
+                        progress.progress(idx / total_count)
                         continue
 
                     support_record_map[resident_name_loop] = support_record_text
@@ -15998,15 +15969,15 @@ def render_secret_home_eval_auto_page():
                     monthly_evaluations = home_eval_json.get("monthly_evaluations", [])
                     weekly_reports = home_eval_json.get("weekly_reports", {})
 
-                    # 生成結果が実質空なら作成しない
                     has_goals = any(str(x).strip() for x in goals)
                     has_monthly = any(str(x).strip() for x in monthly_evaluations)
                     has_weekly = any(str(v).strip() for v in weekly_reports.values())
 
                     if not (has_goals or has_monthly or has_weekly):
-                        msg = "支援記録は取得できましたが、在宅評価シートの生成結果が空でした"
+                        msg = "支援記録は取得できましたが、在宅評価シートの生成結果が空でした。"
                         failed_names.append(f"{resident_name_loop}：{msg}")
                         st.warning(f"{resident_name_loop}：{msg}")
+                        progress.progress(idx / total_count)
                         continue
 
                     home_eval_json_map[resident_name_loop] = home_eval_json
