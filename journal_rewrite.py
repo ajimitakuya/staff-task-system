@@ -414,14 +414,46 @@ def _has_explicit_quantity(text: str):
 
 
 def _append_default_quantity_if_missing(text: str, work: str, allow_zero: bool):
+    """
+    最重要ルール:
+    - 元文や生成文に数量があるなら絶対に触らない
+    - 数量補完は数量がない場合のみ
+    - 塗り絵は数量なしなら1枚固定
+    - 複合作業は数量補完しない
+    - 観葉植物など数量が不自然なものには補完しない
+    """
     s = _normalize_text(text)
-    if not s or not work or allow_zero:
+    w = _normalize_text(work)
+
+    if not s or not w or allow_zero:
         return s
+
+    # 既に数量がある場合は絶対に触らない
     if _has_explicit_quantity(s):
         return s
-    if re.search(r"作業|やりました|できました|出来ました|実施|仕上げ|完成|順調に", s):
-        unit = _work_default_unit(work)
-        return s + f" {work}を1{unit}実施されました。"
+
+    work_items = _split_work_items(w)
+
+    # 複合作業は数量補完しない
+    if len(work_items) != 1:
+        return s
+
+    single = work_items[0]
+
+    # 塗り絵は数量なしなら1枚固定
+    if "塗り絵" in single:
+        if re.search(r"作業|やりました|できました|出来ました|実施|仕上げ|完成|順調に|取り組", s):
+            return s + " 塗り絵を1枚実施されました。"
+        return s
+
+    # 数量が不自然な作業には補完しない
+    if not _is_quantifiable_work(single):
+        return s
+
+    if re.search(r"作業|やりました|できました|出来ました|実施|仕上げ|完成|順調に|取り組", s):
+        unit = _work_default_unit(single)
+        return s + f" {single}を1{unit}実施されました。"
+
     return s
 
 
@@ -544,42 +576,64 @@ def _pick_result_work(work_label: str, source: str) -> str:
 
 def _build_work_result_phrase(work_label: str, *texts) -> str:
     """
-    返り値の考え方:
-    - 明示的な数量がある -> 「塗り絵を1枚」
-    - 数量はないが自然な作業が選べる -> 「塗り絵に取り組まれました」
-    - 複合作業で特定不能 -> 「観葉植物、塗り絵、内職の作業に取り組まれました」
+    最重要ルール:
+    1. 明示数量がある場合は絶対それを使う
+    2. 数量補完は数量がない場合のみ
+    3. 塗り絵は数量なしなら1日1枚固定
+    4. 観葉植物など数量が不自然なものには付けない
     """
     work = _normalize_text(work_label) or "作業"
     source = " ".join([_normalize_text(t) for t in texts if _normalize_text(t)])
+    works = _split_work_items(work)
 
     result_work = _pick_result_work(work, source)
 
-    # 明示的な数量がある場合
+    # 1. 明示数量がある場合は絶対それを使う
     if result_work:
         m = re.search(rf"{re.escape(result_work)}[^。]*?(\d+\s*(?:枚|個|膳|本|羽))", source)
         if m:
+            if not _is_quantifiable_work(result_work):
+                return f"{result_work}の作業に取り組まれました"
             return f"{result_work}を{m.group(1)}"
 
-        # あいまい数量は、数量を無理に付けず作業実施表現にとどめる
+    # 2. ここから下は「数量がない場合のみ」の補完
+    if result_work:
+        # 塗り絵は数量なしなら1日1枚固定
+        if "塗り絵" in result_work:
+            return "塗り絵を1枚"
+
+        # あいまい数量は無理に数字にしない
         if any(k in source for k in ["8割", "半分", "少し", "ちょっと"]):
             return f"{result_work}に取り組まれました"
 
-        # 単一かつ数量化が自然なものだけ 1単位補完
-        if len(_split_work_items(work)) == 1 and _is_quantifiable_work(result_work):
+        # 単一作業かつ数量化が自然なものだけ補完
+        if len(works) == 1 and _is_quantifiable_work(result_work):
             return f"{result_work}を1{_work_default_unit(result_work)}"
 
         return f"{result_work}に取り組まれました"
 
-    # 複合作業で特定不能な場合は無理に数量を付けない
-    if len(_split_work_items(work)) >= 2:
+    # 複合作業で特定不能な場合は数量を付けない
+    if len(works) >= 2:
+        natural = [w for w in works if _is_quantifiable_work(w)]
+        if natural:
+            return f"{'や'.join(works[:2])}などの作業に取り組まれました"
         return f"{work}の作業に取り組まれました"
 
-    # 単一作業でも、数量が不自然なものには付けない
-    if not _is_quantifiable_work(work):
-        return f"{work}の作業に取り組まれました"
+    # 単一作業
+    if len(works) == 1:
+        single = works[0]
 
-    return f"{work}を1{_work_default_unit(work)}"
+        # 塗り絵は数量なしなら1枚固定
+        if "塗り絵" in single:
+            return "塗り絵を1枚"
 
+        # 数量が不自然なものは数量なし
+        if not _is_quantifiable_work(single):
+            return f"{single}の作業に取り組まれました"
+
+        return f"{single}を1{_work_default_unit(single)}"
+
+    return "作業に取り組まれました"
 
 def _force_diamond_user_state(
     user_state: str,
@@ -698,6 +752,86 @@ def _update_live_status(live_status_box, text: str, level: str = "info"):
         live_status_box.warning(text)
     else:
         live_status_box.info(text)
+
+def _detect_service_mode(row_text: str, work_text: str = "", user_text: str = "", staff_text: str = "") -> str:
+    """
+    自動判定ルール
+    1. 施設外と明記 → 施設外
+    2. 通所 + 食事あり → 通所（実来所）
+    3. 通所のみで食事あり等なし → 在宅
+    4. 在宅明記 → 在宅
+    5. 補助判定
+    """
+    row_src = _normalize_text(row_text)
+    work_src = _normalize_text(work_text)
+    user_src = _normalize_text(user_text)
+    staff_src = _normalize_text(staff_text)
+    src = " ".join([row_src, work_src, user_src, staff_src])
+
+    outside_keywords = ["施設外", "施設外就労", "施設外支援", "居酒屋", "琴", "エバーグリーン", "清掃"]
+    if any(k in src for k in outside_keywords):
+        return "施設外"
+
+    if "在宅" in src:
+        return "在宅"
+
+    has_day_service = "通所" in src
+    has_meal = any(k in src for k in ["食事あり", "昼食あり", "昼食提供", "食事提供"])
+
+    if has_day_service and has_meal:
+        return "通所"
+
+    if has_day_service and not has_meal:
+        return "在宅"
+
+    if any(k in src for k in ["来所", "来られ", "来室", "来訪"]):
+        return "通所"
+
+    return "在宅"
+
+
+def _apply_mode_prefix_to_user_state(mode: str, user_state: str) -> str:
+    text = _normalize_text(user_state)
+    if not text:
+        return text
+
+    # ❌ 不自然な「場所＋来て」を削除
+    text = re.sub(r"(合同会社エバーグリーン|居酒屋.?琴)[^。]*来て[^。]*。?", "", text)
+
+    # 二重付与防止
+    if mode == "在宅" and "在宅" in text:
+        return text
+    if mode == "施設外" and "施設外" in text:
+        return text
+
+    if mode == "在宅":
+        if "作業開始" in text:
+            text = text.replace("作業開始", "在宅で作業開始", 1)
+        else:
+            text = "在宅にて、" + text
+
+    elif mode == "施設外":
+        # 👍 ゆるい自然表現だけ付与
+        if "作業開始" in text:
+            text = text.replace("作業開始", "施設外にて作業開始", 1)
+        else:
+            text = "施設外就労先にて、" + text
+
+    return text
+
+
+def _apply_mode_prefix_to_staff_note(mode: str, staff_note: str) -> str:
+    text = _normalize_text(staff_note)
+    if not text:
+        return text
+
+    if mode == "在宅" and "在宅" not in text:
+        return "在宅での取り組み状況を踏まえ、" + text
+
+    if mode == "施設外" and "施設外" not in text and "エバーグリーン" not in text and "居酒屋" not in text and "琴" not in text:
+        return "施設外での作業状況を踏まえ、" + text
+
+    return text
 
 def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, month: int, outside_workplace: str = ""):
     blocks = _split_support_record_blocks(page_text)
@@ -879,6 +1013,14 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         print(f"[FIX] before staff_note = {before_staff[:80]}", flush=True)
 
                         row_text = row.text
+
+                        mode = _detect_service_mode(
+                            row_text=row.text,
+                            work_text=row.text,
+                            user_text=before_user,
+                            staff_text=before_staff,
+                        )
+
                         work_label = ""
                         if "塗り絵" in row_text:
                             work_label = "塗り絵"
@@ -892,6 +1034,13 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                             work_label = "チラシ作業"
                         elif "折り鶴" in row_text or "鶴" in row_text:
                             work_label = "折り鶴"
+                        else:
+                            # row_text の「作業」欄が複合作業のときは、そのまま拾う
+                            work_match = re.search(r"作業\s*(.+?)\s*利用者状態", row_text.replace("\n", " "), re.DOTALL)
+                            if work_match:
+                                work_label = _normalize_text(work_match.group(1))
+                            else:
+                                work_label = "作業"
 
                         final_user_state = _normalize_text(user_state)
                         final_staff_note = _normalize_text(staff_note)
@@ -911,7 +1060,6 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                                 work_label=work_label,
                             )
 
-                            # 再構成結果がちゃんと厚みのある文のときだけ採用
                             if rebuilt and (
                                 not _looks_like_short_health_only(rebuilt)
                                 and len(_sentencize_jp(rebuilt)) >= 2
@@ -932,6 +1080,10 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                             before_staff=before_staff,
                         )
 
+                        # 在宅 / 通所 / 施設外 の自動判定を反映
+                        final_user_state = _apply_mode_prefix_to_user_state(mode, final_user_state)
+                        final_staff_note = _apply_mode_prefix_to_staff_note(mode, final_staff_note)
+
                         # 作業名・数量の最終補正
                         allow_zero = _contains_explicit_no_work_reason(
                             " ".join([final_user_state, final_staff_note, before_user, before_staff])
@@ -942,12 +1094,6 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         )
                         final_user_state = _append_default_quantity_if_missing(
                             final_user_state, work_label, allow_zero
-                        )
-
-                        _update_live_status(
-                            live_status_box,
-                            f"処理中: {resident_name} / {year}-{month:02d} / {target_label}",
-                            "info"
                         )
 
                         _set_react_textarea_value(driver, user_state_el, final_user_state)
@@ -962,11 +1108,13 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         if after_user == str(final_user_state).strip() and after_staff == str(final_staff_note).strip():
                             success_count += 1
                             print(f"[FIX] 入力成功: {target_label}", flush=True)
+
                             _update_live_status(
                                 live_status_box,
-                                f"成功: {resident_name} / {year}-{month:02d} / {target_label}",
+                                f"成功: {resident_name} / {year}-{month:02d} / {target_label} / {mode}",
                                 "success"
                             )
+
                         else:
                             raise RuntimeError(
                                 f"入力反映失敗: {target_label} / "
