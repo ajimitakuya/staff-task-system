@@ -934,6 +934,10 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
             user_state = re.sub(r'^.*?での作業として、', '', user_state)
             staff_note = re.sub(r'^.*?での作業として、', '', staff_note)
 
+            # 完全に会社名を排除
+            user_state = user_state.replace("合同会社エバーグリーン", "")
+            staff_note = staff_note.replace("合同会社エバーグリーン", "")            
+
             # それでも弱い場合だけ軽く補正
             if user_state and not user_state.startswith("施設外就労"):
                 if len(user_state) < 20:
