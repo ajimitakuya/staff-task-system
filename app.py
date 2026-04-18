@@ -15587,20 +15587,11 @@ def build_home_eval_multi_workbook(resident_files: list[tuple[str, bytes]]) -> b
 def get_support_record_text_via_audit_route(resident_name: str, year_val: str, month_val: str) -> str:
     """
     過去日誌照合と同じ取得ルートで、指定月の支援記録テキストをまとめて返す
+    ※ google.genai は使わず、本文取得だけを行う
     """
     api_key = get_gemini_api_key_from_app()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY が見つかりません。")
-
-    try:
-        from google import genai
-    except Exception as e:
-        raise RuntimeError(f"google.genai の読み込みに失敗しました: {e}")
-
-    try:
-        client = genai.Client(api_key=api_key)
-    except Exception as e:
-        raise RuntimeError(f"Geminiクライアント作成に失敗しました: {e}")
 
     import tempfile
 
@@ -15615,7 +15606,7 @@ def get_support_record_text_via_audit_route(resident_name: str, year_val: str, m
         end_year=int(str(year_val).strip()),
         end_month=int(str(month_val).strip()),
         output_path=tmp_path,
-        gemini_client=client,
+        gemini_client=None,   # ← ここが重要ある
     )
 
     if not rows:
@@ -15636,8 +15627,16 @@ def get_support_record_text_via_audit_route(resident_name: str, year_val: str, m
         if diary_kind:
             part_lines.append(f"日誌判定: {diary_kind}")
 
-        # rows の中に本文っぽい列があれば拾う
-        for key in ["support_record_text", "record_text", "text", "body", "content"]:
+        # 本文候補を拾う
+        for key in [
+            "support_record_text",
+            "record_text",
+            "text",
+            "body",
+            "content",
+            "diary_text",
+            "raw_block_text",
+        ]:
             val = str(row.get(key, "")).strip()
             if val:
                 part_lines.append(val)
