@@ -62,58 +62,6 @@ def append_journal_log(row_dict):
     df = pd.concat([df, pd.DataFrame([row_dict])], ignore_index=True)
     save_db(df, "journal_rewrite_logs")
 
-def _load_jr_control_df():
-    df = load_db("journal_rewrite_control")
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=[
-            "company_id", "user_id", "exec_id",
-            "status", "stop_requested",
-            "started_at", "updated_at", "message"
-        ])
-    return df
-
-
-def _save_jr_control_df(df):
-    save_db(df, "journal_rewrite_control")
-
-
-def _now_str():
-    return now_jst().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _jr_request_stop(company_id: str, user_id: str = ""):
-    df = _load_jr_control_df()
-    if df.empty:
-        return False
-
-    mask = df["company_id"].astype(str).str.strip() == str(company_id).strip()
-    if user_id:
-        mask = mask & (df["user_id"].astype(str).str.strip() == str(user_id).strip())
-
-    mask = mask & (df["status"].astype(str).str.strip() == "running")
-
-    if not mask.any():
-        return False
-
-    df.loc[mask, "stop_requested"] = 1
-    df.loc[mask, "updated_at"] = _now_str()
-    df.loc[mask, "message"] = "停止予約"
-    _save_jr_control_df(df)
-    return True
-
-
-def _jr_clear_control(company_id: str, user_id: str = ""):
-    df = _load_jr_control_df()
-    if df.empty:
-        return
-
-    mask = df["company_id"].astype(str).str.strip() == str(company_id).strip()
-    if user_id:
-        mask = mask & (df["user_id"].astype(str).str.strip() == str(user_id).strip())
-
-    df = df.loc[~mask].copy()
-    _save_jr_control_df(df)
-
 # =========================================
 # 月単位の日誌再生成
 # =========================================
@@ -895,13 +843,20 @@ def _apply_mode_prefix_to_staff_note(mode: str, staff_note: str) -> str:
     if not text:
         return text
 
+    # 施設外は接頭辞を付けない
+    if mode == "施設外":
+        text = text.replace("合同会社エバーグリーン", "")
+        text = text.replace("居酒屋 琴", "")
+        text = text.replace("居酒屋琴", "")
+        text = re.sub(r'^施設外での作業状況を踏まえ、', '', text)
+        text = re.sub(r'^施設外就労先での状況を踏まえ、', '', text)
+        return _dedupe_sentences(text)
+
+    # 在宅だけ軽く補正
     if mode == "在宅" and "在宅" not in text:
-        return "在宅での取り組み状況を踏まえ、" + text
+        return _dedupe_sentences("在宅での取り組み状況を踏まえ、" + text)
 
-    if mode == "施設外" and "施設外" not in text and "エバーグリーン" not in text and "居酒屋" not in text and "琴" not in text:
-        return "施設外での作業状況を踏まえ、" + text
-
-    return text
+    return _dedupe_sentences(text)
 
 def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, month: int, outside_workplace: str = ""):
     blocks = _split_support_record_blocks(page_text)
@@ -1292,36 +1247,8 @@ def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m, outside_
 
     st.session_state["jr_running"] = True
 
-    df = _load_jr_control_df()
-    row = {
-        "company_id": company,
-        "user_id": user,
-        "exec_id": exec_id,
-        "status": "running",
-        "stop_requested": 0,
-        "started_at": _now_str(),
-        "updated_at": _now_str(),
-        "message": "自動上書き開始",
-    }
-    df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-    _save_jr_control_df(df)
-
     try:
         for resident in residents:
-            df_chk = _load_jr_control_df()
-            hit = df_chk[
-                (df_chk["company_id"].astype(str).str.strip() == company) &
-                (df_chk["user_id"].astype(str).str.strip() == user) &
-                (df_chk["exec_id"].astype(str).str.strip() == exec_id)
-            ]
-            if not hit.empty and str(hit.iloc[-1].get("stop_requested", "0")).strip() in ("1", "True", "true"):
-                _update_live_status(live_status_box, f"停止しました: {resident} の前", "warning")
-                df_chk.loc[hit.index, "status"] = "stopped"
-                df_chk.loc[hit.index, "updated_at"] = _now_str()
-                df_chk.loc[hit.index, "message"] = "利用者ループ前で停止"
-                _save_jr_control_df(df_chk)
-                return
-
             ok = goto_users_summary(driver)
             if not ok:
                 append_journal_log({
@@ -1357,20 +1284,6 @@ def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m, outside_
             y, m = int(start_y), int(start_m)
 
             while (y < int(end_y)) or (y == int(end_y) and m <= int(end_m)):
-                df_chk = _load_jr_control_df()
-                hit = df_chk[
-                    (df_chk["company_id"].astype(str).str.strip() == company) &
-                    (df_chk["user_id"].astype(str).str.strip() == user) &
-                    (df_chk["exec_id"].astype(str).str.strip() == exec_id)
-                ]
-                if not hit.empty and str(hit.iloc[-1].get("stop_requested", "0")).strip() in ("1", "True", "true"):
-                    _update_live_status(live_status_box, f"停止しました: {resident} / {y}-{m:02d} の前", "warning")
-                    df_chk.loc[hit.index, "status"] = "stopped"
-                    df_chk.loc[hit.index, "updated_at"] = _now_str()
-                    df_chk.loc[hit.index, "message"] = f"{resident} {y}-{m:02d} 前で停止"
-                    _save_jr_control_df(df_chk)
-                    return
-
                 _update_live_status(
                     live_status_box,
                     f"処理中: {resident} / {y}-{m:02d}",
@@ -1395,21 +1308,8 @@ def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m, outside_
                 else:
                     m += 1
 
-        df_done = _load_jr_control_df()
-        mask_done = (
-            (df_done["company_id"].astype(str).str.strip() == company) &
-            (df_done["user_id"].astype(str).str.strip() == user) &
-            (df_done["exec_id"].astype(str).str.strip() == exec_id)
-        )
-        if mask_done.any():
-            df_done.loc[mask_done, "status"] = "done"
-            df_done.loc[mask_done, "updated_at"] = _now_str()
-            df_done.loc[mask_done, "message"] = "正常終了"
-            _save_jr_control_df(df_done)
-
     finally:
         st.session_state["jr_running"] = False
-        st.session_state["jr_stop_requested"] = False
 
 
 # =========================================
@@ -1423,14 +1323,11 @@ def render_journal_rewrite_page():
 
     if "jr_running" not in st.session_state:
         st.session_state["jr_running"] = False
-    if "jr_stop_requested" not in st.session_state:
-        st.session_state["jr_stop_requested"] = False
 
     if not st.session_state.get("is_admin", False):
         st.session_state.pop("journal_rewrite_residents", None)
         st.session_state.pop("jr_outside_workplace", None)
         st.session_state["jr_running"] = False
-        st.session_state["jr_stop_requested"] = False
         st.error("このページは管理者専用です。")
         return
 
@@ -1481,56 +1378,18 @@ def render_journal_rewrite_page():
 
     live_status_box = st.empty()
 
-    b1, b2, b3, b4 = st.columns(4)
+    run_clicked = st.button(
+        "自動上書きを実行",
+        key="run_journal_rewrite",
+        use_container_width=True,
+        disabled=st.session_state.get("jr_running", False),
+    )
 
-    with b1:
-        run_clicked = st.button(
-            "自動上書きを実行",
-            key="run_journal_rewrite",
-            use_container_width=True,
-            disabled=st.session_state.get("jr_running", False),
-        )
+    if st.session_state.get("jr_running", False):
+        st.info("現在実行中ある。")
 
-    with b2:
-        stop_clicked = st.button(
-            "停止予約",
-            key="stop_journal_rewrite",
-            use_container_width=True,
-        )
-        if stop_clicked:
-            ok = _jr_request_stop(company_id, user_id)
-            if ok:
-                st.session_state["jr_stop_requested"] = True
-                st.warning("停止予約を保存したある。次の区切りで停止するある。")
-            else:
-                st.info("停止対象の実行中データが見つからなかったある。")
-
-    with b3:
-        reset_clicked = st.button(
-            "UI選択を初期化",
-            key="reset_journal_rewrite_ui",
-            use_container_width=True,
-        )
-        if reset_clicked:
-            st.session_state.pop("journal_rewrite_residents", None)
-            st.session_state.pop("jr_outside_workplace", None)
-            st.session_state["jr_running"] = False
-            st.session_state["jr_stop_requested"] = False
-            st.success("画面上の選択を初期化したある。")
-            st.rerun()
-
-    with b4:
-        clear_control_clicked = st.button(
-            "停止/実行データ初期化",
-            key="clear_journal_rewrite_control",
-            use_container_width=True,
-        )
-        if clear_control_clicked:
-            _jr_clear_control(company_id, user_id)
-            st.session_state["jr_running"] = False
-            st.session_state["jr_stop_requested"] = False
-            st.success("スプシ上の停止・実行データを初期化したある。")
-            st.rerun()
+    if st.session_state.get("jr_running", False):
+        st.info("現在実行中ある。停止したい場合は『停止予約』を押すある。")
 
     if st.session_state.get("jr_running", False):
         st.info("現在実行中ある。停止したい場合は『停止予約』を押すある。")
@@ -1548,8 +1407,6 @@ def render_journal_rewrite_page():
         if not login_username or not login_password:
             st.error("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
             return
-
-        st.session_state["jr_stop_requested"] = False
 
         driver = None
         try:
@@ -1575,7 +1432,6 @@ def render_journal_rewrite_page():
             st.error(f"実行中にエラーが発生しました: {e}")
         finally:
             st.session_state["jr_running"] = False
-            st.session_state["jr_stop_requested"] = False
             if driver is not None:
                 try:
                     driver.quit()
