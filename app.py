@@ -807,6 +807,8 @@ def build_home_eval_cell_data(
     while len(monthly_evaluations) < 3:
         monthly_evaluations.append("")
 
+    has_week5 = bool(str(weekly_dates.get("5", "")).strip())
+
     return {
         "B3": resident_name,
         "J3": create_year,
@@ -841,6 +843,8 @@ def build_home_eval_cell_data(
         "A27": weekly_dates.get("5", ""),
         "C27": weekly_reports.get("5", ""),
         "J28": weekly_visits.get("5", ""),
+
+        "__delete_week5__": not has_week5,
     }
 
 def build_home_eval_week_ranges(year_val, month_val):
@@ -858,13 +862,18 @@ def build_home_eval_week_ranges(year_val, month_val):
 
     last_day = py_calendar.monthrange(y, m)[1]
 
-    return {
+    result = {
         "1": f"{m}/1〜{m}/7",
         "2": f"{m}/8〜{m}/14",
         "3": f"{m}/15〜{m}/21",
         "4": f"{m}/22〜{m}/28",
-        "5": f"{m}/29〜{m}/{last_day}",
+        "5": "",
     }
+
+    if last_day >= 29:
+        result["5"] = f"{m}/29〜{m}/{last_day}"
+
+    return result
 
 def apply_bulk_plan_overrides(plan_json, periods, persons):
     result = json.loads(json.dumps(plan_json, ensure_ascii=False))
@@ -6130,11 +6139,13 @@ TEMPLATE_FILES = {
 
 
 def create_excel_file(template_name, cell_data):
-
     template = TEMPLATE_FILES[template_name]
 
     wb = load_workbook(template)
     ws = wb.active
+
+    # 在宅評価シートだけで使う内部フラグ
+    delete_week5 = bool(cell_data.pop("__delete_week5__", False))
 
     try:
         if "B3" in cell_data:
@@ -6150,6 +6161,14 @@ def create_excel_file(template_name, cell_data):
             st.error(f"❌ エラーセル: {cell}")
             st.error(f"❌ 値: {value}")
             st.error(f"❌ エラー内容: {e}")
+            raise
+
+    # 2月28日までなど、第5週が不要なときは在宅評価シートの5週目を削除
+    if template_name == "在宅評価シート" and delete_week5:
+        try:
+            ws.delete_rows(27, 2)
+        except Exception as e:
+            st.error(f"❌ 第5週行の削除に失敗: {e}")
             raise
 
     buffer = BytesIO()
@@ -15729,7 +15748,7 @@ def render_secret_home_eval_auto_page():
         )
 
     # ===== 1人分作成 =====
-    if single_generate:
+    if generate:
         if not resident_name:
             st.error("利用者を選択してください。")
             return
@@ -15761,11 +15780,6 @@ def render_secret_home_eval_auto_page():
                 knowbe_login_password="",
             )
 
-            # st.info(f"DEBUG current_company_id = {st.session_state.get('company_id', '')}")
-            # st.info(f"DEBUG company_name = {st.session_state.get('company_name', '')}")
-            # st.info(f"DEBUG resolved knowbe username = {ctx.get('knowbe_login_username', '')}")
-            # st.info(f"DEBUG ctx ok = {ctx.get('ok', False)} / error = {ctx.get('error', '')}")
-
             if not ctx.get("ok", False):
                 st.error(ctx.get("error", "Knowbeログイン情報が取得できませんでした。"))
                 return
@@ -15777,6 +15791,12 @@ def render_secret_home_eval_auto_page():
                 st.error("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
                 return
 
+            with st.spinner("Knowbeへ接続中."):
+                driver = build_chrome_driver()
+                driver.get("https://mgr.knowbe.jp/v2/")
+                time.sleep(1.0)
+                manual_login_wait(driver, login_username, login_password)
+
             support_record_text = fetch_home_eval_support_record_text(
                 resident_name=resident_name,
                 create_year=create_year,
@@ -15786,11 +15806,15 @@ def render_secret_home_eval_auto_page():
 
             st.session_state["secret_home_eval_support_record_text"] = support_record_text
 
+            # 支援記録が空なら作成しない
             if not support_record_text or not str(support_record_text).strip():
                 st.warning("この月は利用実績がないため、在宅評価シートは作成できませんでした（入院・未利用の可能性があります）。")
+                st.session_state["secret_home_eval_json"] = None
+                st.session_state["secret_home_eval_cell_data"] = None
+                st.session_state["secret_home_eval_file"] = None
                 return
 
-            with st.spinner("Geminiで在宅評価を生成中..."):
+            with st.spinner("Geminiで在宅評価を生成中."):
                 home_eval_json = generate_json_with_gemini(
                     build_home_eval_from_support_record_prompt(
                         resident_name=resident_name,
@@ -15800,11 +15824,23 @@ def render_secret_home_eval_auto_page():
                     )
                 )
 
-            st.session_state["secret_home_eval_json"] = home_eval_json
-
             goals = home_eval_json.get("goals", [])
             monthly_evaluations = home_eval_json.get("monthly_evaluations", [])
             weekly_reports = home_eval_json.get("weekly_reports", {})
+
+            # 生成結果が実質空なら作成しない
+            has_goals = any(str(x).strip() for x in goals)
+            has_monthly = any(str(x).strip() for x in monthly_evaluations)
+            has_weekly = any(str(v).strip() for v in weekly_reports.values())
+
+            if not (has_goals or has_monthly or has_weekly):
+                st.warning("支援記録は取得できましたが、在宅評価シートの生成結果が空だったため作成しませんでした。")
+                st.session_state["secret_home_eval_json"] = home_eval_json
+                st.session_state["secret_home_eval_cell_data"] = None
+                st.session_state["secret_home_eval_file"] = None
+                return
+
+            st.session_state["secret_home_eval_json"] = home_eval_json
 
             cell_data = build_home_eval_cell_data(
                 resident_name=resident_name,
@@ -15829,7 +15865,6 @@ def render_secret_home_eval_auto_page():
             import traceback
             st.error(f"在宅評価シート1人分自動作成エラー: {e}")
             st.code(traceback.format_exc())
-            # st.info(f"DEBUG support_record_text current value = {repr(support_record_text)[:500]}")
 
         finally:
             try:
@@ -15882,7 +15917,38 @@ def render_secret_home_eval_auto_page():
                 st.error("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
                 return
 
-            with st.spinner("Knowbeへ接続中..."):
+            target_names = []
+            try:
+                resident_df = get_resident_master_df()
+                if resident_df is not None and not resident_df.empty:
+                    work = resident_df.copy().fillna("")
+
+                    if "company_id" in work.columns:
+                        current_company_id = str(st.session_state.get("company_id", "")).strip()
+                        if current_company_id:
+                            work = work[
+                                work["company_id"].astype(str).str.strip() == current_company_id
+                            ].copy()
+
+                    if "status" in work.columns:
+                        work = work[
+                            work["status"].astype(str).str.strip().isin(["利用中", "active", "1", ""])
+                        ].copy()
+
+                    if "resident_name" in work.columns:
+                        target_names = [
+                            str(x).strip()
+                            for x in work["resident_name"].tolist()
+                            if str(x).strip()
+                        ]
+            except Exception:
+                target_names = []
+
+            if not target_names:
+                st.error("対象利用者が見つかりません。resident_master を確認してください。")
+                return
+
+            with st.spinner("Knowbeへ接続中."):
                 driver = build_chrome_driver()
                 driver.get("https://mgr.knowbe.jp/v2/")
                 time.sleep(1.0)
@@ -15890,15 +15956,13 @@ def render_secret_home_eval_auto_page():
 
             progress = st.progress(0)
             status_box = st.empty()
+            total_count = len(target_names)
 
-            total_count = len(resident_options)
+            for idx, resident_name_loop in enumerate(target_names, start=1):
+                selected_label = str(resident_name_loop).strip()
 
-            for idx, selected_label in enumerate(resident_options, start=1):
-                selected_row = resident_map.get(selected_label, {})
-                resident_name_loop = str(selected_row.get("resident_name", "")).strip()
-
-                if not resident_name_loop:
-                    failed_names.append(f"{selected_label}：利用者名取得失敗")
+                if not selected_label:
+                    failed_names.append("利用者名取得失敗")
                     progress.progress(idx / total_count)
                     continue
 
@@ -15912,13 +15976,11 @@ def render_secret_home_eval_auto_page():
                         driver=driver,
                     )
 
+                    # 支援記録が空なら作成しない
                     if not support_record_text or not str(support_record_text).strip():
                         msg = "この月は利用実績がないため、在宅評価シートは作成できませんでした（入院・未利用の可能性があります）"
-                        
                         failed_names.append(f"{resident_name_loop}：{msg}")
-                        
                         st.warning(f"{resident_name_loop}：{msg}")
-                        
                         continue
 
                     support_record_map[resident_name_loop] = support_record_text
@@ -15936,7 +15998,7 @@ def render_secret_home_eval_auto_page():
                     monthly_evaluations = home_eval_json.get("monthly_evaluations", [])
                     weekly_reports = home_eval_json.get("weekly_reports", {})
 
-                    # ★ 追加：生成結果が実質空なら失敗扱いにする
+                    # 生成結果が実質空なら作成しない
                     has_goals = any(str(x).strip() for x in goals)
                     has_monthly = any(str(x).strip() for x in monthly_evaluations)
                     has_weekly = any(str(v).strip() for v in weekly_reports.values())
@@ -15947,7 +16009,6 @@ def render_secret_home_eval_auto_page():
                         st.warning(f"{resident_name_loop}：{msg}")
                         continue
 
-                    # ★ これを追加
                     home_eval_json_map[resident_name_loop] = home_eval_json
 
                     cell_data = build_home_eval_cell_data(
