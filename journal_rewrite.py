@@ -1620,10 +1620,16 @@ def render_journal_rewrite_page():
         key="journal_rewrite_residents"
     )
 
+    outside_options = ["未指定", "居酒屋 琴", "合同会社エバーグリーン"]
+
+    if "jr_outside_workplace" not in st.session_state:
+        st.session_state["jr_outside_workplace"] = "未指定"
+
     outside_workplace = st.selectbox(
         "施設外就労先",
-        ["未指定", "居酒屋 琴", "合同会社エバーグリーン"],
-        index=0,
+        outside_options,
+        index=outside_options.index(st.session_state["jr_outside_workplace"])
+            if st.session_state["jr_outside_workplace"] in outside_options else 0,
         key="jr_outside_workplace",
     )
 
@@ -1665,7 +1671,7 @@ def render_journal_rewrite_page():
         )
         if reset_clicked:
             st.session_state.pop("journal_rewrite_residents", None)
-            st.session_state["jr_outside_workplace"] = "未指定"
+            st.session_state.pop("jr_outside_workplace", None)
             st.session_state["jr_running"] = False
             st.session_state["jr_stop_requested"] = False
             st.success("対象利用者と停止状態を初期化したある。")
