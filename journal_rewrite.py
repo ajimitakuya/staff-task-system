@@ -1144,6 +1144,53 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
             "error"
         )
 
+def generate_journal_from_memo(memo: str, work_label: str, start_time: str = "", end_time: str = ""):
+    """
+    メモから日誌を生成する（ダイアモンドルール完全適用）
+    """
+
+    memo = _normalize_text(memo)
+
+    # 作業抽出
+    work = _normalize_text(work_label)
+
+    # 数量付き作業文を生成
+    work_phrase = _build_work_result_phrase(work, memo)
+
+    # 利用者状態
+    user_state = memo
+
+    # ダイアモンド補正
+    user_state = _force_diamond_user_state(
+        user_state=user_state,
+        before_user=memo,
+        before_staff="",
+        work_label=work
+    )
+
+    # モード判定
+    mode = _detect_service_mode(
+        row_text=memo,
+        work_text=work,
+        user_text=user_state,
+        staff_text=""
+    )
+
+    user_state = _apply_mode_prefix_to_user_state(mode, user_state)
+
+    # 職員考察
+    staff_note = _force_diamond_staff_note(
+        staff_note="",
+        before_staff=memo
+    )
+
+    staff_note = _apply_mode_prefix_to_staff_note(mode, staff_note)
+
+    return {
+        "user_state": user_state,
+        "staff_note": staff_note,
+        "mode": mode
+    }
 
 # =========================================
 # メイン処理
