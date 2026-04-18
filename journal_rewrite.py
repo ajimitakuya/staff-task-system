@@ -229,7 +229,6 @@ def _looks_like_short_health_only(text: str):
     if not s:
         return True
 
-    # 記号ゆれ吸収
     s2 = s.replace("、", ",").replace("，", ",").replace("・", ",")
 
     short_set = {
@@ -248,8 +247,12 @@ def _looks_like_short_health_only(text: str):
     if s in short_set or s2 in short_set:
         return True
 
-    # 「精神○○」「体調○○」だけで構成される短文も弾く
-    labels = ["精神安定", "精神不安定", "体調安定", "体調不安定", "体調良好", "体調普通", "元気", "良好", "普通"]
+    labels = [
+        "精神安定", "精神不安定",
+        "体調安定", "体調不安定",
+        "体調良好", "体調普通",
+        "元気", "良好", "普通", "大丈夫", "まあまあ", "まぁまぁ"
+    ]
     temp = s2
     for lb in labels:
         temp = temp.replace(lb, "")
@@ -258,7 +261,13 @@ def _looks_like_short_health_only(text: str):
     if not temp and len(_sentencize_jp(s)) <= 1:
         return True
 
-    return len(_sentencize_jp(s)) <= 1 and len(s) <= 20 and ("体調" in s or "精神" in s or s in short_set or s2 in short_set)
+    # ここを強化：
+    # 20文字以下で体調/精神ワード中心なら無条件で短文扱い
+    if len(s) <= 20 and any(k in s for k in ["体調", "精神", "良好", "普通", "安定", "不安定", "元気", "大丈夫"]):
+        if len(_sentencize_jp(s)) <= 1:
+            return True
+
+    return False
 
 
 def _contains_explicit_no_work_reason(text: str):
@@ -756,6 +765,199 @@ def _force_diamond_staff_note(staff_note: str, before_staff: str) -> str:
 
     return "本人の体調や精神面に配慮しながら、無理のない範囲で取り組めるよう支援を継続します。"
 
+def process_one_month(driver, resident_name, year, month, exec_id, user, company, outside_workplace="", live_status_box=None):
+    from run_assistance import (
+        goto_support_record_month,
+        fetch_support_record_page_text,
+        enter_edit_mode,
+        save_all,
+    )
+
+    ym = f"{year}-{month:02d}"
+
+    try:
+        ok = goto_support_record_month(driver, year, month)
+        if not ok:
+            print("[JR] 月移動失敗", flush=True)
+            return
+
+        time.sleep(2)
+
+        page_text = fetch_support_record_page_text(driver)
+        page_text_str = str(page_text or "").strip()
+
+        if not page_text_str:
+            print("[JR] 日誌なし", flush=True)
+            return
+
+        result_json = generate_json_with_gemini_local(page_text_str, outside_workplace)
+        result_json = _postprocess_gemini_result(page_text_str, result_json, year, month, outside_workplace)
+
+        print("[FIX] 編集モードへ", flush=True)
+        enter_edit_mode(driver)
+
+        rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
+        success_count = 0
+
+        for date_str in sorted(result_json.keys()):
+            content = result_json[date_str]
+            try:
+                m = re.search(r"\d{4}-\d{2}-(\d{1,2})", date_str)
+                if not m:
+                    continue
+
+                target_day = int(m.group(1))
+                target_label = f"{target_day}日"
+
+                user_state = content.get("user_state", "")
+                staff_note = content.get("staff_note", "")
+
+                if not user_state and not staff_note:
+                    continue
+
+                print(f"[FIX] 入力対象: {target_label}", flush=True)
+
+                for row in rows:
+                    row_text_full = row.text.strip()
+                    if not re.match(rf"^{target_day}日（", row_text_full):
+                        continue
+
+                    areas = _find_row_textareas_for_support_record(row)
+                    print(f"[FIX] {target_label} textarea count = {len(areas)}", flush=True)
+
+                    if len(areas) < 2:
+                        raise RuntimeError(f"textarea不足: {target_label}")
+
+                    user_state_el = areas[0]
+                    staff_note_el = areas[1]
+
+                    before_user = _textarea_value(user_state_el)
+                    before_staff = _textarea_value(staff_note_el)
+
+                    print(f"[FIX] before user_state = {before_user[:120]}", flush=True)
+                    print(f"[FIX] before staff_note = {before_staff[:120]}", flush=True)
+
+                    row_text = row.text
+
+                    mode = _detect_service_mode(
+                        row_text=row_text,
+                        work_text=row_text,
+                        user_text=before_user,
+                        staff_text=before_staff,
+                    )
+
+                    work_label = ""
+                    if "塗り絵" in row_text:
+                        work_label = "塗り絵"
+                    elif "箱" in row_text:
+                        work_label = "箱の組み立て"
+                    elif "袋" in row_text:
+                        work_label = "袋詰め"
+                    elif "箸" in row_text:
+                        work_label = "箸入れ"
+                    elif "チラシ" in row_text:
+                        work_label = "チラシ作業"
+                    elif "折り鶴" in row_text or "鶴" in row_text:
+                        work_label = "折り鶴"
+                    else:
+                        work_match = re.search(
+                            r"作業\s*(.+?)\s*利用者状態",
+                            row_text.replace("\n", " "),
+                            re.DOTALL
+                        )
+                        if work_match:
+                            work_label = _normalize_text(work_match.group(1))
+                        else:
+                            work_label = "作業"
+
+                    final_user_state = _normalize_text(user_state)
+                    final_staff_note = _normalize_text(staff_note)
+
+                    gemini_is_weak = (
+                        not final_user_state
+                        or _looks_like_short_health_only(final_user_state)
+                        or len(_sentencize_jp(final_user_state)) < 2
+                    )
+
+                    if gemini_is_weak:
+                        rebuilt = _rebuild_user_state_from_existing(
+                            before_user=before_user,
+                            before_staff=before_staff,
+                            work_label=work_label,
+                        )
+                        if rebuilt:
+                            final_user_state = _normalize_text(rebuilt)
+
+                    # 職員考察
+                    final_staff_note = _force_diamond_staff_note(
+                        staff_note=final_staff_note,
+                        before_staff=before_staff,
+                    )
+                    final_staff_note = _apply_mode_prefix_to_staff_note(mode, final_staff_note)
+
+                    # 利用者状態の最終強制
+                    final_user_state = _force_final_user_state_quality(
+                        user_state=final_user_state,
+                        before_user=before_user,
+                        before_staff=before_staff,
+                        work_label=work_label,
+                        mode=mode,
+                    )
+
+                    # まだ短語だけならここで即エラーにして保存させない
+                    if _looks_like_short_health_only(final_user_state) or len(_sentencize_jp(final_user_state)) < 2:
+                        raise RuntimeError(
+                            f"利用者状態が短すぎるため入力中止: {target_label} / final_user_state={final_user_state}"
+                        )
+
+                    _set_react_textarea_value(driver, user_state_el, final_user_state)
+                    _set_react_textarea_value(driver, staff_note_el, final_staff_note)
+
+                    after_user = _textarea_value(user_state_el)
+                    after_staff = _textarea_value(staff_note_el)
+
+                    print(f"[FIX] final user_state = {final_user_state[:200]}", flush=True)
+                    print(f"[FIX] final staff_note = {final_staff_note[:200]}", flush=True)
+                    print(f"[FIX] after user_state = {after_user[:200]}", flush=True)
+                    print(f"[FIX] after staff_note = {after_staff[:200]}", flush=True)
+
+                    if after_user == str(final_user_state).strip() and after_staff == str(final_staff_note).strip():
+                        success_count += 1
+                        print(f"[FIX] 入力成功: {target_label}", flush=True)
+
+                        _update_live_status(
+                            live_status_box,
+                            f"成功: {resident_name} / {year}-{month:02d} / {target_label} / {mode}",
+                            "success"
+                        )
+                    else:
+                        raise RuntimeError(
+                            f"入力反映失敗: {target_label} / "
+                            f"user_match={after_user == str(final_user_state).strip()} / "
+                            f"staff_match={after_staff == str(final_staff_note).strip()}"
+                        )
+
+                    break
+
+            except Exception as e:
+                print(f"[JR] 日付処理失敗: {date_str} -> {e}", flush=True)
+                _update_live_status(
+                    live_status_box,
+                    f"失敗: {resident_name} / {year}-{month:02d} / {date_str} / {e}",
+                    "error"
+                )
+
+        print("[FIX] 保存開始", flush=True)
+        save_all(driver)
+        print(f"[FIX] 完了 件数={success_count}", flush=True)
+
+    except Exception as e:
+        print(f"[JR] month error: {resident_name} {ym} -> {e}", flush=True)
+        _update_live_status(
+            live_status_box,
+            f"月処理失敗: {resident_name} / {ym} / {e}",
+            "error"
+        )
 
 def _update_live_status(live_status_box, text: str, level: str = "info"):
     if live_status_box is None:
