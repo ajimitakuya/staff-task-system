@@ -475,6 +475,135 @@ def _compose_user_state_from_raw(work: str, raw_user: str, raw_staff: str):
     result = _append_default_quantity_if_missing(result, work, allow_zero)
     return result.strip()
 
+def _extract_sentence_by_keywords(text: str, keywords):
+    for s in _sentencize_jp(text):
+        if any(k in s for k in keywords):
+            return s.rstrip("。") + "。"
+    return ""
+
+
+def _build_work_result_phrase(work_label: str, *texts) -> str:
+    work = _normalize_text(work_label) or "作業"
+    source = " ".join([_normalize_text(t) for t in texts if _normalize_text(t)])
+    unit = _work_default_unit(work)
+
+    m = re.search(rf"{re.escape(work)}[^。]*?(\d+\s*(?:枚|個|膳|本|羽))", source)
+    if m:
+        return f"{work}を{m.group(1)}"
+
+    m = re.search(r"(\d+\s*(?:枚|個|膳|本|羽))", source)
+    if m:
+        return f"{work}を{m.group(1)}"
+
+    if any(k in source for k in ["8割", "半分", "少し", "ちょっと"]):
+        return f"{work}を1{unit}"
+
+    return f"{work}を1{unit}"
+
+
+def _force_diamond_user_state(
+    user_state: str,
+    before_user: str,
+    before_staff: str,
+    work_label: str,
+) -> str:
+    """
+    ダイアモンドルール:
+    ①作業開始と作業終了がわかる言葉
+    ②体調に関する記述
+    ③作業内容と成果物の数量
+    を必ず入れる
+    """
+    out = _normalize_text(user_state)
+    source = " ".join([
+        _normalize_text(user_state),
+        _normalize_text(before_user),
+        _normalize_text(before_staff),
+    ])
+
+    work_result = _build_work_result_phrase(work_label, user_state, before_user, before_staff)
+
+    health_sentence = _extract_sentence_by_keywords(
+        source,
+        ["体調", "精神", "良好", "普通", "不安定", "安定", "元気", "まぁまぁ", "まあまあ", "大丈夫"]
+    )
+    if not health_sentence:
+        health_sentence = "体調について報告がありました。"
+
+    if "来所" in source or "通所" in source:
+        start_sentence = f"作業開始時には、{health_sentence.rstrip('。')}。"
+    else:
+        start_sentence = f"作業開始の連絡があり、{health_sentence.rstrip('。')}。"
+
+    end_sentence = f"作業終了時には、{work_result}行ったことを報告されました。"
+
+    has_start = ("作業開始" in out) or ("開始の連絡" in out) or ("来所時" in out)
+    has_end = ("作業終了" in out) or ("終了の連絡" in out) or ("報告されました" in out)
+    has_health = any(k in out for k in ["体調", "精神", "良好", "普通", "不安定", "安定", "元気"])
+    has_work = (_normalize_text(work_label) in out) if _normalize_text(work_label) else False
+    has_qty = _has_explicit_quantity(out)
+
+    parts = []
+
+    if not has_start or not has_health:
+        parts.append(start_sentence)
+
+    if out:
+        parts.append(out)
+
+    if not has_work or not has_qty:
+        parts.append(f"{work_result}に取り組まれました。")
+
+    if not has_end:
+        parts.append(end_sentence)
+
+    result = " ".join([p for p in parts if _normalize_text(p)])
+    result = _normalize_work_quantity_phrase(result, _normalize_text(work_label))
+    allow_zero = _contains_explicit_no_work_reason(source)
+    result = _convert_ambiguous_quantity_to_one_or_more(result, _normalize_text(work_label), allow_zero)
+    result = _append_default_quantity_if_missing(result, _normalize_text(work_label), allow_zero)
+
+    return result.strip()
+
+
+def _force_diamond_staff_note(staff_note: str, before_staff: str) -> str:
+    """
+    ④支援に関する内容を必ず入れる
+    """
+    out = _normalize_text(staff_note)
+
+    if out and any(k in out for k in ["支援", "声掛け", "お伝え", "見守", "配慮", "継続", "確認", "促し"]):
+        return out
+
+    fallback = _extract_sentence_by_keywords(
+        before_staff,
+        ["支援", "声掛け", "お伝え", "見守", "配慮", "継続", "確認", "促し"]
+    )
+    if fallback:
+        return fallback
+
+    if out:
+        return out
+
+    return "本人の体調や精神面に配慮しながら、無理のない範囲で取り組めるよう支援を継続します。"
+
+
+def _update_live_status(live_status_box, text: str, level: str = "info"):
+    if live_status_box is None:
+        return
+
+    text = str(text or "").strip()
+    if not text:
+        return
+
+    if level == "success":
+        live_status_box.success(text)
+    elif level == "error":
+        live_status_box.error(text)
+    elif level == "warning":
+        live_status_box.warning(text)
+    else:
+        live_status_box.info(text)
 
 def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, month: int, outside_workplace: str = ""):
     blocks = _split_support_record_blocks(page_text)
@@ -585,7 +714,7 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
 # =========================================
 # 1ヶ月処理
 # =========================================
-def process_one_month(driver, resident_name, year, month, exec_id, user, company, outside_workplace=""):
+def process_one_month(driver, resident_name, year, month, exec_id, user, company, outside_workplace="", live_status_box=None):
     from run_assistance import (
         goto_support_record_month,
         fetch_support_record_page_text,
@@ -673,22 +802,41 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         final_user_state = _normalize_text(user_state)
                         final_staff_note = _normalize_text(staff_note)
 
-                        # 既存画面の利用者状態が短い、または Gemini 結果が短い日は、
-                        # 画面上の既存データから強制再構成する
-                        need_force_rebuild = (
-                            _is_short_user_state(before_user)
+                        # Gemini が弱いときだけ既存情報から補完する。
+                        # 既存画面が短文でも、Gemini が長文を返しているなら Gemini を優先する。
+                        gemini_is_weak = (
+                            not final_user_state
                             or _looks_like_short_health_only(final_user_state)
                             or len(_sentencize_jp(final_user_state)) < 2
                         )
 
-                        if need_force_rebuild:
+                        if gemini_is_weak:
                             rebuilt = _rebuild_user_state_from_existing(
                                 before_user=before_user,
                                 before_staff=before_staff,
                                 work_label=work_label,
                             )
-                            if rebuilt:
+
+                            # 再構成結果がちゃんと厚みのある文のときだけ採用
+                            if rebuilt and (
+                                not _looks_like_short_health_only(rebuilt)
+                                and len(_sentencize_jp(rebuilt)) >= 2
+                            ):
                                 final_user_state = rebuilt
+                            elif rebuilt and not final_user_state:
+                                final_user_state = rebuilt
+
+                        # ダイアモンドルールを強制
+                        final_user_state = _force_diamond_user_state(
+                            user_state=final_user_state,
+                            before_user=before_user,
+                            before_staff=before_staff,
+                            work_label=work_label,
+                        )
+                        final_staff_note = _force_diamond_staff_note(
+                            staff_note=final_staff_note,
+                            before_staff=before_staff,
+                        )
 
                         # 作業名・数量の最終補正
                         allow_zero = _contains_explicit_no_work_reason(
@@ -700,6 +848,12 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         )
                         final_user_state = _append_default_quantity_if_missing(
                             final_user_state, work_label, allow_zero
+                        )
+
+                        _update_live_status(
+                            live_status_box,
+                            f"処理中: {resident_name} / {year}-{month:02d} / {target_label}",
+                            "info"
                         )
 
                         _set_react_textarea_value(driver, user_state_el, final_user_state)
@@ -714,6 +868,11 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         if after_user == str(final_user_state).strip() and after_staff == str(final_staff_note).strip():
                             success_count += 1
                             print(f"[FIX] 入力成功: {target_label}", flush=True)
+                            _update_live_status(
+                                live_status_box,
+                                f"成功: {resident_name} / {year}-{month:02d} / {target_label}",
+                                "success"
+                            )
                         else:
                             raise RuntimeError(
                                 f"入力反映失敗: {target_label} / "
@@ -725,6 +884,11 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
 
             except Exception as e:
                 print(f"[JR] 日付処理失敗: {date_str} -> {e}", flush=True)
+                _update_live_status(
+                    live_status_box,
+                    f"失敗: {resident_name} / {year}-{month:02d} / {date_str} / {e}",
+                    "error"
+                )
 
         print("[FIX] 保存開始", flush=True)
         save_all(driver)
@@ -732,12 +896,17 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
 
     except Exception as e:
         print(f"[JR] month error: {resident_name} {ym} -> {e}", flush=True)
+        _update_live_status(
+            live_status_box,
+            f"月処理失敗: {resident_name} / {ym} / {e}",
+            "error"
+        )
 
 
 # =========================================
 # メイン処理
 # =========================================
-def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m, outside_workplace=""):
+def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m, outside_workplace="", live_status_box=None):
     from run_assistance import goto_users_summary
     from run_assistance import apply_users_summary_filter_show_expired
     from run_assistance import open_support_record_for_resident
@@ -782,6 +951,12 @@ def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m, outside_
         y, m = int(start_y), int(start_m)
 
         while (y < int(end_y)) or (y == int(end_y) and m <= int(end_m)):
+            _update_live_status(
+                live_status_box,
+                f"処理中: {resident} / {y}-{m:02d}",
+                "info"
+            )
+
             process_one_month(
                 driver=driver,
                 resident_name=resident,
@@ -791,6 +966,7 @@ def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m, outside_
                 user=user,
                 company=company,
                 outside_workplace=outside_workplace,
+                live_status_box=live_status_box,
             )
 
             if m == 12:
@@ -853,6 +1029,8 @@ def render_journal_rewrite_page():
         end_y = st.number_input("終了年", min_value=2024, max_value=2035, value=2026, step=1, key="jr_end_y")
         end_m = st.number_input("終了月", min_value=1, max_value=12, value=3, step=1, key="jr_end_m")
 
+    live_status_box = st.empty()
+
     if st.button("自動上書きを実行", key="run_journal_rewrite", use_container_width=True):
         if not selected_residents:
             st.error("利用者を1人以上選んでください。")
@@ -883,6 +1061,7 @@ def render_journal_rewrite_page():
                     end_y=int(end_y),
                     end_m=int(end_m),
                     outside_workplace=outside_workplace,
+                    live_status_box=live_status_box,
                 )
 
             st.success("自動上書き処理が完了しました。")
