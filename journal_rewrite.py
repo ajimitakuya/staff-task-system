@@ -928,13 +928,16 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
             if rebuilt:
                 user_state = rebuilt
 
-        if is_outside_day and outside_workplace and outside_workplace != "未指定":
-            place = outside_workplace.strip()
-            if place not in user_state and place not in staff_note:
-                if user_state:
-                    user_state = f"{place}での作業として、{user_state}"
-                else:
-                    staff_note = f"{place}での作業として、{staff_note}"
+        # 施設外の書き出し補正（会社名は禁止）
+        if is_outside_day:
+            # 文頭に会社名が来てたら削除
+            user_state = re.sub(r'^.*?での作業として、', '', user_state)
+            staff_note = re.sub(r'^.*?での作業として、', '', staff_note)
+
+            # それでも弱い場合だけ軽く補正
+            if user_state and not user_state.startswith("施設外就労"):
+                if len(user_state) < 20:
+                    user_state = f"施設外就労として、{user_state}"
 
         fixed[date_str] = {
             "user_state": user_state,
