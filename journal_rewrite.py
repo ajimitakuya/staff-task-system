@@ -80,37 +80,6 @@ def _save_jr_control_df(df):
 def _now_str():
     return now_jst().strftime("%Y-%m-%d %H:%M:%S")
 
-def _jr_register_run(exec_id: str, company_id: str, user_id: str, message: str = ""):
-    df = _load_jr_control_df()
-
-    # 同一 company/user の古い running は止める
-    if not df.empty:
-        mask_old = (
-            df["company_id"].astype(str).str.strip() == str(company_id).strip()
-        ) & (
-            df["user_id"].astype(str).str.strip() == str(user_id).strip()
-        ) & (
-            df["status"].astype(str).str.strip() == "running"
-        )
-        if mask_old.any():
-            df.loc[mask_old, "status"] = "stopped"
-            df.loc[mask_old, "stop_requested"] = 1
-            df.loc[mask_old, "updated_at"] = _now_str()
-            df.loc[mask_old, "message"] = "新規実行により旧実行を停止"
-
-    row = {
-        "company_id": str(company_id).strip(),
-        "user_id": str(user_id).strip(),
-        "exec_id": str(exec_id).strip(),
-        "status": "running",
-        "stop_requested": 0,
-        "started_at": _now_str(),
-        "updated_at": _now_str(),
-        "message": str(message or "").strip(),
-    }
-
-    df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-    _save_jr_control_df(df)
 
 def _jr_request_stop(company_id: str, user_id: str = ""):
     df = _load_jr_control_df()
@@ -118,7 +87,6 @@ def _jr_request_stop(company_id: str, user_id: str = ""):
         return False
 
     mask = df["company_id"].astype(str).str.strip() == str(company_id).strip()
-
     if user_id:
         mask = mask & (df["user_id"].astype(str).str.strip() == str(user_id).strip())
 
@@ -133,46 +101,6 @@ def _jr_request_stop(company_id: str, user_id: str = ""):
     _save_jr_control_df(df)
     return True
 
-def _jr_should_stop(exec_id: str, company_id: str, user_id: str) -> bool:
-    df = _load_jr_control_df()
-    if df.empty:
-        return False
-
-    mask = (
-        df["company_id"].astype(str).str.strip() == str(company_id).strip()
-    ) & (
-        df["user_id"].astype(str).str.strip() == str(user_id).strip()
-    ) & (
-        df["exec_id"].astype(str).str.strip() == str(exec_id).strip()
-    )
-
-    hit = df[mask]
-    if hit.empty:
-        return False
-
-    row = hit.iloc[-1]
-    return str(row.get("stop_requested", "0")).strip() in ("1", "True", "true")
-
-def _jr_finish_run(exec_id: str, company_id: str, user_id: str, status: str = "done", message: str = ""):
-    df = _load_jr_control_df()
-    if df.empty:
-        return
-
-    mask = (
-        df["company_id"].astype(str).str.strip() == str(company_id).strip()
-    ) & (
-        df["user_id"].astype(str).str.strip() == str(user_id).strip()
-    ) & (
-        df["exec_id"].astype(str).str.strip() == str(exec_id).strip()
-    )
-
-    if not mask.any():
-        return
-
-    df.loc[mask, "status"] = status
-    df.loc[mask, "updated_at"] = _now_str()
-    df.loc[mask, "message"] = str(message or "").strip()
-    _save_jr_control_df(df)
 
 def _jr_clear_control(company_id: str, user_id: str = ""):
     df = _load_jr_control_df()
@@ -197,51 +125,15 @@ def generate_json_with_gemini_local(page_text: str, outside_workplace: str = "")
     genai.configure(api_key=api_key)
 
     system_instruction = """
-支援記録リライト専用 命令書 v7.0
-
+支援記録リライト専用 命令書 v7.1
 あなたの仕事は、Knowbe支援記録の原文をもとに、「利用者状態」と「職員考察」を、
 そのまま現場で貼り付けできる自然で完成度の高い文章へ再構成することです。
 
 【最重要原則】
 1. 捏造禁止
-原文にない新事実、新活動、新しい体調変化、新しい支援行為を作らないこと。
-ただし、原文中にある事実を自然な順序に並べ替えることは許可する。
-
-2. 利用者状態は必ず「完成文」にする
-利用者状態は単語やラベルの並びで終えてはならない。
-「精神安定、体調不安定」「体調良好」「観葉植物、塗り絵」などの短語だけは絶対禁止。
-必ず以下を自然な日本語として含めること。
-- 作業開始時の様子または開始連絡
-- 体調や精神面の様子
-- その日に行った作業内容
-- 数量が原文にある場合はその数量
-- 作業終了時の報告や様子
-
-3. 利用者状態の理想形
-20日分のような、完成された1段落の文章にすること。
-単に情報を並べるのではなく、
-「開始時 → 体調 → 作業 → 終了報告」の流れが読める文にすること。
-
-4. 職員考察
-職員考察は支援者視点のみ。
-事実の再説明ではなく、配慮、見立て、支援方針を書くこと。
-
-5. 数量
-原文に明確な数量がある場合は必ず優先すること。
-曖昧表現（少し、半分、8割など）は、原文に明確数値がない場合のみ自然文のまま扱ってよい。
-無理に全件数値化しないこと。
-ただし「全くできなかった」「しんどくてできなかった」等は0件扱い可。
-
-【禁止事項】
-- 「精神安定、体調不安定」だけで終える
-- 「観葉植物、塗り絵」だけで終える
-- 作業内容だけ、体調だけ、終了報告だけで終える
-- 箇条書き調
-- JSON以外の出力
-
-【出力形式】
-JSONのみ。
-各日付の値は user_state / staff_note の2つだけにすること。
+2. 利用者状態は必ず完成文にする
+3. 職員考察は支援者視点のみ
+4. 出力はJSONのみ
 """
 
     outside_info = str(outside_workplace or "").strip() or "未指定"
@@ -262,21 +154,6 @@ JSONのみ。
 - 利用者状態は必ず完成文にする
 - 利用者状態には、開始時の様子、体調、作業内容、終了時の報告が分かるようにする
 - 「精神安定、体調不安定」などの短語のみは禁止
-- 20日分のような自然で完成度の高い文体にする
-
-【悪い例】
-"精神安定、体調不安定です。作業終了時には、観葉植物や塗り絵などの作業に取り組まれました。"
-
-【良い例】
-"作業開始時には、朝の通所時より精神面は安定していましたが、体調には不安定さが見られました。その後は観葉植物や塗り絵の作業に取り組まれ、無理のない範囲で活動を進められていました。作業終了時には、その日の体調に配慮しながら過ごされた様子がうかがえました。"
-
-【出力形式】
-{{
-  "2025-08-01": {{
-    "user_state": "利用者状態の本文",
-    "staff_note": "職員考察の本文"
-  }}
-}}
 
 【支援記録本文】
 {page_text}
@@ -288,92 +165,39 @@ JSONのみ。
     )
 
     response = model.generate_content(prompt)
-    text = str(getattr(response, "text", "")).strip()
+    text = str(getattr(response, "text", "") or "").strip()
 
     print("[JR] Gemini raw response start", flush=True)
     print(text[:3000], flush=True)
     print("[JR] Gemini raw response end", flush=True)
 
     if not text:
-        raise RuntimeError("Geminiの応答が空です")
+        return {}
 
-    text = text.replace("```json", "").replace("```", "").strip()
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        raise RuntimeError(f"GeminiのJSON抽出に失敗しました: {text[:500]}")
+    no_record_words = [
+        "利用実績がありません",
+        "利用実績を入力後、ご利用ください",
+        "支援記録がありません",
+        "JSONを生成できません",
+    ]
+    if any(w in text for w in no_record_words):
+        print("[JR] Gemini returned no-record message; skip month", flush=True)
+        return {}
 
-    json_text = text[start:end + 1]
+    cleaned = text.replace("```json", "").replace("```", "").strip()
+    json_start = cleaned.find("{")
+    json_end = cleaned.rfind("}")
+    if json_start == -1 or json_end == -1 or json_end <= json_start:
+        print("[JR] Gemini JSON block not found; skip month", flush=True)
+        return {}
+
+    json_text = cleaned[json_start:json_end + 1]
     try:
         return json.loads(json_text)
     except Exception as e:
-        raise RuntimeError(f"Gemini JSON解析失敗: {e}\nJSON本文:\n{json_text[:1000]}")
+        print(f"[JR] Gemini JSON parse failed; skip month: {e}", flush=True)
+        return {}
 
-def _force_polished_user_state(
-    user_state: str,
-    before_user: str,
-    before_staff: str,
-    work_label: str,
-    mode: str = "",
-) -> str:
-
-    out = _normalize_text(user_state)
-    before_user = _normalize_text(before_user)
-    before_staff = _normalize_text(before_staff)
-    work_label = _clean_work_label(work_label)  # ★ここ重要
-
-    source = " ".join([out, before_user, before_staff]).strip()
-    allow_zero = _contains_explicit_no_work_reason(source)
-
-    # 短文なら再構築
-    if (not out) or _looks_like_short_health_only(out) or len(_sentencize_jp(out)) < 2:
-        rebuilt = _compose_user_state_from_raw(work_label, before_user, before_staff)
-        if rebuilt:
-            out = _normalize_text(rebuilt)
-
-    # ダイアモンド構造
-    out = _force_diamond_user_state(
-        user_state=out,
-        before_user=before_user,
-        before_staff=before_staff,
-        work_label=work_label,
-    )
-
-    if mode:
-        out = _apply_mode_prefix_to_user_state(mode, out)
-
-    # 数量補正（ただし複合作業はスキップされる）
-    out = _normalize_work_quantity_phrase(out, work_label)
-    out = _convert_ambiguous_quantity_to_one_or_more(out, work_label, allow_zero)
-    out = _append_default_quantity_if_missing(out, work_label, allow_zero)
-
-    # 🔥ここが強化ポイント（分量アップ）
-    if len(_sentencize_jp(out)) < 3:
-
-        health = _extract_sentence_by_keywords(
-            source,
-            ["体調", "精神", "良好", "普通", "不安定", "安定", "元気", "まぁまぁ", "まあまあ", "大丈夫"]
-        )
-        if not health:
-            health = "体調について報告がありました。"
-
-        if "通所" in source or "来所" in source:
-            s1 = f"作業開始時には、{health.rstrip('。')}。"
-        else:
-            s1 = f"作業開始の連絡があり、{health.rstrip('。')}。"
-
-        # ★複合作業は数量をつけない
-        if _is_multi_work_label(work_label):
-            s2 = f"その後は、{work_label}の作業に取り組まれました。"
-        else:
-            work_result = _build_work_result_phrase(work_label, out, before_user, before_staff)
-            s2 = f"その後は、{work_result}実施されました。"
-
-        s3 = "作業終了時には、その日の状態に合わせて無理のない範囲で過ごされた様子がうかがえました。"
-
-        out = _dedupe_sentences(" ".join([s1, s2, s3]))
-
-    return _normalize_text(out)
 
 # =========================================
 # textarea操作
@@ -434,6 +258,7 @@ def _looks_like_short_health_only(text: str):
     if not s:
         return True
 
+    # 記号ゆれ吸収
     s2 = s.replace("、", ",").replace("，", ",").replace("・", ",")
 
     short_set = {
@@ -452,12 +277,8 @@ def _looks_like_short_health_only(text: str):
     if s in short_set or s2 in short_set:
         return True
 
-    labels = [
-        "精神安定", "精神不安定",
-        "体調安定", "体調不安定",
-        "体調良好", "体調普通",
-        "元気", "良好", "普通", "大丈夫", "まあまあ", "まぁまぁ"
-    ]
+    # 「精神○○」「体調○○」だけで構成される短文も弾く
+    labels = ["精神安定", "精神不安定", "体調安定", "体調不安定", "体調良好", "体調普通", "元気", "良好", "普通"]
     temp = s2
     for lb in labels:
         temp = temp.replace(lb, "")
@@ -466,13 +287,7 @@ def _looks_like_short_health_only(text: str):
     if not temp and len(_sentencize_jp(s)) <= 1:
         return True
 
-    # ここを強化：
-    # 20文字以下で体調/精神ワード中心なら無条件で短文扱い
-    if len(s) <= 20 and any(k in s for k in ["体調", "精神", "良好", "普通", "安定", "不安定", "元気", "大丈夫"]):
-        if len(_sentencize_jp(s)) <= 1:
-            return True
-
-    return False
+    return len(_sentencize_jp(s)) <= 1 and len(s) <= 20 and ("体調" in s or "精神" in s or s in short_set or s2 in short_set)
 
 
 def _contains_explicit_no_work_reason(text: str):
@@ -647,9 +462,6 @@ def _has_explicit_quantity(text: str):
     s = _normalize_text(text)
     return bool(re.search(r"(?:\d+\s*(?:枚|個|膳|本|羽)|[一二三四五六七八九十]+\s*(?:枚|個|膳|本|羽))", s))
 
-def _is_multi_work_label(work: str) -> bool:
-    w = _normalize_text(work)
-    return any(sep in w for sep in ["、", ",", "，", "・", "/", "／"])
 
 def _append_default_quantity_if_missing(text: str, work: str, allow_zero: bool):
     """
@@ -664,10 +476,6 @@ def _append_default_quantity_if_missing(text: str, work: str, allow_zero: bool):
     w = _normalize_text(work)
 
     if not s or not w or allow_zero:
-        return s
-
-    # 追加：複合作業はここで即終了
-    if _is_multi_work_label(w):
         return s
 
     # 既に数量がある場合は絶対に触らない
@@ -977,6 +785,7 @@ def _force_diamond_staff_note(staff_note: str, before_staff: str) -> str:
 
     return "本人の体調や精神面に配慮しながら、無理のない範囲で取り組めるよう支援を継続します。"
 
+
 def _update_live_status(live_status_box, text: str, level: str = "info"):
     if live_status_box is None:
         return
@@ -1098,38 +907,40 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
             "施設外就労", "清掃", "居酒屋", "琴", "エバーグリーン"
         ])
 
-        mode = _detect_service_mode(
-            row_text=all_text,
-            work_text=work,
-            user_text=raw_user,
-            staff_text=raw_staff,
-        )
+        source_all = " ".join([user_state, staff_note, raw_user, raw_staff]).strip()
+        allow_zero = _contains_explicit_no_work_reason(source_all)
 
-        user_state = _force_polished_user_state(
-            user_state=user_state,
-            before_user=raw_user,
-            before_staff=raw_staff,
-            work_label=work,
-            mode=mode,
-        )
+        if _looks_like_short_health_only(user_state) or len(_sentencize_jp(user_state)) < 2:
+            rebuilt = _compose_user_state_from_raw(work, raw_user, raw_staff)
+            if rebuilt:
+                user_state = rebuilt
 
-        staff_note = _force_diamond_staff_note(
-            staff_note=staff_note,
-            before_staff=raw_staff,
-        )
-        staff_note = _apply_mode_prefix_to_staff_note(mode, staff_note)
+        user_state = _normalize_work_quantity_phrase(user_state, work)
+        staff_note = _normalize_work_quantity_phrase(staff_note, work)
+
+        user_state = _convert_ambiguous_quantity_to_one_or_more(user_state, work, allow_zero)
+        staff_note = _convert_ambiguous_quantity_to_one_or_more(staff_note, work, allow_zero)
+
+        user_state = _append_default_quantity_if_missing(user_state, work, allow_zero)
+
+        if _looks_like_short_health_only(user_state) or len(_sentencize_jp(user_state)) < 2:
+            rebuilt = _compose_user_state_from_raw(work, raw_user, raw_staff)
+            if rebuilt:
+                user_state = rebuilt
 
         if is_outside_day and outside_workplace and outside_workplace != "未指定":
             place = outside_workplace.strip()
             if place not in user_state and place not in staff_note:
-                user_state = f"{place}での作業として、{user_state}"
+                if user_state:
+                    user_state = f"{place}での作業として、{user_state}"
+                else:
+                    staff_note = f"{place}での作業として、{staff_note}"
 
         fixed[date_str] = {
             "user_state": user_state,
             "staff_note": staff_note,
         }
 
-    # Gemini未返却日も同じ完成文ロジックで補完
     for day, block in blocks.items():
         key = f"{year:04d}-{month:02d}-{day:02d}"
         if key in fixed:
@@ -1138,36 +949,23 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
         work = _normalize_text(block.get("work", ""))
         raw_user = _normalize_text(block.get("user_state_raw", ""))
         raw_staff = _normalize_text(block.get("staff_note_raw", ""))
+
         all_text = " ".join([work, raw_user, raw_staff])
 
-        mode = _detect_service_mode(
-            row_text=all_text,
-            work_text=work,
-            user_text=raw_user,
-            staff_text=raw_staff,
-        )
-
-        rebuilt_user = _force_polished_user_state(
-            user_state="",
-            before_user=raw_user,
-            before_staff=raw_staff,
-            work_label=work,
-            mode=mode,
-        )
-
-        rebuilt_staff = _force_diamond_staff_note(
-            staff_note="",
-            before_staff=raw_staff,
-        )
-        rebuilt_staff = _apply_mode_prefix_to_staff_note(mode, rebuilt_staff)
+        rebuilt_user = _compose_user_state_from_raw(work, raw_user, raw_staff)
+        rebuilt_staff = raw_staff
 
         is_outside_day = any(k in all_text for k in [
             "施設外就労", "清掃", "居酒屋", "琴", "エバーグリーン"
         ])
+
         if is_outside_day and outside_workplace and outside_workplace != "未指定":
             place = outside_workplace.strip()
             if place not in rebuilt_user and place not in rebuilt_staff:
-                rebuilt_user = f"{place}での作業として、{rebuilt_user}"
+                if rebuilt_user:
+                    rebuilt_user = f"{place}での作業として、{rebuilt_user}"
+                else:
+                    rebuilt_staff = f"{place}での作業として、{rebuilt_staff}"
 
         fixed[key] = {
             "user_state": rebuilt_user,
@@ -1175,7 +973,6 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
         }
 
     return fixed
-
 
 # =========================================
 # 1ヶ月処理
@@ -1191,34 +988,22 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
     ym = f"{year}-{month:02d}"
 
     try:
-        if _jr_should_stop(exec_id, company, user):
-            print(f"[JR] stop requested before month: {resident_name} {ym}", flush=True)
-            return
-
         ok = goto_support_record_month(driver, year, month)
         if not ok:
-            print("[JR] 月移動失敗", flush=True)
+            print("[JR] 月移動失敗")
             return
 
         time.sleep(2)
-
-        if _jr_should_stop(exec_id, company, user):
-            print(f"[JR] stop requested after month move: {resident_name} {ym}", flush=True)
-            return
 
         page_text = fetch_support_record_page_text(driver)
         page_text_str = str(page_text or "").strip()
 
         if not page_text_str:
-            print("[JR] 日誌なし", flush=True)
+            print("[JR] 日誌なし")
             return
 
         result_json = generate_json_with_gemini_local(page_text_str, outside_workplace)
         result_json = _postprocess_gemini_result(page_text_str, result_json, year, month, outside_workplace)
-
-        if _jr_should_stop(exec_id, company, user):
-            print(f"[JR] stop requested before edit mode: {resident_name} {ym}", flush=True)
-            return
 
         print("[FIX] 編集モードへ", flush=True)
         enter_edit_mode(driver)
@@ -1227,10 +1012,6 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
         success_count = 0
 
         for date_str in sorted(result_json.keys()):
-            if _jr_should_stop(exec_id, company, user):
-                print(f"[JR] stop requested during day loop: {resident_name} {ym} {date_str}", flush=True)
-                break
-
             content = result_json[date_str]
             try:
                 m = re.search(r"\d{4}-\d{2}-(\d{1,2})", date_str)
@@ -1250,96 +1031,133 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
 
                 for row in rows:
                     row_text_full = row.text.strip()
-                    if not re.match(rf"^{target_day}日（", row_text_full):
-                        continue
+                    if re.match(rf"^{target_day}日（", row_text_full):
+                        areas = _find_row_textareas_for_support_record(row)
+                        print(f"[FIX] {target_label} textarea count = {len(areas)}", flush=True)
 
-                    areas = _find_row_textareas_for_support_record(row)
-                    print(f"[FIX] {target_label} textarea count = {len(areas)}", flush=True)
+                        if len(areas) < 2:
+                            raise RuntimeError(f"textarea不足: {target_label}")
 
-                    if len(areas) < 2:
-                        raise RuntimeError(f"textarea不足: {target_label}")
+                        user_state_el = areas[0]
+                        staff_note_el = areas[1]
 
-                    user_state_el = areas[0]
-                    staff_note_el = areas[1]
+                        before_user = _textarea_value(user_state_el)
+                        before_staff = _textarea_value(staff_note_el)
 
-                    before_user = _textarea_value(user_state_el)
-                    before_staff = _textarea_value(staff_note_el)
+                        print(f"[FIX] before user_state = {before_user[:80]}", flush=True)
+                        print(f"[FIX] before staff_note = {before_staff[:80]}", flush=True)
 
-                    row_text = row.text
+                        row_text = row.text
 
-                    mode = _detect_service_mode(
-                        row_text=row_text,
-                        work_text=row_text,
-                        user_text=before_user,
-                        staff_text=before_staff,
-                    )
-
-                    work_label = ""
-                    if "塗り絵" in row_text:
-                        work_label = "塗り絵"
-                    elif "箱" in row_text:
-                        work_label = "箱の組み立て"
-                    elif "袋" in row_text:
-                        work_label = "袋詰め"
-                    elif "箸" in row_text:
-                        work_label = "箸入れ"
-                    elif "チラシ" in row_text:
-                        work_label = "チラシ作業"
-                    elif "折り鶴" in row_text or "鶴" in row_text:
-                        work_label = "折り鶴"
-                    else:
-                        work_match = re.search(
-                            r"作業\s*(.+?)\s*利用者状態",
-                            row_text.replace("\n", " "),
-                            re.DOTALL
+                        mode = _detect_service_mode(
+                            row_text=row.text,
+                            work_text=row.text,
+                            user_text=before_user,
+                            staff_text=before_staff,
                         )
-                        if work_match:
-                            work_label = _normalize_text(work_match.group(1))
+
+                        work_label = ""
+                        if "塗り絵" in row_text:
+                            work_label = "塗り絵"
+                        elif "箱" in row_text:
+                            work_label = "箱の組み立て"
+                        elif "袋" in row_text:
+                            work_label = "袋詰め"
+                        elif "箸" in row_text:
+                            work_label = "箸入れ"
+                        elif "チラシ" in row_text:
+                            work_label = "チラシ作業"
+                        elif "折り鶴" in row_text or "鶴" in row_text:
+                            work_label = "折り鶴"
                         else:
-                            work_label = "作業"
+                            # row_text の「作業」欄が複合作業のときは、そのまま拾う
+                            work_match = re.search(r"作業\s*(.+?)\s*利用者状態", row_text.replace("\n", " "), re.DOTALL)
+                            if work_match:
+                                work_label = _normalize_text(work_match.group(1))
+                            else:
+                                work_label = "作業"
 
-                    final_user_state = _force_polished_user_state(
-                        user_state=_normalize_text(user_state),
-                        before_user=before_user,
-                        before_staff=before_staff,
-                        work_label=work_label,
-                        mode=mode,
-                    )
+                        final_user_state = _normalize_text(user_state)
+                        final_staff_note = _normalize_text(staff_note)
 
-                    final_staff_note = _force_diamond_staff_note(
-                        staff_note=_normalize_text(staff_note),
-                        before_staff=before_staff,
-                    )
-                    final_staff_note = _apply_mode_prefix_to_staff_note(mode, final_staff_note)
-
-                    _set_react_textarea_value(driver, user_state_el, final_user_state)
-                    _set_react_textarea_value(driver, staff_note_el, final_staff_note)
-
-                    after_user = _textarea_value(user_state_el)
-                    after_staff = _textarea_value(staff_note_el)
-
-                    print(f"[FIX] final user_state = {final_user_state[:200]}", flush=True)
-                    print(f"[FIX] final staff_note = {final_staff_note[:200]}", flush=True)
-                    print(f"[FIX] after user_state = {after_user[:200]}", flush=True)
-                    print(f"[FIX] after staff_note = {after_staff[:200]}", flush=True)
-
-                    if after_user == str(final_user_state).strip() and after_staff == str(final_staff_note).strip():
-                        success_count += 1
-                        print(f"[FIX] 入力成功: {target_label}", flush=True)
-
-                        _update_live_status(
-                            live_status_box,
-                            f"成功: {resident_name} / {year}-{month:02d} / {target_label} / {mode}",
-                            "success"
-                        )
-                    else:
-                        raise RuntimeError(
-                            f"入力反映失敗: {target_label} / "
-                            f"user_match={after_user == str(final_user_state).strip()} / "
-                            f"staff_match={after_staff == str(final_staff_note).strip()}"
+                        # Gemini が弱いときだけ既存情報から補完する。
+                        # 既存画面が短文でも、Gemini が長文を返しているなら Gemini を優先する。
+                        gemini_is_weak = (
+                            not final_user_state
+                            or _looks_like_short_health_only(final_user_state)
+                            or len(_sentencize_jp(final_user_state)) < 2
                         )
 
-                    break
+                        if gemini_is_weak:
+                            rebuilt = _rebuild_user_state_from_existing(
+                                before_user=before_user,
+                                before_staff=before_staff,
+                                work_label=work_label,
+                            )
+
+                            if rebuilt and (
+                                not _looks_like_short_health_only(rebuilt)
+                                and len(_sentencize_jp(rebuilt)) >= 2
+                            ):
+                                final_user_state = rebuilt
+                            elif rebuilt and not final_user_state:
+                                final_user_state = rebuilt
+
+                        # ダイアモンドルールを強制
+                        final_user_state = _force_diamond_user_state(
+                            user_state=final_user_state,
+                            before_user=before_user,
+                            before_staff=before_staff,
+                            work_label=work_label,
+                        )
+                        final_staff_note = _force_diamond_staff_note(
+                            staff_note=final_staff_note,
+                            before_staff=before_staff,
+                        )
+
+                        # 在宅 / 通所 / 施設外 の自動判定を反映
+                        final_user_state = _apply_mode_prefix_to_user_state(mode, final_user_state)
+                        final_staff_note = _apply_mode_prefix_to_staff_note(mode, final_staff_note)
+
+                        # 作業名・数量の最終補正
+                        allow_zero = _contains_explicit_no_work_reason(
+                            " ".join([final_user_state, final_staff_note, before_user, before_staff])
+                        )
+                        final_user_state = _normalize_work_quantity_phrase(final_user_state, work_label)
+                        final_user_state = _convert_ambiguous_quantity_to_one_or_more(
+                            final_user_state, work_label, allow_zero
+                        )
+                        final_user_state = _append_default_quantity_if_missing(
+                            final_user_state, work_label, allow_zero
+                        )
+
+                        _set_react_textarea_value(driver, user_state_el, final_user_state)
+                        _set_react_textarea_value(driver, staff_note_el, final_staff_note)
+
+                        after_user = _textarea_value(user_state_el)
+                        after_staff = _textarea_value(staff_note_el)
+
+                        print(f"[FIX] after user_state = {after_user[:80]}", flush=True)
+                        print(f"[FIX] after staff_note = {after_staff[:80]}", flush=True)
+
+                        if after_user == str(final_user_state).strip() and after_staff == str(final_staff_note).strip():
+                            success_count += 1
+                            print(f"[FIX] 入力成功: {target_label}", flush=True)
+
+                            _update_live_status(
+                                live_status_box,
+                                f"成功: {resident_name} / {year}-{month:02d} / {target_label} / {mode}",
+                                "success"
+                            )
+
+                        else:
+                            raise RuntimeError(
+                                f"入力反映失敗: {target_label} / "
+                                f"user_match={after_user == str(final_user_state).strip()} / "
+                                f"staff_match={after_staff == str(final_staff_note).strip()}"
+                            )
+
+                        break
 
             except Exception as e:
                 print(f"[JR] 日付処理失敗: {date_str} -> {e}", flush=True)
@@ -1348,14 +1166,6 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                     f"失敗: {resident_name} / {year}-{month:02d} / {date_str} / {e}",
                     "error"
                 )
-
-        if _jr_should_stop(exec_id, company, user):
-            print("[FIX] 停止要求を検知したため保存して終了", flush=True)
-            _update_live_status(
-                live_status_box,
-                f"停止しました: {resident_name} / {year}-{month:02d}",
-                "warning"
-            )
 
         print("[FIX] 保存開始", flush=True)
         save_all(driver)
@@ -1430,13 +1240,35 @@ def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m, outside_
     company = str(st.session_state.get("company_id", "")).strip()
 
     st.session_state["jr_running"] = True
-    _jr_register_run(exec_id, company, user, "自動上書き開始")
+
+    df = _load_jr_control_df()
+    row = {
+        "company_id": company,
+        "user_id": user,
+        "exec_id": exec_id,
+        "status": "running",
+        "stop_requested": 0,
+        "started_at": _now_str(),
+        "updated_at": _now_str(),
+        "message": "自動上書き開始",
+    }
+    df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+    _save_jr_control_df(df)
 
     try:
         for resident in residents:
-            if _jr_should_stop(exec_id, company, user):
+            df_chk = _load_jr_control_df()
+            hit = df_chk[
+                (df_chk["company_id"].astype(str).str.strip() == company) &
+                (df_chk["user_id"].astype(str).str.strip() == user) &
+                (df_chk["exec_id"].astype(str).str.strip() == exec_id)
+            ]
+            if not hit.empty and str(hit.iloc[-1].get("stop_requested", "0")).strip() in ("1", "True", "true"):
                 _update_live_status(live_status_box, f"停止しました: {resident} の前", "warning")
-                _jr_finish_run(exec_id, company, user, status="stopped", message="利用者ループ前で停止")
+                df_chk.loc[hit.index, "status"] = "stopped"
+                df_chk.loc[hit.index, "updated_at"] = _now_str()
+                df_chk.loc[hit.index, "message"] = "利用者ループ前で停止"
+                _save_jr_control_df(df_chk)
                 return
 
             ok = goto_users_summary(driver)
@@ -1474,9 +1306,18 @@ def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m, outside_
             y, m = int(start_y), int(start_m)
 
             while (y < int(end_y)) or (y == int(end_y) and m <= int(end_m)):
-                if _jr_should_stop(exec_id, company, user):
+                df_chk = _load_jr_control_df()
+                hit = df_chk[
+                    (df_chk["company_id"].astype(str).str.strip() == company) &
+                    (df_chk["user_id"].astype(str).str.strip() == user) &
+                    (df_chk["exec_id"].astype(str).str.strip() == exec_id)
+                ]
+                if not hit.empty and str(hit.iloc[-1].get("stop_requested", "0")).strip() in ("1", "True", "true"):
                     _update_live_status(live_status_box, f"停止しました: {resident} / {y}-{m:02d} の前", "warning")
-                    _jr_finish_run(exec_id, company, user, status="stopped", message=f"{resident} {y}-{m:02d} 前で停止")
+                    df_chk.loc[hit.index, "status"] = "stopped"
+                    df_chk.loc[hit.index, "updated_at"] = _now_str()
+                    df_chk.loc[hit.index, "message"] = f"{resident} {y}-{m:02d} 前で停止"
+                    _save_jr_control_df(df_chk)
                     return
 
                 _update_live_status(
@@ -1503,37 +1344,22 @@ def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m, outside_
                 else:
                     m += 1
 
-        _jr_finish_run(exec_id, company, user, status="done", message="正常終了")
+        df_done = _load_jr_control_df()
+        mask_done = (
+            (df_done["company_id"].astype(str).str.strip() == company) &
+            (df_done["user_id"].astype(str).str.strip() == user) &
+            (df_done["exec_id"].astype(str).str.strip() == exec_id)
+        )
+        if mask_done.any():
+            df_done.loc[mask_done, "status"] = "done"
+            df_done.loc[mask_done, "updated_at"] = _now_str()
+            df_done.loc[mask_done, "message"] = "正常終了"
+            _save_jr_control_df(df_done)
 
-    except Exception as e:
-        _jr_finish_run(exec_id, company, user, status="stopped", message=f"例外終了: {e}")
-        raise
     finally:
         st.session_state["jr_running"] = False
         st.session_state["jr_stop_requested"] = False
 
-def _clean_work_label(work: str) -> str:
-    """
-    作業ラベルの重複削除
-    例: 観葉植物、塗り絵、内職、観葉植物 → 観葉植物や塗り絵、内職
-    """
-    w = _normalize_text(work)
-    if not w:
-        return w
-
-    parts = re.split(r"[、,，・/／]", w)
-    parts = [p.strip() for p in parts if p.strip()]
-
-    seen = []
-    for p in parts:
-        if p not in seen:
-            seen.append(p)
-
-    if len(seen) <= 1:
-        return seen[0] if seen else w
-
-    # 「や」で自然接続
-    return "や".join([seen[0], "、".join(seen[1:])]) if len(seen) > 2 else "や".join(seen)
 
 # =========================================
 # ページUI
@@ -1584,15 +1410,13 @@ def render_journal_rewrite_page():
     )
 
     outside_options = ["未指定", "居酒屋 琴", "合同会社エバーグリーン"]
-
     if "jr_outside_workplace" not in st.session_state:
         st.session_state["jr_outside_workplace"] = "未指定"
 
     outside_workplace = st.selectbox(
         "施設外就労先",
         outside_options,
-        index=outside_options.index(st.session_state["jr_outside_workplace"])
-        if st.session_state["jr_outside_workplace"] in outside_options else 0,
+        index=outside_options.index(st.session_state["jr_outside_workplace"]) if st.session_state["jr_outside_workplace"] in outside_options else 0,
         key="jr_outside_workplace",
     )
 
@@ -1696,7 +1520,6 @@ def render_journal_rewrite_page():
                 )
 
             st.success("自動上書き処理が完了したある。")
-
         except Exception as e:
             st.error(f"実行中にエラーが発生しました: {e}")
         finally:
@@ -1707,3 +1530,8 @@ def render_journal_rewrite_page():
                     driver.quit()
                 except Exception:
                     pass
+
+    log_df = load_db("journal_rewrite_logs")
+    if log_df is not None and not log_df.empty:
+        st.markdown("### 実行ログ")
+        st.dataframe(log_df.tail(50), use_container_width=True)
