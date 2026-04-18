@@ -228,16 +228,37 @@ def _looks_like_short_health_only(text: str):
     s = re.sub(r"\s+", "", _normalize_text(text)).rstrip("。")
     if not s:
         return True
+
+    # 記号ゆれ吸収
+    s2 = s.replace("、", ",").replace("，", ",").replace("・", ",")
+
     short_set = {
         "体調良好", "体調は良好", "体調が良好", "良好", "元気", "元気です",
         "体調普通", "体調は普通", "体調が普通", "普通",
         "体調まあまあ", "体調はまあまあ", "体調がまあまあ", "まあまあ",
         "体調まぁまぁ", "体調はまぁまぁ", "体調がまぁまぁ", "まぁまぁ",
         "体調大丈夫", "体調は大丈夫", "体調が大丈夫", "大丈夫",
+        "体調安定", "精神安定", "体調不安定", "精神不安定",
+        "精神安定,体調安定", "体調安定,精神安定",
+        "精神不安定,体調不安定", "体調不安定,精神不安定",
+        "精神安定,体調不安定", "体調不安定,精神安定",
+        "精神不安定,体調安定", "体調安定,精神不安定",
     }
-    if s in short_set:
+
+    if s in short_set or s2 in short_set:
         return True
-    return len(_sentencize_jp(s)) <= 1 and len(s) <= 12 and ("体調" in s or s in short_set)
+
+    # 「精神○○」「体調○○」だけで構成される短文も弾く
+    labels = ["精神安定", "精神不安定", "体調安定", "体調不安定", "体調良好", "体調普通", "元気", "良好", "普通"]
+    temp = s2
+    for lb in labels:
+        temp = temp.replace(lb, "")
+    temp = temp.replace(",", "").strip()
+
+    if not temp and len(_sentencize_jp(s)) <= 1:
+        return True
+
+    return len(_sentencize_jp(s)) <= 1 and len(s) <= 20 and ("体調" in s or "精神" in s or s in short_set or s2 in short_set)
 
 
 def _contains_explicit_no_work_reason(text: str):

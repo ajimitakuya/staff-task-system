@@ -36,6 +36,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.action_chains import ActionChains
 
+from journal_rewrite import generate_journal_from_memo
+
 print("[DEBUG] RUN_ASSISTANCE __file__ =", __file__, flush=True)
 
 # =========================
@@ -4579,6 +4581,17 @@ def send_one_record_from_app(
         if not _set_daily_work_for_row(driver, row, work_label):
             dump_debug(driver, f"daily_work_set_fail_{it.name}")
             raise RuntimeError(f"[FATAL] 作業欄の選択失敗ある: {it.name}")
+
+        # ③.5 日誌生成ルール適用
+        result = generate_journal_from_memo(
+            memo=generated_status,
+            work_label=work_label,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        
+        generated_status = result["user_state"]
+        generated_support = result["staff_note"]
 
         # ④ 利用者状態 / 職員考察
         if not _set_daily_textareas_for_row(
