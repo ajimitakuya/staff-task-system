@@ -4636,19 +4636,35 @@ def enter_edit_mode(driver):
 
     btns = driver.find_elements(By.TAG_NAME, "button")
 
+    clicked = False
     for b in btns:
-        if (b.text or "").strip() == "編集":
-            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", b)
-            time.sleep(0.3)
-            b.click()
-            break
+        try:
+            if (b.text or "").strip() == "編集":
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", b)
+                time.sleep(0.3)
+                try:
+                    b.click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", b)
+                clicked = True
+                break
+        except Exception:
+            continue
 
-    WebDriverWait(driver, 10).until(
-        lambda d: any("保存" in (x.text or "") for x in d.find_elements(By.TAG_NAME, "button"))
-    )
+    if not clicked:
+        print("[FIX] 編集ボタンが見つかりませんでした", flush=True)
+        return False
 
-    time.sleep(0.5)
-    print("[FIX] 編集モードON", flush=True)
+    try:
+        WebDriverWait(driver, 10).until(
+            lambda d: any("保存" in (x.text or "") for x in d.find_elements(By.TAG_NAME, "button"))
+        )
+        time.sleep(0.5)
+        print("[FIX] 編集モードON", flush=True)
+        return True
+    except Exception as e:
+        print(f"[FIX] 編集モードON待機失敗: {e}", flush=True)
+        return False
 
 def update_day_fields(driver, user_state: str, staff_note: str):
     dlg = driver.find_elements(By.CSS_SELECTOR, "[role='dialog']")[-1]
