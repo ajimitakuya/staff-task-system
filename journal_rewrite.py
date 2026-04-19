@@ -1535,6 +1535,7 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
         fixed[key] = {
             "user_state": rebuilt_user,
             "staff_note": rebuilt_staff,
+            "preserve_raw": bool(mode == "通所" and preserve_raw)
         }
 
     return fixed
