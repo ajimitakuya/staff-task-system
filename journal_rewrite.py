@@ -636,7 +636,7 @@ def _mode_work_lines(mode: str, source: str, work_label: str):
     # rawに具体作業があるなら優先
     work_hits = _pick_all_matching_lines(
         src,
-        ["作業", "水やり", "塗り絵", "内職", "清掃", "掃き掃除", "モップ", "手すり", "ゴミ拾い", "消火器", "配電盤", "検品", "袋詰め", "封入", "チラシ", "折り鶴", "箱折り", "ラベル貼り", "仕分け"],
+        ["水やり", "塗り絵", "内職", "清掃", "掃き掃除", "モップ", "手すり", "ゴミ拾い", "消火器", "配電盤", "検品", "袋詰め", "封入", "チラシ", "折り鶴", "箱折り", "ラベル貼り", "仕分け"],
         max_count=3
     )
     for w in work_hits:
@@ -1014,6 +1014,18 @@ def _force_diamond_staff_note(staff_note: str, before_staff: str) -> str:
     """
     out = _lighten_journal_tone(_normalize_text(staff_note))
     raw = _lighten_journal_tone(_normalize_text(before_staff))
+
+    # まず Gemini 由来の固定書き出しを除去
+    bad_prefixes = [
+        r'^在宅での取り組み状況を踏まえ、',
+        r'^施設外での作業状況を踏まえ、',
+        r'^施設外就労先での状況を踏まえ、',
+        r'^の取り組み状況を踏まえ、',
+    ]
+    for pat in bad_prefixes:
+        out = re.sub(pat, '', out)
+        raw = re.sub(pat, '', raw)
+
     merged = " ".join([x for x in [out, raw] if x]).strip()
 
     # 1文目: 事実評価
@@ -1043,7 +1055,12 @@ def _force_diamond_staff_note(staff_note: str, before_staff: str) -> str:
         support_line = _mode_staff_support_sentence("", merged)
 
     result = _dedupe_sentences(_lighten_journal_tone(eval_line + " " + support_line))
-    return result
+
+    # 最後にもう一回固定書き出しを掃除
+    for pat in bad_prefixes:
+        result = re.sub(pat, '', result)
+
+    return result.strip()
 
 
 def _update_live_status(live_status_box, text: str, level: str = "info"):
@@ -1533,14 +1550,37 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         final_user_state = _append_default_quantity_if_missing(
                             final_user_state, work_label, allow_zero
                         )
-                        
-                    if mode == "施設外":
-                        final_user_state = re.sub(r'^\s*にて', '', final_user_state)
-                        final_user_state = re.sub(r'。+\s*にて', '。', final_user_state)
-                        final_user_state = re.sub(r'施設外就労の\s*', '', final_user_state)
+
+                        # Gemini混入の固定書き出し・ゴミ行を除去
+                        bad_prefixes = [
+                            r'^在宅での取り組み状況を踏まえ、',
+                            r'^施設外での作業状況を踏まえ、',
+                            r'^施設外就労先での状況を踏まえ、',
+                            r'^の取り組み状況を踏まえ、',
+                        ]
+
+                        for pat in bad_prefixes:
+                            final_user_state = re.sub(pat, '', final_user_state)
+                            final_staff_note = re.sub(pat, '', final_staff_note)
+
+                        # 日付や作業欄のゴミ混入を除去
+                        final_user_state = re.sub(r'\d{1,2}日（[^）]+）\。?', '', final_user_state)
+                        final_user_state = re.sub(r'作業。[^。]*。', '', final_user_state)
+                        final_user_state = re.sub(r'面談。[^。]*。', '', final_user_state)
+                        final_user_state = re.sub(r'その他。[^。]*。', '', final_user_state)
+
+                        final_staff_note = re.sub(r'\d{1,2}日（[^）]+）\。?', '', final_staff_note)
+                        final_staff_note = re.sub(r'作業。[^。]*。', '', final_staff_note)
+                        final_staff_note = re.sub(r'面談。[^。]*。', '', final_staff_note)
+                        final_staff_note = re.sub(r'その他。[^。]*。', '', final_staff_note)
+
+                        if mode == "施設外":
+                            final_user_state = re.sub(r'^\s*にて', '', final_user_state)
+                            final_user_state = re.sub(r'。+\s*にて', '。', final_user_state)
+                            final_user_state = re.sub(r'施設外就労の\s*', '', final_user_state)
 
                         final_user_state = _dedupe_sentences(final_user_state)
-                        final_staff_note = _dedupe_sentences(final_staff_note)                     
+                        final_staff_note = _dedupe_sentences(final_staff_note)
 
                         _set_react_textarea_value(driver, user_state_el, final_user_state)
                         _set_react_textarea_value(driver, staff_note_el, final_staff_note)
