@@ -987,103 +987,6 @@ def _cleanup_staff_note_garbage(text: str) -> str:
     return _dedupe_sentences(s)
 
 
-def _force_user_state_shape(text: str, mode: str) -> str:
-    """
-    利用者状態は必ず
-    1. 開始/体調
-    2. 作業内容
-    3. 数量 or 終了報告
-    の最大3文に抑える
-    """
-    s = _cleanup_user_state_garbage(text, mode)
-    if not s:
-        return s
-
-    sentences = _sentencize_jp(s)
-    picked = []
-
-    # 1文目候補
-    for sent in sentences:
-        if any(k in sent for k in ["連絡", "開始", "体調", "しんどい", "元気", "不安定", "安定", "良好", "普通"]):
-            picked.append(sent.rstrip("。") + "。")
-            break
-
-    # 2文目候補
-    for sent in sentences:
-        if sent in picked:
-            continue
-        if any(k in sent for k in ["塗り絵", "内職", "観葉植物", "清掃", "水やり", "掃き掃除", "手すり", "ゴミ拾い", "作業"]):
-            picked.append(sent.rstrip("。") + "。")
-            break
-
-    # 3文目候補
-    for sent in sentences:
-        if sent in picked:
-            continue
-        if any(k in sent for k in ["報告", "終了", "実施", "完成", "やりました", "できました", "取り組んだこと"]):
-            picked.append(sent.rstrip("。") + "。")
-            break
-
-    # 何も取れない時の保険
-    if not picked:
-        picked = [sentences[0].rstrip("。") + "。"]
-
-    result = " ".join(picked[:3]).strip()
-
-    # 禁止開始を強制修正
-    result = re.sub(r'^(にて|での|在宅にて)\s*', '', result)
-
-    # モードに応じた始まりを最低限そろえる
-    if mode == "在宅" and result and not any(result.startswith(x) for x in ["作業開始前の連絡では、", "開始時の連絡では、", "朝の連絡では、", "作業終了時に連絡があり、"]):
-        if "連絡" in result or "体調" in result:
-            result = "作業開始前の連絡では、" + result
-    elif mode == "通所" and result and not any(result.startswith(x) for x in ["来所時には、", "開始時には、"]):
-        if "来所" not in result:
-            result = "来所時には、" + result
-    elif mode == "施設外" and result and not any(result.startswith(x) for x in ["開始時には、", "作業後には、"]):
-        if "清掃" in result or "体調" in result:
-            result = "開始時には、" + result
-
-    result = result.replace("？。", "。").replace("?。", "。")
-    result = re.sub(r'[？?]\s*。', '。', result)
-
-    return _dedupe_sentences(result)
-
-
-def _force_staff_note_shape(text: str) -> str:
-    """
-    職員考察は必ず
-    1. 事実評価
-    2. 支援方針
-    の2文にする
-    """
-    s = _cleanup_staff_note_garbage(text)
-    if not s:
-        return s
-
-    sentences = _sentencize_jp(s)
-    eval_sent = ""
-    support_sent = ""
-
-    for sent in sentences:
-        if any(k in sent for k in ["安定", "不安定", "意欲", "集中", "体調", "気分", "様子", "取り組", "報告", "落ち着"]):
-            eval_sent = sent.rstrip("。") + "。"
-            break
-
-    for sent in sentences:
-        if any(k in sent for k in ["支援", "声掛け", "見守", "配慮", "継続", "確認", "促し", "無理のない"]):
-            support_sent = sent.rstrip("。") + "。"
-            break
-
-    if not eval_sent and sentences:
-        eval_sent = sentences[0].rstrip("。") + "。"
-
-    if not support_sent:
-        support_sent = "その日の状態を確認しながら、無理なく続けられるよう支援していきます。"
-
-    result = _dedupe_sentences(eval_sent + " " + support_sent)
-    return result.strip()
-
 def _force_diamond_user_state(
     user_state: str,
     before_user: str,
@@ -1162,7 +1065,6 @@ def _force_diamond_user_state(
     result = result.replace("清掃作業作業", "清掃作業")
     result = _lighten_journal_tone(result)
     result = _strip_unwanted_words(result)
-    result = _force_user_state_shape(result, mode)
     return result.strip()
 
 
@@ -1196,7 +1098,6 @@ def _force_diamond_staff_note(staff_note: str, before_staff: str) -> str:
         support_line = _mode_staff_support_sentence("", merged)
 
     result = _dedupe_sentences(_lighten_journal_tone(eval_line + " " + support_line))
-    result = _force_staff_note_shape(result)
     return result.strip()
 
 
@@ -1286,7 +1187,6 @@ def _apply_mode_prefix_to_user_state(mode: str, user_state: str) -> str:
 
     text = re.sub(r'\s+', ' ', text).strip()
     text = _cleanup_user_state_garbage(text, mode)
-    text = _force_user_state_shape(text, mode)
     return text
 
 
@@ -1300,7 +1200,6 @@ def _apply_mode_prefix_to_staff_note(mode: str, staff_note: str) -> str:
     text = text.replace("居酒屋琴", "")
 
     text = _cleanup_staff_note_garbage(text)
-    text = _force_staff_note_shape(text)
     return text
 
 def _enforce_mode_phrasing(mode: str, user_state: str, staff_note: str):
@@ -1500,6 +1399,96 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
 
     return fixed
 
+import re
+
+def _extract_condition(text: str) -> str:
+    text = text or ""
+    if "しんどい" in text or "悪い" in text:
+        return "体調があまり良くない様子"
+    if "良い" in text or "元気" in text:
+        return "体調は良好な様子"
+    return "体調は大きな変化なく落ち着いている様子"
+
+
+def _extract_quote(text: str) -> str:
+    if "とのこと" in text:
+        return text.split("とのこと")[0]
+    return "今日は体調は普通です"
+
+
+def _estimate_quantity(work: str, minutes: int) -> str:
+    if "塗り絵" in work:
+        return "塗り絵を1枚"
+    if "観葉植物" in work:
+        return "観葉植物への水やり"
+    # 内職 fallback
+    num = max(1, minutes // 30)
+    return f"ハンドメイドを{num}個"
+
+def _build_home_user_state(row):
+    text = row.get("利用者状態", "")
+    work = row.get("作業", "")
+
+    cond = _extract_condition(text)
+    quote = _extract_quote(text)
+    qty = _estimate_quantity(work, 120)
+
+    opening = random.choice(OPENINGS_HOME)
+
+    return (
+        f"{opening}{cond}との様子が確認された。 "
+        f"「{quote}」と話されていた。 "
+        f"{cond}であり、無理のない範囲で過ごされている様子であった。 "
+        f"作業終了の連絡では、「{qty.replace('1枚','一枚')}やりました」と報告があった。"
+    )
+
+def _build_home_staff_note(row):
+    text = row.get("利用者状態", "")
+    work = row.get("作業", "")
+
+    cond = _extract_condition(text)
+    qty = _estimate_quantity(work, 120)
+
+    support = random.choice(SUPPORT_PATTERNS)
+    future = random.choice(FUTURE_PATTERNS)
+
+    return (
+        f"{cond}であったため、{support} "
+        f"{qty.replace('1枚','一枚')}の実施が確認され、その日の状態に応じて作業ができている様子であった。 "
+        f"{future}"
+    )
+
+def _build_outside_user_state(row):
+    text = row.get("利用者状態", "")
+    cond = _extract_condition(text)
+
+    return (
+        f"作業開始時に体調を訪ねると、{cond}と報告があった。 "
+        f"廊下の掃き掃除や手すり拭きなどの清掃作業に取り組まれた。 "
+        f"{cond}であったが、無理のない範囲で作業に取り組まれていた。"
+    )
+
+def _build_outside_staff_note(row):
+    text = row.get("利用者状態", "")
+    cond = _extract_condition(text)
+
+    return (
+        f"{cond}であったため、無理のない範囲で作業を行うよう配慮した。 "
+        f"体調に波がある中でも、できる範囲で作業に取り組まれていた。 "
+        f"今後も体調に応じて作業内容を調整しながら支援していく。"
+    )
+
+def _build_office_user_state(row):
+    text = row.get("利用者状態", "")
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
+def _build_office_staff_note(row):
+    text = row.get("職員考察", "")
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
 # =========================================
 # 1ヶ月処理
 # =========================================
@@ -1606,6 +1595,11 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         final_user_state = _normalize_text(user_state)
                         final_staff_note = _normalize_text(staff_note)
 
+                        final_user_state, final_staff_note = rewrite_with_gemini(
+                            final_user_state,
+                            final_staff_note
+                        )                        
+
                         # Gemini が弱いときだけ既存情報から補完する。
                         # 既存画面が短文でも、Gemini が長文を返しているなら Gemini を優先する。
                         gemini_is_weak = (
@@ -1629,17 +1623,26 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                             elif rebuilt and not final_user_state:
                                 final_user_state = rebuilt
 
-                        # ダイアモンドルールを強制
-                        final_user_state = _force_diamond_user_state(
-                            user_state=final_user_state,
-                            before_user=before_user,
-                            before_staff=before_staff,
-                            work_label=work_label,
-                            mode=mode,
-                            row_text=row_text,
-                        )  
-                        final_user_state = _force_user_state_shape(final_user_state, mode)
-                        final_staff_note = _force_staff_note_shape(final_staff_note)
+                        row_data = {
+                            "利用者状態": before_user,
+                            "職員考察": before_staff,
+                            "作業": work_label,
+                            "row_text": row_text,
+                        }
+
+                        if mode == "在宅":
+                            final_user_state = _build_home_user_state(row_data)
+                            final_staff_note = _build_home_staff_note(row_data)
+
+                        elif mode == "施設外":
+                            final_user_state = _build_outside_user_state(row_data)
+                            final_staff_note = _build_outside_staff_note(row_data)
+
+                        else:
+                            final_user_state = _build_office_user_state(row_data)
+                            final_staff_note = _build_office_staff_note(row_data)
+
+                        # ダイアモンドルールを強制 
                         final_user_state = final_user_state.replace("？。", "。")
                         final_user_state = final_user_state.replace("?。", "。")
                         final_user_state = re.sub(r'[？?]\s*。', '。', final_user_state)
@@ -1669,20 +1672,7 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                                     final_user_state = _dedupe_sentences(
                                         final_user_state + f" {cleaning_detail}に取り組まれました。"
                                     )                        
-                        final_staff_note = _force_diamond_staff_note(
-                            staff_note=final_staff_note,
-                            before_staff=before_staff,
-                        )
 
-                        # 在宅 / 通所 / 施設外 の自動判定を反映
-                        final_user_state = _apply_mode_prefix_to_user_state(mode, final_user_state)
-                        final_staff_note = _apply_mode_prefix_to_staff_note(mode, final_staff_note)
-                        final_user_state = _force_user_state_shape(final_user_state, mode)
-                        final_staff_note = _force_staff_note_shape(final_staff_note)                        
-
-                        final_user_state, final_staff_note = _enforce_mode_phrasing(
-                            mode, final_user_state, final_staff_note
-                        )                        
 
                         # 作業名・数量の最終補正
                         allow_zero = _contains_explicit_no_work_reason(
@@ -1782,7 +1772,7 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
 
 def generate_journal_from_memo(memo: str, work_label: str, start_time: str = "", end_time: str = ""):
     """
-    メモから日誌を生成する（ダイアモンドルール完全適用）
+    メモから日誌を生成する（新テンプレルート）
     """
     memo = _normalize_text(memo)
     work = _normalize_text(work_label)
@@ -1794,31 +1784,104 @@ def generate_journal_from_memo(memo: str, work_label: str, start_time: str = "",
         staff_text=""
     )
 
-    user_state = _force_diamond_user_state(
-        user_state=memo,
-        before_user=memo,
-        before_staff="",
-        work_label=work,
-        mode=mode
-    )
+    row_data = {
+        "利用者状態": memo,
+        "職員考察": memo,
+        "作業": work,
+        "row_text": memo,
+    }
 
-    user_state = _apply_mode_prefix_to_user_state(mode, user_state)
+    if mode == "在宅":
+        user_state = _build_home_user_state(row_data)
+        staff_note = _build_home_staff_note(row_data)
 
-    staff_note = _force_diamond_staff_note(
-        staff_note="",
-        before_staff=memo
-    )
-    staff_note = _apply_mode_prefix_to_staff_note(mode, staff_note)
+    elif mode == "施設外":
+        user_state = _build_outside_user_state(row_data)
+        staff_note = _build_outside_staff_note(row_data)
 
-    user_state, staff_note = _enforce_mode_phrasing(mode, user_state, staff_note)
-    user_state = _force_user_state_shape(user_state, mode)
-    staff_note = _force_staff_note_shape(staff_note)
+    else:
+        user_state = _build_office_user_state(row_data)
+        staff_note = _build_office_staff_note(row_data)
 
     return {
         "user_state": user_state,
         "staff_note": staff_note,
         "mode": mode
     }
+
+import random
+
+OPENINGS_HOME = [
+    "作業開始前の連絡では、",
+    "開始時の連絡では、",
+    "朝の連絡では、",
+    "作業に入る前の連絡では、"
+]
+
+SUPPORT_PATTERNS = [
+    "無理のない範囲で取り組めるよう配慮した。",
+    "体調に配慮しながら無理のない範囲で進められるよう支援した。",
+    "その日の状態に合わせて無理のない形で取り組めるよう配慮した。",
+]
+
+FUTURE_PATTERNS = [
+    "今後も体調に配慮しながら支援していく。",
+    "引き続き体調面に留意しながら安定して取り組めるよう支援する。",
+    "今後も無理のない範囲で継続できるよう支援していく。",
+]
+
+def rewrite_with_gemini(user_state: str, staff_note: str):
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        return user_state, staff_note
+
+    genai.configure(api_key=api_key)
+
+    prompt = f"""
+次の文章を自然な日本語に言い換えてください。
+
+【絶対ルール】
+・文数は変えない
+・意味は絶対に変えない
+・新しい情報を追加しない
+・体調、作業内容、数量は絶対に変更しない
+・在宅/通所/施設外の文脈を壊さない
+
+【やっていいこと】
+・言い回しの変更
+・語尾の調整
+・接続の自然化
+
+【禁止】
+・要約
+・削除
+・文の追加
+・推測の追加
+
+【入力】
+利用者状態：
+{user_state}
+
+職員考察：
+{staff_note}
+
+【出力形式】
+{{
+  "user_state": "...",
+  "staff_note": "..."
+}}
+"""
+
+    model = genai.GenerativeModel("gemini-2.5-flash")
+    res = model.generate_content(prompt)
+
+    try:
+        text = res.text.strip()
+        text = text.replace("```json", "").replace("```", "")
+        data = json.loads(text)
+        return data.get("user_state", user_state), data.get("staff_note", staff_note)
+    except:
+        return user_state, staff_note
 
 # =========================================
 # メイン処理
