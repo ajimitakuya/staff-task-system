@@ -1168,6 +1168,12 @@ def _light_preserve_text(text: str) -> str:
     s = s.replace("。。", "。")
     return s.strip()
 
+def _force_user_state_shape(text: str, mode: str = "") -> str:
+    return _normalize_text(text)
+
+def _force_staff_note_shape(text: str, mode: str = "") -> str:
+    return _normalize_text(text)
+
 def _detect_service_mode(row_text: str, work_text: str = "", user_text: str = "", staff_text: str = "") -> str:
     row_src = _normalize_text(row_text)
     work_src = _normalize_text(work_text)
