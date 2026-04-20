@@ -1824,19 +1824,17 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
             )
             return
 
-        month_mode = _detect_service_mode(page_text_str)
-
-        if month_mode == "施設外":
-            result_json = _build_outside_month_result_json(page_text_str, year, month)
-        else:
-            result_json = generate_json_with_gemini_local(page_text_str, outside_workplace)
-            result_json = _postprocess_gemini_result(
-                page_text_str,
-                result_json,
-                year,
-                month,
-                outside_workplace
-            )
+        # 月全体ヘッダに「施設外支援 0/180日」が含まれるため、
+        # 月単位で mode 判定すると全員が施設外扱いになる。
+        # したがって月全体判定はせず、必ず Gemini → 日別postprocess へ流す。
+        result_json = generate_json_with_gemini_local(page_text_str, outside_workplace)
+        result_json = _postprocess_gemini_result(
+            page_text_str,
+            result_json,
+            year,
+            month,
+            outside_workplace
+        )
 
         if not result_json:
             append_journal_log({
@@ -1880,17 +1878,15 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                 d = int(m.group(3))
                 target_label = f"{d}日"
 
-                row_xpath = (
-                    f"//*[self::div or self::tr][contains(normalize-space(.), '{target_label}') "
-                    f"and contains(normalize-space(.), '利用者状態')]"
-                )
-                rows = driver.find_elements(By.XPATH, row_xpath)
+                # 月全体を包む親divを拾わないよう、まず行だけを対象にする
+                table_rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
 
                 hit_row = None
-                for row in rows:
+                for row in table_rows:
                     try:
-                        txt = _normalize_text(row.text)
-                        if "利用者状態" in txt:
+                        row_text_full = _normalize_text(row.text)
+                        # 先頭一致で「1日」と「10日」を区別する
+                        if re.match(rf"^{d}日（", row_text_full):
                             hit_row = row
                             break
                     except Exception:
@@ -1954,33 +1950,12 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                     final_user_state = _light_preserve_text(final_user_state or before_user)
                     final_staff_note = _light_preserve_text(final_staff_note or before_staff)
                 else:
-                    # ロジック強制は preserve でない日だけ
-                    final_user_state = _force_diamond_user_state(
-                        user_state=final_user_state,
-                        before_user=before_user,
-                        before_staff=before_staff,
-                        work_label=work_label,
-                        mode=mode,
-                        row_text=row_text,
-                    )
+                    # ここで before_user / before_staff / row_text を材料に再合成すると
+                    # 1日分に月全体が混ざる事故が起きるため、再合成はしない
+                    final_user_state = _normalize_text(final_user_state)
+                    final_staff_note = _normalize_text(final_staff_note)
 
-                    if mode == "施設外" and "清掃" in work_label:
-                        cleaning_detail = _facility_cleaning_detail_phrase(
-                            " ".join([row_text, before_user, before_staff, final_user_state, final_staff_note])
-                        )
-                        if cleaning_detail and cleaning_detail not in final_user_state:
-                            if "清掃" in final_user_state:
-                                final_user_state = final_user_state.replace("清掃", cleaning_detail, 1)
-                            else:
-                                final_user_state = _dedupe_sentences(
-                                    final_user_state + f" {cleaning_detail}に取り組まれました。"
-                                )
-
-                    final_staff_note = _force_diamond_staff_note(
-                        staff_note=final_staff_note,
-                        before_staff=before_staff,
-                    )
-
+                    # モードごとの軽い掃除だけ残す
                     final_user_state = _apply_mode_prefix_to_user_state(mode, final_user_state)
                     final_staff_note = _apply_mode_prefix_to_staff_note(mode, final_staff_note)
 
@@ -1988,11 +1963,8 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         mode, final_user_state, final_staff_note
                     )
 
-                    final_user_state = _force_user_state_shape(final_user_state, mode)
-                    final_staff_note = _force_staff_note_shape(final_staff_note)
-
                     allow_zero = _contains_explicit_no_work_reason(
-                        " ".join([final_user_state, final_staff_note, before_user, before_staff])
+                        " ".join([final_user_state, final_staff_note])
                     )
                     final_user_state = _normalize_work_quantity_phrase(final_user_state, work_label)
                     final_user_state = _convert_ambiguous_quantity_to_one_or_more(
