@@ -1,5 +1,5 @@
 import time
-import pandas as pd
+import re
 import streamlit as st
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -8,11 +8,18 @@ from selenium.webdriver.support import expected_conditions as EC
 from data_access import load_db
 from run_assistance import (
     build_chrome_driver,
+    get_knowbe_login_credentials,
     manual_login_wait,
     goto_report_daily,
     safe_click,
     set_input_value,
 )
+
+# ===================================
+# 利用中利用者一覧
+# ===================================
+def _norm_name(s: str) -> str:
+    return re.sub(r"\s+", "", str(s or "").strip())
 
 def _get_active_residents(company_id: str):
     df = load_db("resident_master")
@@ -22,7 +29,9 @@ def _get_active_residents(company_id: str):
     work = df.copy().fillna("")
 
     if "company_id" in work.columns:
-        work = work[work["company_id"].astype(str).str.strip() == str(company_id).strip()].copy()
+        work = work[
+            work["company_id"].astype(str).str.strip() == str(company_id).strip()
+        ].copy()
 
     if "resident_name" not in work.columns:
         return []
@@ -34,45 +43,75 @@ def _get_active_residents(company_id: str):
     work["resident_name"] = work["resident_name"].astype(str).str.strip()
     work = work[work["resident_name"] != ""].copy()
 
-    return sorted(work["resident_name"].unique().tolist())
+    names = sorted(work["resident_name"].unique().tolist())
+    return names
 
+# ===================================
+# 利用実績一覧の対象行探し
+# ===================================
 def _find_usage_row_by_name(driver, resident_name: str, timeout: int = 15):
     wait = WebDriverWait(driver, timeout)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table")))
 
-    rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
+    target = _norm_name(resident_name)
+
+    try:
+        rows = driver.find_elements(By.XPATH, "//tbody/tr")
+    except Exception:
+        rows = []
+
     for row in rows:
-        text = (row.text or "").strip()
-        if resident_name in text:
-            return row
+        try:
+            txt = _norm_name((row.text or "").replace("\n", " "))
+            if target and target in txt:
+                return row
+        except Exception:
+            continue
+
     return None
 
-def _open_row_pencil(row):
-    buttons = row.find_elements(By.TAG_NAME, "button")
-    for btn in buttons:
-        if safe_click(row.parent, btn):
-            return True
-    return False
-
+# ===================================
+# 鉛筆押下
+# ===================================
 def _click_row_edit_button(driver, row):
+    # 右端セルの button/svg を優先
     try:
-        last_td = row.find_elements(By.TAG_NAME, "td")[-1]
-    except Exception:
-        last_td = row
+        tds = row.find_elements(By.TAG_NAME, "td")
+        if tds:
+            last_td = tds[-1]
 
-    try:
-        btns = last_td.find_elements(By.TAG_NAME, "button")
-        for btn in btns:
-            if safe_click(driver, btn):
-                return True
+            try:
+                btns = last_td.find_elements(By.TAG_NAME, "button")
+            except Exception:
+                btns = []
+
+            for btn in btns:
+                try:
+                    if safe_click(driver, btn):
+                        return True
+                except Exception:
+                    continue
+
+            try:
+                svgs = last_td.find_elements(By.TAG_NAME, "svg")
+            except Exception:
+                svgs = []
+
+            for svg in svgs:
+                try:
+                    btn = svg.find_element(By.XPATH, "./ancestor::button[1]")
+                    if safe_click(driver, btn):
+                        return True
+                except Exception:
+                    continue
     except Exception:
         pass
 
+    # フォールバック
     try:
-        svgs = last_td.find_elements(By.TAG_NAME, "svg")
-        for svg in svgs:
+        btns = row.find_elements(By.TAG_NAME, "button")
+        for btn in btns:
             try:
-                btn = svg.find_element(By.XPATH, "./ancestor::button[1]")
                 if safe_click(driver, btn):
                     return True
             except Exception:
@@ -80,20 +119,15 @@ def _click_row_edit_button(driver, row):
     except Exception:
         pass
 
-    try:
-        btn = row.find_element(By.XPATH, ".//button")
-        if safe_click(driver, btn):
-            return True
-    except Exception:
-        pass
-
     return False
 
-def _find_remark_textarea(driver, timeout: int = 10):
+# ===================================
+# 備考欄
+# ===================================
+def _find_remark_input(driver, timeout: int = 10):
     wait = WebDriverWait(driver, timeout)
 
     candidates = [
-        (By.TAG_NAME, "textarea"),
         (By.XPATH, "//textarea"),
         (By.XPATH, "//input[@type='text']"),
     ]
@@ -107,24 +141,33 @@ def _find_remark_textarea(driver, timeout: int = 10):
 
     return None
 
+# ===================================
+# 保存
+# ===================================
 def _save_dialog(driver, timeout: int = 10):
     wait = WebDriverWait(driver, timeout)
 
     xpaths = [
         "//button[contains(normalize-space(.),'保存')]",
+        "//button[contains(normalize-space(.),'更新')]",
         "//span[contains(normalize-space(.),'保存')]/ancestor::button[1]",
+        "//span[contains(normalize-space(.),'更新')]/ancestor::button[1]",
     ]
 
     for xp in xpaths:
         try:
             btn = wait.until(EC.element_to_be_clickable((By.XPATH, xp)))
             if safe_click(driver, btn):
+                time.sleep(0.8)
                 return True
         except Exception:
             continue
 
     return False
 
+# ===================================
+# メイン実行
+# ===================================
 def run_set_home_flag(driver, resident_names, remark_text="在宅利用", status_box=None):
     done = []
     failed = []
@@ -148,19 +191,18 @@ def run_set_home_flag(driver, resident_names, remark_text="在宅利用", status
 
             time.sleep(1.0)
 
-            textarea = _find_remark_textarea(driver)
-            if textarea is None:
+            remark_el = _find_remark_input(driver)
+            if remark_el is None:
                 failed.append(f"{resident_name}: 備考欄が見つからない")
                 continue
 
-            set_input_value(driver, textarea, remark_text)
+            set_input_value(driver, remark_el, remark_text)
             time.sleep(0.3)
 
             if not _save_dialog(driver):
                 failed.append(f"{resident_name}: 保存ボタンが見つからない")
                 continue
 
-            time.sleep(1.2)
             done.append(resident_name)
 
             goto_report_daily(driver)
@@ -176,9 +218,12 @@ def run_set_home_flag(driver, resident_names, remark_text="在宅利用", status
 
     return done, failed
 
+# ===================================
+# ページUI
+# ===================================
 def render_knowbe_home_flag_page():
-    st.header("🐝 Knowbe在宅利用 一括入力")
-    st.caption("利用中の利用者を選び、利用実績ページの備考欄へ「在宅利用」を順番に入力します。")
+    st.title("🐝 在宅利用一括入力")
+    st.caption("利用実績ページの備考欄へ「在宅利用」を一括で入力します。")
 
     if not st.session_state.get("is_admin", False):
         st.error("このページは管理者専用です。")
@@ -192,50 +237,39 @@ def render_knowbe_home_flag_page():
         return
 
     selected_residents = st.multiselect(
-        "対象利用者",
+        "対象利用者を選択",
         resident_options,
-        key="knowbe_home_flag_residents"
+        default=[],
+        key="knowbe_home_flag_residents",
     )
 
     remark_text = st.text_input(
-        "備考欄に入れる文字",
+        "備考欄へ入れる文字",
         value="在宅利用",
-        key="knowbe_home_flag_remark"
+        key="knowbe_home_flag_remark",
     )
 
-    username = ""
-    password = ""
-    try:
-        companies_df = load_db("companies")
-        if companies_df is not None and not companies_df.empty:
-            companies_df = companies_df.fillna("")
-            hit = companies_df[companies_df["company_id"].astype(str).str.strip() == company_id]
-            if not hit.empty:
-                row = hit.iloc[0]
-                username = str(row.get("knowbe_login_username", "")).strip()
-                password = str(row.get("knowbe_login_password", "")).strip()
-    except Exception:
-        pass
+    login_username, login_password = get_knowbe_login_credentials()
 
-    if username:
-        st.caption(f"Knowbe ID: {username}")
+    if login_username:
+        st.caption(f"使用するKnowbe ID: {login_username}")
 
     live_box = st.empty()
 
-    if st.button("一括で在宅利用を入力する", use_container_width=True):
+    if st.button("在宅利用を一括入力する", key="run_knowbe_home_flag", use_container_width=True):
         if not selected_residents:
-            st.warning("対象利用者を選んでください。")
+            st.warning("対象利用者を1人以上選んでください。")
             return
 
-        if not username or not password:
-            st.error("companies シートに Knowbe のログイン情報がありません。")
+        if not login_username or not login_password:
+            st.error("Knowbeのログイン情報が取得できません。")
             return
 
         driver = None
         try:
             live_box.info("Knowbeを起動しています...")
             driver = build_chrome_driver()
-            manual_login_wait(driver, username, password)
+            manual_login_wait(driver, login_username, login_password)
 
             done, failed = run_set_home_flag(
                 driver=driver,
@@ -248,12 +282,14 @@ def render_knowbe_home_flag_page():
 
             if done:
                 st.success("入力完了: " + "、".join(done))
+
             if failed:
                 st.error("失敗あり:\n\n" + "\n".join(failed))
 
         except Exception as e:
             live_box.empty()
             st.error(f"実行中にエラーが発生しました: {e}")
+
         finally:
             try:
                 if driver is not None:
