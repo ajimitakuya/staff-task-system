@@ -16,6 +16,8 @@ from run_assistance import (
     goto_report_date,
     safe_click,
     set_input_value,
+    click_pencil_in_row,
+    wait_table_stable_after_date_change,
 )
 
 # ===================================
@@ -71,6 +73,16 @@ def _find_usage_row_by_name(driver, resident_name: str, timeout: int = 15):
     except Exception:
         rows = []
 
+    # まず完全一致寄り
+    for row in rows:
+        try:
+            txt = _norm_name((row.text or "").replace("\n", " "))
+            if txt == target or txt.startswith(target):
+                return row
+        except Exception:
+            continue
+
+    # 次に部分一致
     for row in rows:
         try:
             txt = _norm_name((row.text or "").replace("\n", " "))
@@ -80,55 +92,6 @@ def _find_usage_row_by_name(driver, resident_name: str, timeout: int = 15):
             continue
 
     return None
-
-# ===================================
-# 鉛筆押下
-# ===================================
-def _click_row_edit_button(driver, row):
-    try:
-        tds = row.find_elements(By.TAG_NAME, "td")
-        if tds:
-            last_td = tds[-1]
-
-            try:
-                btns = last_td.find_elements(By.TAG_NAME, "button")
-            except Exception:
-                btns = []
-
-            for btn in btns:
-                try:
-                    if safe_click(driver, btn):
-                        return True
-                except Exception:
-                    continue
-
-            try:
-                svgs = last_td.find_elements(By.TAG_NAME, "svg")
-            except Exception:
-                svgs = []
-
-            for svg in svgs:
-                try:
-                    btn = svg.find_element(By.XPATH, "./ancestor::button[1]")
-                    if safe_click(driver, btn):
-                        return True
-                except Exception:
-                    continue
-    except Exception:
-        pass
-
-    try:
-        btns = row.find_elements(By.TAG_NAME, "button")
-        for btn in btns:
-            try:
-                if safe_click(driver, btn):
-                    return True
-            except Exception:
-                continue
-    except Exception:
-        pass
-
-    return False
 
 # ===================================
 # 備考欄
@@ -180,13 +143,15 @@ def _save_dialog(driver, timeout: int = 10):
 def _apply_home_flag_one(driver, target_date: date, resident_name: str, remark_text="在宅利用"):
     try:
         goto_report_date(driver, target_date.year, target_date.month, target_date.day)
-        time.sleep(1.0)
+        wait_table_stable_after_date_change(driver, timeout=20)
+        time.sleep(0.8)
 
         row = _find_usage_row_by_name(driver, resident_name)
         if row is None:
             return False, f"{resident_name}: {target_date} 一覧で見つからない"
 
-        if not _click_row_edit_button(driver, row):
+        # run_assistance 側の最新版に合わせる
+        if not click_pencil_in_row(driver, row):
             return False, f"{resident_name}: {target_date} 鉛筆ボタンを押せない"
 
         time.sleep(1.0)
@@ -215,7 +180,8 @@ def run_set_home_flag_period(driver, resident_names, start_date: date, end_date:
     failed = []
 
     goto_report_daily(driver)
-    time.sleep(2)
+    wait_table_stable_after_date_change(driver, timeout=20)
+    time.sleep(1.0)
 
     all_dates = list(_iter_dates(start_date, end_date))
 
@@ -315,7 +281,7 @@ def render_knowbe_home_flag_page():
             live_box.info("Knowbeを起動しています...")
             driver = build_chrome_driver()
 
-            # 先にKnowbeへ飛ばしてからログイン待機
+            # 先にKnowbeへ飛ぶ
             goto_report_daily(driver)
             time.sleep(1.5)
 
@@ -334,14 +300,12 @@ def render_knowbe_home_flag_page():
 
             if done:
                 st.success(f"完了件数: {len(done)}件")
-
                 with st.expander("完了一覧を見る"):
                     for x in done:
                         st.write(x)
 
             if failed:
                 st.error(f"失敗件数: {len(failed)}件")
-
                 with st.expander("失敗一覧を見る"):
                     for x in failed:
                         st.write(x)
