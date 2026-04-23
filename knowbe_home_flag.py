@@ -99,14 +99,17 @@ def _find_usage_row_by_name(driver, resident_name: str, timeout: int = 15):
 def _find_remark_input(driver, timeout: int = 10):
     wait = WebDriverWait(driver, timeout)
 
-    # 「備考」ラベルの近くを狙う
     xpaths = [
-        # ラベル→textarea
+        # 備考ラベル → textarea
         "//label[contains(., '備考')]/following::textarea[1]",
-        # 見出し→textarea
         "//div[contains(., '備考')]/following::textarea[1]",
-        # フォールバック
-        "(//textarea)[last()]"
+
+        # contenteditable対応（React対策）
+        "//div[contains(., '備考')]/following::*[@contenteditable='true'][1]",
+
+        # fallback
+        "(//textarea)[last()]",
+        "//*[@contenteditable='true']",
     ]
 
     for xp in xpaths:
@@ -171,7 +174,19 @@ def _apply_home_flag_one(driver, target_date: date, resident_name: str, remark_t
         except:
             print("DEBUG: 備考入力対象: 取得できず")
 
-        set_input_value(driver, remark_el, remark_text)
+        try:
+            tag = remark_el.tag_name.lower()
+
+            if tag == "textarea" or tag == "input":
+                set_input_value(driver, remark_el, remark_text)
+            else:
+                # contenteditable用
+                remark_el.click()
+                remark_el.clear() if hasattr(remark_el, "clear") else None
+                remark_el.send_keys(remark_text)
+
+        except Exception as e:
+            print("DEBUG: 入力エラー:", e)
         time.sleep(0.3)
 
         if not _save_dialog(driver):
