@@ -25,6 +25,7 @@ from run_assistance import (
     run_support_record_kind_export,
 )
 from attendance import render_attendance_page, flush_attendance_before_page_change
+from knowbe_home_flag import render_knowbe_home_flag_page
 
 JST = timezone(timedelta(hours=9))
 
@@ -5827,6 +5828,7 @@ page_options = [
     "勤怠管理",
     "過去日誌訂正",
     "🐝knowbe日誌一括入力🐝",
+    "🐝在宅利用一括入力🐝"
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -6056,9 +6058,13 @@ if st.sidebar.button("事業所切り替え", use_container_width=True):
 
 # ===== 🐝 knowbe（条件表示） =====
 if st.session_state.get("bee_menu_unlocked", False):
-    knowbe_label = "🐝knowbe日誌入力🐝"
+    knowbe_label = "🐝在宅利用一括入力🐝"
     if st.session_state.get("heart_mode", False):
-        knowbe_label = "💕🐝knowbe日誌入力🐝💕"
+        knowbe_label = "💕🐝在宅利用一括入力🐝💕"
+
+    if st.sidebar.button(knowbe_label, key="knowbe_home_flag_menu_button", use_container_width=True):
+        st.session_state.current_page = "🐝在宅利用一括入力🐝"
+        st.rerun()
 
     if st.sidebar.button("🐝knowbe日誌入力🐝", key="knowbe_single_menu_button", use_container_width=True):
         st.session_state.current_page = "🐝knowbe日誌入力🐝"
@@ -16307,3 +16313,9 @@ elif page == "過去日誌訂正":
         st.error("このページは管理者専用です。")
     else:
         run_page_debug("journal_rewrite", render_journal_rewrite_page)
+
+elif page == "🐝在宅利用一括入力🐝":
+    if not st.session_state.get("is_admin", False):
+        st.error("このページは管理者専用です。")
+    else:
+        run_page_debug("🐝在宅利用一括入力🐝", render_knowbe_home_flag_page)
