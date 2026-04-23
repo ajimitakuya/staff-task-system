@@ -45,8 +45,10 @@ print("[DEBUG] RUN_ASSISTANCE __file__ =", __file__, flush=True)
 # =========================
 def get_knowbe_login_credentials(company_id=None):
     """
-    1) まず company_id で companies シートを参照
-    2) 見つからなければ旧 office_key ベースへフォールバック
+    Knowbeログイン情報を取得する。
+    まず company_id に紐づく companies シートの
+    knowbe_login_username / knowbe_login_password を優先する。
+    見つからない場合だけ旧 office_key 方式へ fallback する。
     """
     username = ""
     password = ""
@@ -78,11 +80,43 @@ def get_knowbe_login_credentials(company_id=None):
                     password = str(row.get("knowbe_login_password", "")).strip()
 
                     print(f"[SECRETS CHECK NOW] company_id={company_id}", flush=True)
+                    print(f"[SECRETS CHECK NOW] company-based username={username}", flush=True)
                     print(f"[SECRETS CHECK NOW] company-based username exists={bool(username)}", flush=True)
                     print(f"[SECRETS CHECK NOW] company-based password exists={bool(password)}", flush=True)
 
                     if username and password:
                         return username, password
+
+    # ---------------------------------
+    # ② 旧 office_key フォールバック
+    # ---------------------------------
+    office_key = str(st.session_state.get("office_key", "support")).strip().lower()
+
+    if office_key not in ("support", "home"):
+        office_key = "support"
+
+    secret_user_key = f"KB_LOGIN_USERNAME_{office_key.upper()}"
+    secret_pass_key = f"KB_LOGIN_PASSWORD_{office_key.upper()}"
+
+    try:
+        username = st.secrets.get(secret_user_key, "")
+        password = st.secrets.get(secret_pass_key, "")
+    except Exception:
+        username = ""
+        password = ""
+
+    if not username:
+        username = os.environ.get(secret_user_key, "")
+    if not password:
+        password = os.environ.get(secret_pass_key, "")
+
+    print(f"[SECRETS CHECK NOW] fallback office={office_key}", flush=True)
+    print(f"[SECRETS CHECK NOW] username_key={secret_user_key}", flush=True)
+    print(f"[SECRETS CHECK NOW] password_key={secret_pass_key}", flush=True)
+    print(f"[SECRETS CHECK NOW] LOGIN_USERNAME exists={bool(username)}", flush=True)
+    print(f"[SECRETS CHECK NOW] LOGIN_PASSWORD exists={bool(password)}", flush=True)
+
+    return username, password
 
     # ---------------------------------
     # ② 旧 office_key フォールバック
