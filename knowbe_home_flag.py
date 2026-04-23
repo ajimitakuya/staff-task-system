@@ -314,6 +314,11 @@ def render_knowbe_home_flag_page():
         try:
             live_box.info("Knowbeを起動しています...")
             driver = build_chrome_driver()
+
+            # 先にKnowbeへ飛ばしてからログイン待機
+            goto_report_daily(driver)
+            time.sleep(1.5)
+
             manual_login_wait(driver, login_username, login_password)
 
             done, failed = run_set_home_flag_period(
