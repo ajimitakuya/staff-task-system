@@ -296,3 +296,31 @@ def render_knowbe_home_flag_page():
                     driver.quit()
             except Exception:
                 pass
+
+if st.button("在宅利用を一括入力する"):
+    if not selected_users:
+        st.error("対象利用者を選択してください。")
+    elif not isinstance(date_range, tuple) or len(date_range) != 2:
+        st.error("開始日と終了日を選択してください。")
+    else:
+        start_date, end_date = date_range
+
+        if start_date > end_date:
+            st.error("開始日は終了日以前にしてください。")
+        else:
+            target_dates = []
+            current = start_date
+            while current <= end_date:
+                target_dates.append(current)
+                current += timedelta(days=1)
+
+            st.write("対象日:", target_dates)
+
+            # ここで selected_users × target_dates に対して処理
+            for user in selected_users:
+                for d in target_dates:
+                    # 例: knowbeへ登録する関数
+                    # register_zaitaku(user=user, target_date=d, remark=remark_text)
+                    pass
+
+            st.success(f"{start_date} ～ {end_date} の期間で在宅利用を一括入力しました。")
