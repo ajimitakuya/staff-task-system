@@ -1,5 +1,7 @@
 import time
 import re
+from datetime import timedelta, date
+
 import streamlit as st
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -11,16 +13,26 @@ from run_assistance import (
     get_knowbe_login_credentials,
     manual_login_wait,
     goto_report_daily,
+    goto_report_date,
     safe_click,
     set_input_value,
 )
 
 # ===================================
-# 利用中利用者一覧
+# 共通
 # ===================================
 def _norm_name(s: str) -> str:
     return re.sub(r"\s+", "", str(s or "").strip())
 
+def _iter_dates(start_date: date, end_date: date):
+    cur = start_date
+    while cur <= end_date:
+        yield cur
+        cur += timedelta(days=1)
+
+# ===================================
+# 利用中利用者一覧
+# ===================================
 def _get_active_residents(company_id: str):
     df = load_db("resident_master")
     if df is None or df.empty:
@@ -43,8 +55,7 @@ def _get_active_residents(company_id: str):
     work["resident_name"] = work["resident_name"].astype(str).str.strip()
     work = work[work["resident_name"] != ""].copy()
 
-    names = sorted(work["resident_name"].unique().tolist())
-    return names
+    return sorted(work["resident_name"].unique().tolist())
 
 # ===================================
 # 利用実績一覧の対象行探し
@@ -74,7 +85,6 @@ def _find_usage_row_by_name(driver, resident_name: str, timeout: int = 15):
 # 鉛筆押下
 # ===================================
 def _click_row_edit_button(driver, row):
-    # 右端セルの button/svg を優先
     try:
         tds = row.find_elements(By.TAG_NAME, "td")
         if tds:
@@ -107,7 +117,6 @@ def _click_row_edit_button(driver, row):
     except Exception:
         pass
 
-    # フォールバック
     try:
         btns = row.find_elements(By.TAG_NAME, "button")
         for btn in btns:
@@ -166,55 +175,66 @@ def _save_dialog(driver, timeout: int = 10):
     return False
 
 # ===================================
-# メイン実行
+# 1人・1日処理
 # ===================================
-def run_set_home_flag(driver, resident_names, remark_text="在宅利用", status_box=None):
+def _apply_home_flag_one(driver, target_date: date, resident_name: str, remark_text="在宅利用"):
+    try:
+        goto_report_date(driver, target_date.year, target_date.month, target_date.day)
+        time.sleep(1.0)
+
+        row = _find_usage_row_by_name(driver, resident_name)
+        if row is None:
+            return False, f"{resident_name}: {target_date} 一覧で見つからない"
+
+        if not _click_row_edit_button(driver, row):
+            return False, f"{resident_name}: {target_date} 鉛筆ボタンを押せない"
+
+        time.sleep(1.0)
+
+        remark_el = _find_remark_input(driver)
+        if remark_el is None:
+            return False, f"{resident_name}: {target_date} 備考欄が見つからない"
+
+        set_input_value(driver, remark_el, remark_text)
+        time.sleep(0.3)
+
+        if not _save_dialog(driver):
+            return False, f"{resident_name}: {target_date} 保存ボタンが見つからない"
+
+        time.sleep(1.0)
+        return True, f"{resident_name}: {target_date} 完了"
+
+    except Exception as e:
+        return False, f"{resident_name}: {target_date} {e}"
+
+# ===================================
+# 期間一括
+# ===================================
+def run_set_home_flag_period(driver, resident_names, start_date: date, end_date: date, remark_text="在宅利用", status_box=None):
     done = []
     failed = []
 
     goto_report_daily(driver)
     time.sleep(2)
 
-    for resident_name in resident_names:
-        try:
+    all_dates = list(_iter_dates(start_date, end_date))
+
+    for d in all_dates:
+        for resident_name in resident_names:
             if status_box is not None:
-                status_box.info(f"処理中: {resident_name}")
+                status_box.info(f"処理中: {d} / {resident_name}")
 
-            row = _find_usage_row_by_name(driver, resident_name)
-            if row is None:
-                failed.append(f"{resident_name}: 一覧で見つからない")
-                continue
+            ok, msg = _apply_home_flag_one(
+                driver=driver,
+                target_date=d,
+                resident_name=resident_name,
+                remark_text=remark_text,
+            )
 
-            if not _click_row_edit_button(driver, row):
-                failed.append(f"{resident_name}: 鉛筆ボタンを押せない")
-                continue
-
-            time.sleep(1.0)
-
-            remark_el = _find_remark_input(driver)
-            if remark_el is None:
-                failed.append(f"{resident_name}: 備考欄が見つからない")
-                continue
-
-            set_input_value(driver, remark_el, remark_text)
-            time.sleep(0.3)
-
-            if not _save_dialog(driver):
-                failed.append(f"{resident_name}: 保存ボタンが見つからない")
-                continue
-
-            done.append(resident_name)
-
-            goto_report_daily(driver)
-            time.sleep(1.5)
-
-        except Exception as e:
-            failed.append(f"{resident_name}: {e}")
-            try:
-                goto_report_daily(driver)
-                time.sleep(1.5)
-            except Exception:
-                pass
+            if ok:
+                done.append(msg)
+            else:
+                failed.append(msg)
 
     return done, failed
 
@@ -223,7 +243,7 @@ def run_set_home_flag(driver, resident_names, remark_text="在宅利用", status
 # ===================================
 def render_knowbe_home_flag_page():
     st.title("🐝 在宅利用一括入力")
-    st.caption("利用実績ページの備考欄へ「在宅利用」を一括で入力します。")
+    st.caption("利用実績ページの備考欄へ「在宅利用」を期間指定で一括入力します。")
 
     if not st.session_state.get("is_admin", False):
         st.error("このページは管理者専用です。")
@@ -243,6 +263,22 @@ def render_knowbe_home_flag_page():
         key="knowbe_home_flag_residents",
     )
 
+    col1, col2 = st.columns(2)
+
+    with col1:
+        start_date = st.date_input(
+            "開始日",
+            value=date.today(),
+            key="knowbe_home_flag_start_date",
+        )
+
+    with col2:
+        end_date = st.date_input(
+            "終了日",
+            value=date.today(),
+            key="knowbe_home_flag_end_date",
+        )
+
     remark_text = st.text_input(
         "備考欄へ入れる文字",
         value="在宅利用",
@@ -253,6 +289,11 @@ def render_knowbe_home_flag_page():
 
     if login_username:
         st.caption(f"使用するKnowbe ID: {login_username}")
+
+    if start_date and end_date:
+        days_count = (end_date - start_date).days + 1
+        if days_count > 0:
+            st.info(f"対象期間: {start_date} ～ {end_date}（{days_count}日間）")
 
     live_box = st.empty()
 
@@ -265,15 +306,21 @@ def render_knowbe_home_flag_page():
             st.error("Knowbeのログイン情報が取得できません。")
             return
 
+        if start_date > end_date:
+            st.error("開始日は終了日以前にしてください。")
+            return
+
         driver = None
         try:
             live_box.info("Knowbeを起動しています...")
             driver = build_chrome_driver()
             manual_login_wait(driver, login_username, login_password)
 
-            done, failed = run_set_home_flag(
+            done, failed = run_set_home_flag_period(
                 driver=driver,
                 resident_names=selected_residents,
+                start_date=start_date,
+                end_date=end_date,
                 remark_text=remark_text,
                 status_box=live_box,
             )
@@ -281,10 +328,21 @@ def render_knowbe_home_flag_page():
             live_box.empty()
 
             if done:
-                st.success("入力完了: " + "、".join(done))
+                st.success(f"完了件数: {len(done)}件")
+
+                with st.expander("完了一覧を見る"):
+                    for x in done:
+                        st.write(x)
 
             if failed:
-                st.error("失敗あり:\n\n" + "\n".join(failed))
+                st.error(f"失敗件数: {len(failed)}件")
+
+                with st.expander("失敗一覧を見る"):
+                    for x in failed:
+                        st.write(x)
+
+            if not done and not failed:
+                st.warning("処理対象がありませんでした。")
 
         except Exception as e:
             live_box.empty()
@@ -296,31 +354,3 @@ def render_knowbe_home_flag_page():
                     driver.quit()
             except Exception:
                 pass
-
-if st.button("在宅利用を一括入力する"):
-    if not selected_users:
-        st.error("対象利用者を選択してください。")
-    elif not isinstance(date_range, tuple) or len(date_range) != 2:
-        st.error("開始日と終了日を選択してください。")
-    else:
-        start_date, end_date = date_range
-
-        if start_date > end_date:
-            st.error("開始日は終了日以前にしてください。")
-        else:
-            target_dates = []
-            current = start_date
-            while current <= end_date:
-                target_dates.append(current)
-                current += timedelta(days=1)
-
-            st.write("対象日:", target_dates)
-
-            # ここで selected_users × target_dates に対して処理
-            for user in selected_users:
-                for d in target_dates:
-                    # 例: knowbeへ登録する関数
-                    # register_zaitaku(user=user, target_date=d, remark=remark_text)
-                    pass
-
-            st.success(f"{start_date} ～ {end_date} の期間で在宅利用を一括入力しました。")
