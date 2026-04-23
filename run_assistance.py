@@ -21,7 +21,7 @@ import re
 import math
 import shutil
 import tempfile
-
+from data_access import get_companies_df
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 
@@ -43,14 +43,53 @@ print("[DEBUG] RUN_ASSISTANCE __file__ =", __file__, flush=True)
 # =========================
 # 設定
 # =========================
-def get_knowbe_login_credentials():
-    office_key = str(st.session_state.get("office_key", "support")).strip().lower()
-
-    if office_key not in ("support", "home"):
-        office_key = "support"
-
+def get_knowbe_login_credentials(company_id=None):
+    """
+    1) まず company_id で companies シートを参照
+    2) 見つからなければ旧 office_key ベースへフォールバック
+    """
     username = ""
     password = ""
+
+    # ---------------------------------
+    # ① company_id 優先
+    # ---------------------------------
+    if company_id is None:
+        company_id = st.session_state.get("company_id", "")
+
+    company_id = str(company_id or "").strip()
+
+    if company_id:
+        try:
+            df = get_companies_df()
+        except Exception:
+            df = None
+
+        if df is not None and not df.empty:
+            work = df.fillna("").copy()
+
+            if "company_id" in work.columns:
+                work["company_id"] = work["company_id"].astype(str).str.strip()
+
+                hit = work[work["company_id"] == company_id]
+                if not hit.empty:
+                    row = hit.iloc[0]
+                    username = str(row.get("knowbe_login_username", "")).strip()
+                    password = str(row.get("knowbe_login_password", "")).strip()
+
+                    print(f"[SECRETS CHECK NOW] company_id={company_id}", flush=True)
+                    print(f"[SECRETS CHECK NOW] company-based username exists={bool(username)}", flush=True)
+                    print(f"[SECRETS CHECK NOW] company-based password exists={bool(password)}", flush=True)
+
+                    if username and password:
+                        return username, password
+
+    # ---------------------------------
+    # ② 旧 office_key フォールバック
+    # ---------------------------------
+    office_key = str(st.session_state.get("office_key", "support")).strip().lower()
+    if office_key not in ("support", "home"):
+        office_key = "support"
 
     secret_user_key = f"KB_LOGIN_USERNAME_{office_key.upper()}"
     secret_pass_key = f"KB_LOGIN_PASSWORD_{office_key.upper()}"
@@ -1741,15 +1780,23 @@ def fetch_support_record_kind_rows_for_range(
     """
     log("[STEP] fetch_support_record_kind_rows_for_range start")
 
-    goto_record_user_page(driver)
-    open_support_record_page_for_user(driver, resident_name)
+    # 新しい安定ルートを使う
+    goto_users_summary(driver)
+    apply_users_summary_filter_show_expired(driver)
+
+    ok = open_support_record_for_resident(driver, resident_name)
+    if not ok:
+        raise RuntimeError(f"[FATAL] 対象利用者の支援記録ページを開けなかったある: {resident_name}")
 
     all_rows = []
 
     for y, m in _iter_year_months(start_year, start_month, end_year, end_month):
         log(f"[STEP] support kind collect target={y}-{m:02d}")
 
-        goto_support_record_month(driver, y, m)
+        moved = goto_support_record_month(driver, y, m)
+        if not moved:
+            raise RuntimeError(f"[FATAL] 支援記録ページを {y}-{m:02d} に移動できなかったある: {resident_name}")
+
         time.sleep(1.0)
 
         month_rows = collect_support_record_daily_kind_rows_for_month(
@@ -2703,7 +2750,74 @@ def process_report_edit(driver, it: PersonItem) -> bool:
         log(f"⚠️ {it.name} 例外: {e}")
         close_dialog_if_open(driver)
         return False
-    
+
+
+def update_report_note_only(driver, target_date, resident_name, note_text):
+    """
+    利用実績（日ごと）の対象利用者1件について、
+    備考欄(note_text)だけを更新して保存する。
+    既存の備考欄入力ロジック(_find_remark_area)をそのまま使う版。
+    """
+    if not target_date:
+        raise RuntimeError("[FATAL] target_date が空ある")
+    if not resident_name:
+        raise RuntimeError("[FATAL] resident_name が空ある")
+
+    m = re.match(r"^\s*(\d{4})-(\d{2})-(\d{2})\s*$", str(target_date))
+    if not m:
+        raise RuntimeError(f"[FATAL] target_date形式が不正ある: {target_date}")
+
+    y = int(m.group(1))
+    mo = int(m.group(2))
+    d = int(m.group(3))
+
+    close_dialog_if_open(driver)
+
+    goto_report_date(driver, y, mo, d)
+    wait_table_stable_after_date_change(driver)
+
+    row = find_row_by_name(driver, resident_name)
+    if row is None:
+        log(f"⚠️ {resident_name} 行が見つかりません")
+        return False
+
+    if not click_pencil_in_row(driver, row):
+        log(f"⚠️ {resident_name} 編集(鉛筆)ボタンが押せません")
+        return False
+
+    try:
+        WebDriverWait(driver, 10).until(lambda drv: get_top_dialog(drv) is not None)
+    except Exception:
+        log(f"⚠️ {resident_name} モーダルが開きません")
+        return False
+
+    dlg = get_top_dialog(driver)
+    if not dlg:
+        log(f"⚠️ {resident_name} モーダル取得に失敗しました")
+        return False
+
+    try:
+        area = _find_remark_area(dlg)
+        if area is None:
+            dump_debug(driver, f"remark_not_found_note_only_{resident_name}")
+            log(f"⚠️ {resident_name} 備考欄が見つかりません")
+            close_dialog_if_open(driver)
+            return False
+
+        set_input_value(driver, area, str(note_text or "").strip())
+        time.sleep(0.2)
+
+        save_all(driver)
+        time.sleep(0.8)
+
+        return True
+
+    except Exception as e:
+        dump_debug(driver, f"update_report_note_only_error_{resident_name}")
+        log(f"⚠️ {resident_name} note only update error: {e}")
+        close_dialog_if_open(driver)
+        return False
+
 # =========================
 # 日々の記録 + Gemini
 # =========================
@@ -4707,7 +4821,9 @@ def main():
     # app単発モード
     # =========================================
     if os.environ.get("KB_SINGLE_MODE", "") == "1":
-        login_username, login_password = get_knowbe_login_credentials()
+        login_username, login_password = get_knowbe_login_credentials(
+            company_id=os.environ.get("KB_COMPANY_ID", "")
+        )
 
         if not login_username or not login_password:
             raise RuntimeError("[FATAL] KB_LOGIN_USERNAME / KB_LOGIN_PASSWORD が空ある")

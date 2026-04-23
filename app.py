@@ -15,6 +15,7 @@ from openpyxl import load_workbook
 from streamlit_gsheets import GSheetsConnection
 from streamlit_calendar import calendar as st_calendar
 import google.generativeai as genai
+from openai import OpenAI
 import tempfile
 from contextlib import contextmanager
 from openpyxl import Workbook
@@ -23,35 +24,19 @@ from run_assistance import (
     get_knowbe_login_credentials,
     manual_login_wait,
     run_support_record_kind_export,
+    fetch_support_record_kind_rows_for_range,
 )
 from attendance import render_attendance_page, flush_attendance_before_page_change
 from knowbe_home_flag import render_knowbe_home_flag_page
 
 JST = timezone(timedelta(hours=9))
 
-def get_genai_client():
-    api_key = ""
-
-    try:
-        api_key = st.secrets.get("GEMINI_API_KEY", "")
-    except Exception:
-        api_key = ""
-
-    if not api_key:
-        import os
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY が設定されていません")
-
-    import google.generativeai as genai
-    genai.configure(api_key=api_key)
-
-    return genai
-
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
 # st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")
+
+print("[DEBUG] APP __file__ =", __file__, flush=True)
+print("[DEBUG] secrets OPENAI prefix =", str(st.secrets.get("OPENAI_API_KEY", ""))[:8], flush=True)
 
 def render_sticky_app_header():
     company_name = str(st.session_state.get("company_name", "")).strip()
@@ -279,7 +264,7 @@ def build_knowbe_diary_form_data(
 
         "start_time": str(start_time).strip(),
         "end_time": str(end_time).strip(),
-        "meal_flag": str(meal_flag).strip(),
+        "meal_flag": str(meal_flag).strip(),  # ←残す
         "service_type": str(service_type).strip(),
 
         "work_start_time": str(work_start_time).strip(),
@@ -290,11 +275,19 @@ def build_knowbe_diary_form_data(
         "note_mode": str(note_mode).strip(),
         "note_text": str(preview_note).strip(),
 
-        "start_memo_raw": str(start_memo).strip(),
-        "end_memo_raw": str(end_memo).strip(),
+        # ❌旧memo削除
+        # "start_memo_raw": ...
+        # "end_memo_raw": ...
+        # "start_memo_generated": ...
+        # "end_memo_generated": ...
 
-        "start_memo_generated": str(st.session_state.get("bee_generated_status", "")).strip(),
-        "end_memo_generated": str(st.session_state.get("bee_generated_support", "")).strip(),
+        # ✅新memo
+        "memo_1": str(st.session_state.get("memo_1", "")).strip(),
+        "memo_2": str(st.session_state.get("memo_2", "")).strip(),
+        "memo_3": str(st.session_state.get("memo_3", "")).strip(),
+        "memo_4": str(st.session_state.get("memo_4", "")).strip(),
+        "memo_5": str(st.session_state.get("memo_5", "")).strip(),
+        "memo_6": str(st.session_state.get("memo_6", "")).strip(),
 
         "piecework_id": str(piecework_id or "").strip(),
         "piecework_name": str(piecework_name or "").strip(),
@@ -303,7 +296,6 @@ def build_knowbe_diary_form_data(
         "use_plan": bool(st.session_state.get("knowbe_bee_use_plan", False)),
         "save_stage": "draft",
     }
-
 
 def apply_pending_bee_journal_load():
     """
@@ -345,13 +337,21 @@ def apply_pending_bee_journal_load():
     st.session_state["bee_note_text"] = note_text
     st.session_state["bee_note_select"] = note_text if note_text else "在宅利用"
 
-    # メモ
-    st.session_state["bee_start_memo"] = str(pending_json.get("start_memo_raw", "")).strip()
-    st.session_state["bee_end_memo"] = str(pending_json.get("end_memo_raw", "")).strip()
+    # 新6項目
+    st.session_state["memo_1"] = str(pending_json.get("memo_1", "")).strip()
+    st.session_state["memo_2"] = str(pending_json.get("memo_2", "")).strip()
+    st.session_state["memo_3"] = str(pending_json.get("memo_3", "")).strip()
+    st.session_state["memo_4"] = str(pending_json.get("memo_4", "")).strip()
+    st.session_state["memo_5"] = str(pending_json.get("memo_5", "")).strip()
+    st.session_state["memo_6"] = str(pending_json.get("memo_6", "")).strip()
 
-    # Gemini生成文
-    st.session_state["bee_generated_status"] = str(pending_json.get("start_memo_generated", "")).strip()
-    st.session_state["bee_generated_support"] = str(pending_json.get("end_memo_generated", "")).strip()
+    # 旧生成文は互換のため残してもよい
+    st.session_state["bee_generated_status"] = str(
+        pending_json.get("start_memo_generated", "")
+    ).strip()
+    st.session_state["bee_generated_support"] = str(
+        pending_json.get("end_memo_generated", "")
+    ).strip()
 
     # 内職
     st.session_state["bee_piecework_id"] = str(pending_json.get("piecework_id", "")).strip()
@@ -379,40 +379,63 @@ def apply_pending_document_load(doc_title: str):
         for k, v in pending_json.items():
             st.session_state[f"{doc_title}_{k}"] = v
 
-def generate_with_gemini(prompt: str):
+def _get_openai_client():
     api_key = get_gemini_api_key_from_app()
-    if not api_key:
-        raise RuntimeError("APIキーありません")
+    print("[DEBUG] _get_openai_client prefix =", api_key[:8], flush=True)
+    return OpenAI(api_key=api_key)
 
-    genai.configure(api_key=api_key)
+def _extract_output_text(response) -> str:
+    """
+    Responses API の返り値から文字列を安全に取り出す
+    """
+    try:
+        text = str(getattr(response, "output_text", "") or "").strip()
+        if text:
+            return text
+    except Exception:
+        pass
 
-    model_candidates = ["gemini-2.5-flash"]
-    errors = []
+    # 念のためフォールバック
+    try:
+        parts = []
+        for item in getattr(response, "output", []) or []:
+            for content in getattr(item, "content", []) or []:
+                if getattr(content, "type", "") == "output_text":
+                    parts.append(str(getattr(content, "text", "") or ""))
+        return "\n".join([p for p in parts if p]).strip()
+    except Exception:
+        return ""
+
+def generate_with_gemini(prompt: str):
+    """
+    互換維持のため関数名はそのまま。
+    実体は OpenAI Responses API を使う。
+    """
+    client = _get_openai_client()
+
+    last_error = None
+    model_candidates = [
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-4.1",
+    ]
 
     for model_name in model_candidates:
         for attempt in range(3):
             try:
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(prompt)
-                text = str(getattr(response, "text", "")).strip()
-
+                response = client.responses.create(
+                    model=model_name,
+                    input=prompt,
+                )
+                text = _extract_output_text(response)
                 if text:
                     return text
-
-                errors.append(f"{model_name} attempt{attempt + 1}: empty response")
-
+                last_error = RuntimeError(f"{model_name} empty response")
             except Exception as e:
-                msg = str(e)
+                last_error = e
+                continue
 
-                # 429でも長時間待たず、そのまま再試行だけ
-                if "429" in msg:
-                    errors.append(f"{model_name} attempt{attempt + 1}: {e}")
-                    continue
-
-                errors.append(f"{model_name} attempt{attempt + 1}: {e}")
-                break
-
-    raise RuntimeError("Gemini生成失敗: " + " | ".join(errors))
+    raise RuntimeError(f"ChatGPT生成失敗: {last_error}")
 
 def edit_text_with_gemini_for_start_memo(resident_name: str, original_text: str, remark_text: str = ""):
     original_text = str(original_text or "").strip()
@@ -462,63 +485,60 @@ def edit_text_with_gemini_for_end_memo(resident_name: str, original_text: str, r
     return generate_with_gemini(prompt)
 
 def generate_json_with_gemini(prompt: str):
-    api_key = get_gemini_api_key_from_app()
-    if not api_key:
-        raise RuntimeError("APIキーありません")
+    """
+    互換維持のため関数名はそのまま。
+    実体は OpenAI Responses API を使う。
+    """
+    client = _get_openai_client()
 
-    genai.configure(api_key=api_key)
-
-    model_candidates = ["gemini-2.5-flash"]
     last_error = None
     last_text = ""
+    model_candidates = [
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-4.1",
+    ]
 
     for model_name in model_candidates:
         for attempt in range(3):
             try:
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(prompt)
-                text = str(getattr(response, "text", "")).strip()
+                response = client.responses.create(
+                    model=model_name,
+                    input=prompt,
+                )
+                text = _extract_output_text(response)
                 last_text = text
 
-                print("[DEBUG] Gemini raw text start", flush=True)
+                print("[DEBUG] ChatGPT raw text start", flush=True)
                 print(text, flush=True)
-                print("[DEBUG] Gemini raw text end", flush=True)
+                print("[DEBUG] ChatGPT raw text end", flush=True)
 
                 if not text:
                     last_error = RuntimeError(f"{model_name} empty response")
                     continue
 
-                # コードフェンス除去
-                text = text.replace("```json", "").replace("```", "").strip()
+                cleaned = text.replace("```json", "").replace("```", "").strip()
 
-                # 最初の { から最後の } だけを切り出す
-                start = text.find("{")
-                end = text.rfind("}")
+                start = cleaned.find("{")
+                end = cleaned.rfind("}")
                 if start != -1 and end != -1 and end > start:
-                    text = text[start:end + 1].strip()
+                    cleaned = cleaned[start:end + 1].strip()
 
-                print("[DEBUG] Gemini cleaned json text start", flush=True)
-                print(text, flush=True)
-                print("[DEBUG] Gemini cleaned json text end", flush=True)
+                print("[DEBUG] ChatGPT cleaned json text start", flush=True)
+                print(cleaned, flush=True)
+                print("[DEBUG] ChatGPT cleaned json text end", flush=True)
 
-                return json.loads(text)
+                return json.loads(cleaned)
 
             except Exception as e:
                 last_error = e
-                msg = str(e)
-
                 print(f"[DEBUG] generate_json_with_gemini error: {e}", flush=True)
-
-                # 429でも長時間待たず、そのまま再試行だけ
-                if "429" in msg:
-                    continue
-
-                break
+                continue
 
     preview = (last_text or "")[:1000]
     raise RuntimeError(
-        f"Gemini JSON生成失敗: {last_error}\n"
-        f"--- Gemini raw preview start ---\n{preview}\n--- Gemini raw preview end ---"
+        f"ChatGPT JSON生成失敗: {last_error}\n"
+        f"--- ChatGPT raw preview start ---\n{preview}\n--- ChatGPT raw preview end ---"
     )
 
 def build_home_eval_from_support_record_prompt(resident_name: str, year_val: str, month_val: str, support_record_text: str):
@@ -4743,50 +4763,45 @@ def build_bee_daily_preview_df(company_id, target_date, master_df=None):
 
 
 def get_gemini_api_key_from_app():
-    api_key = ""
+    """
+    互換維持のため関数名はそのまま。
+    ここでは secrets の OPENAI_API_KEY だけを使う。
+    環境変数へは絶対に逃がさない。
+    """
+    api_key = str(st.secrets["OPENAI_API_KEY"]).strip()
 
-    try:
-        api_key = st.secrets.get("GEMINI_API_KEY", "")
-    except Exception:
-        api_key = ""
+    print("[DEBUG] get_gemini_api_key_from_app prefix =", api_key[:8], flush=True)
 
     if not api_key:
-        import os
-        api_key = os.environ.get("GEMINI_API_KEY", "")
+        raise RuntimeError("OPENAI_API_KEY が空ある")
 
-    return str(api_key).strip()
+    if not api_key.startswith("sk-") and not api_key.startswith("sk-proj-"):
+        raise RuntimeError(f"OPENAI_API_KEY の形式がおかしいある: {api_key[:8]}")
+
+    return api_key
 
 
 def call_gemini_json(prompt: str):
-    api_key = get_gemini_api_key_from_app()
-    if not api_key:
-        raise RuntimeError("APIキーありません")
+    client = _get_openai_client()
 
-    genai.configure(api_key=api_key)
+    response = client.responses.create(
+        model="gpt-5.2",
+        input=prompt,
+    )
 
-    model_candidates = [
-        "gemini-2.5-flash",
-    ]
+    text = _extract_output_text(response)
 
-    last_error = None
+    if not text:
+        raise RuntimeError("レスポンスが空ある")
 
-    for model_name in model_candidates:
-        try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
-            text = str(getattr(response, "text", "")).strip()
+    cleaned = text.replace("```json", "").replace("```", "").strip()
 
-            if not text:
-                continue
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        cleaned = cleaned[start:end + 1]
 
-            cleaned = text.replace("```json", "").replace("```", "").strip()
-            return json.loads(cleaned)
-
-        except Exception as e:
-            last_error = e
-            continue
-
-    raise RuntimeError(f"Gemini全部失敗です: {last_error}")
+    return json.loads(cleaned)
 
 
 def get_latest_saved_document(resident_id, doc_type):
@@ -8934,9 +8949,11 @@ def generate_status_support_with_gemini(
     rule_text,
     plan_text=""
 ):
-    api_key = get_gemini_api_key_from_app()
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY が取得できませんでした。")
+    """
+    互換維持のため関数名はそのまま。
+    実体は OpenAI Responses API を使う。
+    """
+    client = _get_openai_client()
 
     prompt = f"""
 あなたは障害福祉サービスのKnowbe日誌入力を補助するアシスタントです。
@@ -8974,22 +8991,56 @@ def generate_status_support_with_gemini(
 - JSON以外は返さない
 """
 
-    client = get_genai_client(api_key)
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-    )
-    text = (response.text or "").strip()
+    last_error = None
+    last_text = ""
 
-    if not text:
-        raise RuntimeError("Geminiの応答が空です")
+    model_candidates = [
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-4.1",
+    ]
 
-    text = text.replace("```json", "").replace("```", "").strip()
-    data = json.loads(text)
+    for model_name in model_candidates:
+        for attempt in range(3):
+            try:
+                response = client.responses.create(
+                    model=model_name,
+                    input=prompt,
+                )
+                text = _extract_output_text(response)
+                last_text = text
 
-    return (
-        str(data.get("generated_status", "")).strip(),
-        str(data.get("generated_support", "")).strip(),
+                print("[DEBUG] generate_status_support_with_gemini raw start", flush=True)
+                print(text, flush=True)
+                print("[DEBUG] generate_status_support_with_gemini raw end", flush=True)
+
+                if not text:
+                    last_error = RuntimeError(f"{model_name} empty response")
+                    continue
+
+                cleaned = text.replace("```json", "").replace("```", "").strip()
+
+                start = cleaned.find("{")
+                end = cleaned.rfind("}")
+                if start != -1 and end != -1 and end > start:
+                    cleaned = cleaned[start:end + 1].strip()
+
+                data = json.loads(cleaned)
+
+                return (
+                    str(data.get("generated_status", "")).strip(),
+                    str(data.get("generated_support", "")).strip(),
+                )
+
+            except Exception as e:
+                last_error = e
+                print(f"[DEBUG] generate_status_support_with_gemini error: {e}", flush=True)
+                continue
+
+    preview = (last_text or "")[:1000]
+    raise RuntimeError(
+        f"generate_status_support_with_gemini 失敗: {last_error}\n"
+        f"--- raw preview start ---\n{preview}\n--- raw preview end ---"
     )
 
 def clear_bee_journal_input_state(default_staff_name=""):
@@ -9223,62 +9274,34 @@ def build_bee_daily_preview_df(company_id, target_date, master_df=None):
     return pd.DataFrame(rows)
 
 
-def get_gemini_api_key_from_app():
-    api_key = ""
-
-    try:
-        api_key = st.secrets.get("GEMINI_API_KEY", "")
-    except Exception:
-        api_key = ""
-
-    if not api_key:
-        try:
-            if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
-                api_key = st.secrets["gemini"]["api_key"]
-        except Exception:
-            pass
-
-    if not api_key:
-        import os
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-
-    return str(api_key).strip()
-
-
 def generate_bee_texts(
     resident_name,
     service_type,
-    meal_flag="",
-    note="",
-    start_memo="",
-    end_memo="",
+    meal_flag,
+    note_text,
+    start_memo,
+    end_memo,
+    staff_name,
+    plan_text="",
     examples_text="",
     rule_text="",
-    plan_text="",
-    note_text=None,
-    staff_name=None,
 ):
-    if (not str(note).strip()) and note_text is not None:
-        note = note_text
+    client = _get_openai_client()
 
-    meal_flag = "" if meal_flag is None else str(meal_flag).strip()
-    note = "" if note is None else str(note).strip()
-    start_memo = "" if start_memo is None else str(start_memo).strip()
-    end_memo = "" if end_memo is None else str(end_memo).strip()
-    examples_text = "" if examples_text is None else str(examples_text).strip()
-    rule_text = "" if rule_text is None else str(rule_text).strip()
-    plan_text = "" if plan_text is None else str(plan_text).strip()
+    service_type = str(service_type or "").strip()
+    meal_flag = str(meal_flag or "").strip()
+    note_text = str(note_text or "").strip()
+    start_memo = str(start_memo or "").strip()
+    end_memo = str(end_memo or "").strip()
+    staff_name = str(staff_name or "").strip()
+    plan_text = str(plan_text or "").strip()
+    examples_text = str(examples_text or "").strip()
+    rule_text = str(rule_text or "").strip()
 
-    api_key = get_gemini_api_key_from_app()
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY が取得できなかったです")
-
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.5-flash")
     prompt = f"""
 あなたは就労継続支援B型の支援記録作成アシスタントです。
-以下の情報をもとに、Knowbeへそのまま貼り付けられる
-「利用者状態」と「職員考察」を作ってください。
+以下の情報をもとに、Knowbeへそのまま入力できる
+「利用者状態」と「職員考察」をJSONで返してください。
 
 【利用者名】
 {resident_name}
@@ -9286,17 +9309,23 @@ def generate_bee_texts(
 【サービス種別】
 {service_type}
 
-【食事】
+【食事提供】
 {meal_flag}
 
 【備考】
-{note}
+{note_text}
 
-【利用者状態メモ】
+【開始メモ】
 {start_memo}
 
-【職員考察メモ】
+【終了メモ】
 {end_memo}
+
+【記録者】
+{staff_name}
+
+【個別支援計画】
+{plan_text}
 
 【スタッフ例文】
 {examples_text}
@@ -9304,48 +9333,65 @@ def generate_bee_texts(
 【個人ルール】
 {rule_text}
 
-【支援計画】
-{plan_text}
-
-【ルール】
+【作成ルール】
+- 事実を変えすぎない
+- 不自然な敬語は避ける
+- 重複表現を避ける
+- 支援記録として自然な日本語にする
+- 「利用者状態」は本人の様子・報告中心
+- 「職員考察」は支援者視点で書く
 - 出力はJSONのみ
-- generated_status は「利用者状態」
-- generated_support は「職員考察」
-- 事実を勝手に増やさない
-- 見出しや箇条書きは不要
-- 支援記録として自然で丁寧な文
-- 3文程度
-- 100〜150文字程度目安
-- Knowbeへそのまま貼れる長さ
+- JSONの形式は以下に厳密に従うこと
 
-【出力形式】
 {{
-  "generated_status": "ここに利用者状態",
-  "generated_support": "ここに職員考察"
+  "user_state": "利用者状態本文",
+  "staff_note": "職員考察本文"
 }}
 """
-    
 
+    last_error = None
+    model_candidates = [
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-4.1",
+    ]
 
-    response = model.generate_content(prompt)
-    result_text = (response.text or "").strip()
+    for model_name in model_candidates:
+        for attempt in range(3):
+            try:
+                response = client.responses.create(
+                    model=model_name,
+                    input=prompt,
+                )
+                text = _extract_output_text(response)
 
-    if not result_text:
-        raise RuntimeError("Geminiの応答が空です")
+                print("[DEBUG] generate_bee_texts raw start", flush=True)
+                print(text, flush=True)
+                print("[DEBUG] generate_bee_texts raw end", flush=True)
 
-    cleaned = result_text.replace("```json", "").replace("```", "").strip()
+                if not text:
+                    last_error = RuntimeError(f"{model_name} empty response")
+                    continue
 
-    try:
-        data = json.loads(cleaned)
-        generated_status = str(data.get("generated_status", "")).strip()
-        generated_support = str(data.get("generated_support", "")).strip()
-    except Exception:
-        raise RuntimeError(f"Gemini出力の解析に失敗です: {cleaned}")
+                cleaned = text.replace("```json", "").replace("```", "").strip()
+                start = cleaned.find("{")
+                end = cleaned.rfind("}")
+                if start != -1 and end != -1 and end > start:
+                    cleaned = cleaned[start:end + 1].strip()
 
-    if not generated_status or not generated_support:
-        raise RuntimeError(f"Gemini出力の解析に失敗です: {cleaned}")
+                data = json.loads(cleaned)
 
-    return generated_status, generated_support
+                generated_status = str(data.get("user_state", "")).strip()
+                generated_support = str(data.get("staff_note", "")).strip()
+
+                return generated_status, generated_support
+
+            except Exception as e:
+                last_error = e
+                print(f"[DEBUG] generate_bee_texts error: {e}", flush=True)
+                continue
+
+    raise RuntimeError(f"ChatGPTでの成文に失敗しました: {last_error}")
 
 def get_knowbe_credentials_from_app(company_id=None):
     if company_id is None:
@@ -9674,8 +9720,12 @@ def render_bulk_knowbe_diary_page():
         st.session_state[f"{block_key}_remark_text"] = note_text
         st.session_state[f"{block_key}_remark_text_select"] = note_text if note_text else "在宅利用"
 
-        st.session_state[f"{block_key}_start_memo"] = str(saved_json.get("start_memo_raw", saved_json.get("start_memo", ""))).strip()
-        st.session_state[f"{block_key}_end_memo"] = str(saved_json.get("end_memo_raw", saved_json.get("end_memo", ""))).strip()
+        st.session_state[f"{block_key}_memo_1"] = str(saved_json.get("memo_1", "")).strip()
+        st.session_state[f"{block_key}_memo_2"] = str(saved_json.get("memo_2", "")).strip()
+        st.session_state[f"{block_key}_memo_3"] = str(saved_json.get("memo_3", "")).strip()
+        st.session_state[f"{block_key}_memo_4"] = str(saved_json.get("memo_4", "")).strip()
+        st.session_state[f"{block_key}_memo_5"] = str(saved_json.get("memo_5", "")).strip()
+        st.session_state[f"{block_key}_memo_6"] = str(saved_json.get("memo_6", "")).strip()
 
         send_mode = str(saved_json.get("send_mode", "raw")).strip()
         st.session_state[f"{block_key}_send_mode"] = (
@@ -9943,78 +9993,96 @@ def render_bulk_knowbe_diary_page():
                     disabled=inputs_disabled,
                 )
 
-            c8, c9 = st.columns(2)
-            with c8:
-                start_memo = st.text_area(
-                    "開始メモ",
-                    value=st.session_state.get(f"{block_key}_start_memo", ""),
-                    height=140,
-                    key=f"{block_key}_start_memo",
-                    disabled=inputs_disabled,
-                )
-            with c9:
-                end_memo = st.text_area(
-                    "終了メモ",
-                    value=st.session_state.get(f"{block_key}_end_memo", ""),
-                    height=140,
-                    key=f"{block_key}_end_memo",
-                    disabled=inputs_disabled,
+            top_row = st.columns(3)
+            bottom_row = st.columns(3)
+
+            with top_row[0]:
+                st.text_area("① 体調", value=st.session_state.get(f"{block_key}_memo_1", ""), key=f"{block_key}_memo_1", height=90)
+
+            with top_row[1]:
+                st.selectbox(
+                    "③ 作業内容・施設外就労先",
+                    ["", "タオル", "塗り絵", "観葉植物育成", "施設外就労"],
+                    key=f"{block_key}_memo_3"
                 )
 
-                btn_wrap_cols = st.columns([5.35, 1.05])
-                with btn_wrap_cols[1]:
-                    st.markdown(
-                        """
-                        <style>
-                        div[data-testid="stButton"] button[kind="secondary"],
-                        div[data-testid="stButton"] button[kind="primary"] {
-                            min-height: 42px;
-                        }
-                        </style>
-                        <div style="margin-top:-42px;"></div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+            with top_row[2]:
+                st.text_area("⑤ 支援", value=st.session_state.get(f"{block_key}_memo_5", ""), key=f"{block_key}_memo_5", height=90)
 
-                    btn_label = "保存" if edit_mode else "編集"
+            with bottom_row[0]:
+                st.text_area("② 体調に関する声掛け", value=st.session_state.get(f"{block_key}_memo_2", ""), key=f"{block_key}_memo_2", height=90)
 
-                    if st.button(
-                        btn_label,
-                        key=f"{block_key}_edit_or_save_bottom",
-                        use_container_width=True
-                    ):
-                        if edit_mode:
-                            if not str(st.session_state.get(f"{block_key}_loaded_record_id", "")).strip():
-                                if latest_record_id and isinstance(latest_saved_json, dict):
-                                    st.session_state[f"{block_key}_loaded_record_id"] = latest_record_id
+            with bottom_row[1]:
+                st.text_area("④ 数量・施設外での具体的作業内容", value=st.session_state.get(f"{block_key}_memo_4", ""), key=f"{block_key}_memo_4", height=90)
 
-                            saved_id, created_new = _save_single_bulk_entry(resident_id, resident_name)
-                            st.session_state[f"{block_key}_edit_mode"] = False
+            with bottom_row[2]:
+                st.text_area("⑥ 追加メモ", value=st.session_state.get(f"{block_key}_memo_6", ""), key=f"{block_key}_memo_6", height=90)
 
-                            if saved_id:
-                                if created_new:
-                                    st.success(f"{resident_name} を保存しました。")
-                                else:
-                                    st.success(f"{resident_name} を上書き保存しました。")
-                            else:
-                                st.warning("保存に失敗しました。")
+            memo_1 = str(st.session_state.get(f"{block_key}_memo_1", "")).strip()
+            memo_2 = str(st.session_state.get(f"{block_key}_memo_2", "")).strip()
+            memo_3 = str(st.session_state.get(f"{block_key}_memo_3", "")).strip()
+            memo_4 = str(st.session_state.get(f"{block_key}_memo_4", "")).strip()
+            memo_5 = str(st.session_state.get(f"{block_key}_memo_5", "")).strip()
+            memo_6 = str(st.session_state.get(f"{block_key}_memo_6", "")).strip()
 
-                            st.rerun()
-                        else:
-                            pending_map = st.session_state.get("bulk_pending_load_map", {})
-                            if not isinstance(pending_map, dict):
-                                pending_map = {}
-                        
+            # 旧ロジック互換用
+            start_memo = "\n".join([x for x in [memo_1, memo_2, memo_3, memo_4] if x]).strip()
+            end_memo = "\n".join([x for x in [memo_5, memo_6] if x]).strip()
+
+            btn_wrap_cols = st.columns([5.35, 1.05])
+            with btn_wrap_cols[1]:
+                st.markdown(
+                    """
+                    <style>
+                    div[data-testid="stButton"] button[kind="secondary"],
+                    div[data-testid="stButton"] button[kind="primary"] {
+                        min-height: 42px;
+                    }
+                    </style>
+                    <div style="margin-top:-42px;"></div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                btn_label = "保存" if edit_mode else "編集"
+
+                if st.button(
+                    btn_label,
+                    key=f"{block_key}_edit_or_save_bottom",
+                    use_container_width=True
+                ):
+                    if edit_mode:
+                        if not str(st.session_state.get(f"{block_key}_loaded_record_id", "")).strip():
                             if latest_record_id and isinstance(latest_saved_json, dict):
-                                pending_map[resident_id] = {
-                                    "saved_json": latest_saved_json,
-                                    "record_id": latest_record_id,
-                                    "updated_at": latest_updated_at,
-                                }
-                        
-                            st.session_state["bulk_pending_load_map"] = pending_map
-                            st.session_state[f"{block_key}_edit_mode"] = True
-                            st.rerun()
+                                st.session_state[f"{block_key}_loaded_record_id"] = latest_record_id
+
+                        saved_id, created_new = _save_single_bulk_entry(resident_id, resident_name)
+                        st.session_state[f"{block_key}_edit_mode"] = False
+
+                        if saved_id:
+                            if created_new:
+                                st.success(f"{resident_name} を保存しました。")
+                            else:
+                                st.success(f"{resident_name} を上書き保存しました。")
+                        else:
+                            st.warning("保存に失敗しました。")
+
+                        st.rerun()
+                    else:
+                        pending_map = st.session_state.get("bulk_pending_load_map", {})
+                        if not isinstance(pending_map, dict):
+                            pending_map = {}
+
+                        if latest_record_id and isinstance(latest_saved_json, dict):
+                            pending_map[resident_id] = {
+                                "saved_json": latest_saved_json,
+                                "record_id": latest_record_id,
+                                "updated_at": latest_updated_at,
+                            }
+
+                        st.session_state["bulk_pending_load_map"] = pending_map
+                        st.session_state[f"{block_key}_edit_mode"] = True
+                        st.rerun()
 
             send_mode = st.radio(
                 "送信方式",
@@ -10530,53 +10598,108 @@ def render_bee_journal_page():
                 height=80
             )
 
+        # ===== 旧: 内職内容 / 数量 / 開始メモ / 終了メモ を廃止 =====
+        # memo_3 用の候補を作る（登録済み内職 + 施設外就労）
         piecework_df = get_piecework_master_df(target_company_id)
-        piecework_options = [""]
+        memo_3_options = [""]
+
         piecework_name_map = {"": ""}
+        piecework_id_map = {"": ""}
+
         if piecework_df is not None and not piecework_df.empty:
             piecework_df = piecework_df.copy()
             if "status" in piecework_df.columns:
                 piecework_df = piecework_df[
                     piecework_df["status"].fillna("公開").astype(str).str.strip().isin(["公開", "active", "有効", ""])
                 ].copy()
+
             for _, pw_row in piecework_df.iterrows():
                 pw_id = str(pw_row.get("piecework_id", "")).strip()
                 pw_name = str(pw_row.get("piecework_name", "")).strip()
                 if not pw_name:
                     continue
                 label = pw_name if not pw_id else f"{pw_name} ({pw_id})"
-                piecework_options.append(label)
+                memo_3_options.append(label)
                 piecework_name_map[label] = pw_name
+                piecework_id_map[label] = pw_id
 
-        current_piecework_id = str(st.session_state.get("bee_piecework_id", "")).strip()
-        default_piecework_label = ""
-        for label in piecework_options:
-            if current_piecework_id and label.endswith(f"({current_piecework_id})"):
-                default_piecework_label = label
-                break
+        # 施設外就労の暫定候補
+        if "施設外就労" not in memo_3_options:
+            memo_3_options.append("施設外就労")
+            piecework_name_map["施設外就労"] = "施設外就労"
+            piecework_id_map["施設外就労"] = ""
 
-        piece_cols = st.columns([3, 1])
-        with piece_cols[0]:
-            selected_piecework_label = st.selectbox(
-                "内職内容",
-                piecework_options,
-                index=piecework_options.index(default_piecework_label) if default_piecework_label in piecework_options else 0,
-                key="bee_piecework_select"
-            )
-        with piece_cols[1]:
-            piecework_quantity = st.text_input(
-                "数量",
-                value=str(st.session_state.get("bee_piecework_quantity", "")),
-                key="bee_piecework_quantity",
-                placeholder="任意"
+        current_memo_3 = str(st.session_state.get("memo_3", "")).strip()
+        default_memo_3 = current_memo_3 if current_memo_3 in memo_3_options else ""
+
+        top_row = st.columns(3)
+        bottom_row = st.columns(3)
+
+        with top_row[0]:
+            st.text_area(
+                "① 体調",
+                value=st.session_state.get("memo_1", ""),
+                key="memo_1",
+                height=90
             )
 
-        selected_piecework_id = ""
-        selected_piecework_name = ""
-        if selected_piecework_label:
-            selected_piecework_name = piecework_name_map.get(selected_piecework_label, "")
-            if selected_piecework_label.endswith(")") and "(" in selected_piecework_label:
-                selected_piecework_id = selected_piecework_label.rsplit("(", 1)[-1].replace(")", "").strip()
+        with top_row[1]:
+            selected_memo_3 = st.selectbox(
+                "③ 作業内容・施設外就労先",
+                memo_3_options,
+                index=memo_3_options.index(default_memo_3) if default_memo_3 in memo_3_options else 0,
+                key="memo_3"
+            )
+
+        with top_row[2]:
+            st.text_area(
+                "⑤ 支援",
+                value=st.session_state.get("memo_5", ""),
+                key="memo_5",
+                height=90
+            )
+
+        with bottom_row[0]:
+            st.text_area(
+                "② 体調に関する声掛け",
+                value=st.session_state.get("memo_2", ""),
+                key="memo_2",
+                height=90
+            )
+
+        with bottom_row[1]:
+            st.text_area(
+                "④ 数量・施設外での具体的作業内容",
+                value=st.session_state.get("memo_4", ""),
+                key="memo_4",
+                height=90
+            )
+
+        with bottom_row[2]:
+            st.text_area(
+                "⑥ 追加メモ",
+                value=st.session_state.get("memo_6", ""),
+                key="memo_6",
+                height=90
+            )
+
+        # 互換用変数
+        memo_1 = str(st.session_state.get("memo_1", "")).strip()
+        memo_2 = str(st.session_state.get("memo_2", "")).strip()
+        memo_3 = str(st.session_state.get("memo_3", "")).strip()
+        memo_4 = str(st.session_state.get("memo_4", "")).strip()
+        memo_5 = str(st.session_state.get("memo_5", "")).strip()
+        memo_6 = str(st.session_state.get("memo_6", "")).strip()
+
+        start_memo = "\n".join([x for x in [memo_1, memo_2, memo_3, memo_4] if x]).strip()
+        end_memo = "\n".join([x for x in [memo_5, memo_6] if x]).strip()
+
+        # 後段互換用
+        selected_piecework_label = selected_memo_3
+        selected_piecework_name = piecework_name_map.get(selected_piecework_label, "")
+        selected_piecework_id = piecework_id_map.get(selected_piecework_label, "")
+        piecework_quantity = memo_4
+
         st.session_state["bee_piecework_id"] = selected_piecework_id
 
         work_memo_text = ""
@@ -10585,66 +10708,10 @@ def render_bee_journal_page():
         elif selected_piecework_name:
             work_memo_text = selected_piecework_name
         elif piecework_quantity:
-            work_memo_text = f"数量 {piecework_quantity}"
-
-        st.markdown("""
-        <style>
-        div.stButton > button {
-            white-space: normal !important;
-            height: auto !important;
-            min-height: 3.8rem !important;
-            line-height: 1.4 !important;
-            padding-top: 0.6rem !important;
-            padding-bottom: 0.6rem !important;
-        }
-        div.stButton > button p {
-            white-space: pre-line !important;
-            line-height: 1.4 !important;
-            margin: 0 !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
-        if "knowbe_bee_use_plan" not in st.session_state:
-            st.session_state["knowbe_bee_use_plan"] = False
-
-        use_plan = st.session_state.get("knowbe_bee_use_plan", False)
-
-        plan_row = get_plan_row(target_company_id, resident_id)
-        plan_text = ""
-        if use_plan and plan_row:
-            plan_text = (
-                f"長期目標: {plan_row.get('long_term_goal', '')}\n"
-                f"短期目標: {plan_row.get('short_term_goal', '')}"
-            )
-
-        example_row = get_staff_example_row(target_company_id, staff_name)
-        rule_row = get_personal_rule_row(target_company_id, staff_name)
-
-        examples_text = build_examples_text(service_type, example_row)
-        loaded_rule_text = rule_row.get("rule_text", "") if rule_row else ""
-
-        preview_note = note if note_mode == "候補から選ぶ" else st.session_state.get("bee_note_text", "")
-
-        memo_cols = st.columns(2)
-
-        with memo_cols[0]:
-            start_memo = st.text_area(
-                "開始メモ",
-                value=st.session_state.get("bee_start_memo", ""),
-                key="bee_start_memo",
-                height=140
-            )
-
-        with memo_cols[1]:
-            end_memo = st.text_area(
-                "終了メモ",
-                value=st.session_state.get("bee_end_memo", ""),
-                key="bee_end_memo",
-                height=140
-            )
+            work_memo_text = piecework_quantity
 
         send_memo_cols = st.columns(4)
+                
 
         with send_memo_cols[0]:
             start_send_raw = st.button(
@@ -10674,6 +10741,50 @@ def render_bee_journal_page():
                 use_container_width=True
             )
 
+        memo_1 = str(st.session_state.get("memo_1", "")).strip()
+        memo_2 = str(st.session_state.get("memo_2", "")).strip()
+        memo_3 = str(st.session_state.get("memo_3", "")).strip()
+        memo_4 = str(st.session_state.get("memo_4", "")).strip()
+        memo_5 = str(st.session_state.get("memo_5", "")).strip()
+        memo_6 = str(st.session_state.get("memo_6", "")).strip()
+
+        # 旧ロジック互換用
+        start_memo = "\n".join([x for x in [memo_1, memo_2, memo_3, memo_4] if x]).strip()
+        end_memo = "\n".join([x for x in [memo_5, memo_6] if x]).strip()
+
+        # ===== 互換用の復活変数 =====
+        preview_note = str(st.session_state.get("bee_note_text", "")).strip()
+        if not preview_note:
+            preview_note = str(st.session_state.get("bee_note_select", "")).strip()
+
+        # 例文・個人ルール
+        example_row = get_staff_example_row(target_company_id, staff_name)
+        rule_row = get_personal_rule_row(target_company_id, staff_name)
+
+        loaded_rule_text = ""
+        if rule_row:
+            loaded_rule_text = str(rule_row.get("rule_text", "")).strip()
+
+        examples_text = ""
+        if example_row:
+            examples_text = "\n".join([
+                str(example_row.get("home_start_example", "")).strip(),
+                str(example_row.get("home_end_example", "")).strip(),
+                str(example_row.get("day_start_example", "")).strip(),
+                str(example_row.get("day_end_example", "")).strip(),
+                str(example_row.get("outside_start_example", "")).strip(),
+                str(example_row.get("outside_end_example", "")).strip(),
+            ]).strip()
+
+        plan_text = ""
+        if st.session_state.get("knowbe_bee_use_plan", False):
+            plan_row = get_plan_row(target_company_id, resident_id)
+            if plan_row:
+                plan_text = "\n".join([
+                    str(plan_row.get("long_term_goal", "")).strip(),
+                    str(plan_row.get("short_term_goal", "")).strip(),
+                ]).strip()
+
         save_payload = {
             "company_id": target_company_id,
             "company_name": target_company_name,
@@ -10686,6 +10797,12 @@ def render_bee_journal_page():
             "note": preview_note,
             "start_memo": start_memo,
             "end_memo": end_memo,
+            "memo_1": memo_1,
+            "memo_2": memo_2,
+            "memo_3": memo_3,
+            "memo_4": memo_4,
+            "memo_5": memo_5,
+            "memo_6": memo_6,
             "staff_name": staff_name,
             "service_type": service_type,
             "knowbe_user": st.session_state.get("bee_knownbe_user_name", "未登録"),
@@ -15664,14 +15781,70 @@ def fetch_home_eval_support_record_text(
     driver=None,
 ):
     """
-    在宅評価シート用に Knowbe の支援記録本文を取得する
-    既存の audit 取得ルートを使う
+    在宅評価シート用に Knowbe の支援記録本文を取得する。
+    driver が渡されているときは、その既存 driver を使って再ログインせず取得する。
+    driver がないときだけ旧 audit ルートへフォールバックする。
     """
-    return get_support_record_text_via_audit_route(
+    year_val = str(create_year).strip()
+    month_val = str(create_month).strip()
+
+    if driver is None:
+        return get_support_record_text_via_audit_route(
+            resident_name=resident_name,
+            year_val=year_val,
+            month_val=month_val,
+        )
+
+    rows = fetch_support_record_kind_rows_for_range(
+        driver=driver,
         resident_name=resident_name,
-        year_val=str(create_year).strip(),
-        month_val=str(create_month).strip(),
+        start_year=int(year_val),
+        start_month=int(month_val),
+        end_year=int(year_val),
+        end_month=int(month_val),
+        gemini_client=None,
     )
+
+    if not rows:
+        raise RuntimeError(f"{resident_name} の支援記録が取得できませんでした。")
+
+    text_parts = []
+    for row in rows:
+        day = str(row.get("day", "")).strip()
+        weekday = str(row.get("weekday", "")).strip()
+        registered_kind = str(row.get("registered_kind", "")).strip()
+        diary_kind = str(row.get("diary_kind", "")).strip()
+
+        part_lines = []
+        if day:
+            part_lines.append(f"{month_val}月{day}日（{weekday}）")
+        if registered_kind:
+            part_lines.append(f"登録区分: {registered_kind}")
+        if diary_kind:
+            part_lines.append(f"日誌判定: {diary_kind}")
+
+        for key in [
+            "support_record_text",
+            "record_text",
+            "text",
+            "body",
+            "content",
+            "diary_text",
+            "raw_block_text",
+        ]:
+            val = str(row.get(key, "")).strip()
+            if val:
+                part_lines.append(val)
+                break
+
+        if part_lines:
+            text_parts.append("\n".join(part_lines))
+
+    joined = "\n\n".join(text_parts).strip()
+    if not joined:
+        raise RuntimeError(f"{resident_name} の支援記録本文が組み立てられませんでした。")
+
+    return joined
 
 def render_secret_home_eval_auto_page():
     st.title("🤫在宅評価シート🤫")
@@ -15736,323 +15909,343 @@ def render_secret_home_eval_auto_page():
 
     st.divider()
 
+    if "secret_home_eval_running_single" not in st.session_state:
+        st.session_state["secret_home_eval_running_single"] = False
+
+    if "secret_home_eval_running_all" not in st.session_state:
+        st.session_state["secret_home_eval_running_all"] = False
+
     btn_col1, btn_col2 = st.columns(2)
 
     with btn_col1:
         single_generate = st.button(
             "🚀 Knowbeから在宅評価シートを1人分自動作成",
             key="secret_home_eval_auto_generate_single",
-            use_container_width=True
+            use_container_width=True,
+            disabled=st.session_state.get("secret_home_eval_running_single", False)
+                    or st.session_state.get("secret_home_eval_running_all", False)
         )
 
     with btn_col2:
         all_generate = st.button(
             "🚀 Knowbeから在宅評価シートを全員分自動作成",
             key="secret_home_eval_auto_generate_all",
-            use_container_width=True
+            use_container_width=True,
+            disabled=st.session_state.get("secret_home_eval_running_single", False)
+                    or st.session_state.get("secret_home_eval_running_all", False)
         )
 
     # ===== 1人分作成 =====
-    if single_generate:
-        if not resident_name:
-            st.error("利用者を選択してください。")
-            return
-
-        if not str(create_year).strip() or not str(create_month).strip():
-            st.error("作成年と作成月を入力してください。")
-            return
-
-        if not str(manager_name).strip():
-            st.error("月間評価のサビ管名を入力してください。")
-            return
-
-        weekly_visits = {
-            "1": visit_1,
-            "2": visit_2,
-            "3": visit_3,
-            "4": visit_4,
-            "5": visit_5,
-        }
-
-        driver = None
-        support_record_text = ""
-
+    if single_generate and not st.session_state.get("secret_home_eval_running_single", False):
+        st.session_state["secret_home_eval_running_single"] = True
         try:
-            ctx = resolve_bee_company_context(
-                company_login_id="",
-                company_login_password="",
-                knowbe_login_username="",
-                knowbe_login_password="",
-            )
-
-            if not ctx.get("ok", False):
-                st.error(ctx.get("error", "Knowbeログイン情報が取得できませんでした。"))
+            if not resident_name:
+                st.error("利用者を選択してください。")
                 return
 
-            login_username = str(ctx.get("knowbe_login_username", "")).strip()
-            login_password = str(ctx.get("knowbe_login_password", "")).strip()
-
-            if not login_username or not login_password:
-                st.error("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
+            if not str(create_year).strip() or not str(create_month).strip():
+                st.error("作成年と作成月を入力してください。")
                 return
 
-            with st.spinner("Knowbeへ接続中."):
-                driver = build_chrome_driver()
-                driver.get("https://mgr.knowbe.jp/v2/")
-                time.sleep(1.0)
-                manual_login_wait(driver, login_username, login_password)
-
-            support_record_text = fetch_home_eval_support_record_text(
-                resident_name=resident_name,
-                create_year=create_year,
-                create_month=create_month,
-                driver=driver,
-            )
-
-            st.session_state["secret_home_eval_support_record_text"] = support_record_text
-
-            # 支援記録が空なら作成しない
-            if not support_record_text or not str(support_record_text).strip():
-                st.warning("この月は利用実績がないため、在宅評価シートは作成できませんでした（入院・未利用の可能性があります）。")
-                st.session_state["secret_home_eval_json"] = None
-                st.session_state["secret_home_eval_cell_data"] = None
-                st.session_state["secret_home_eval_file"] = None
+            if not str(manager_name).strip():
+                st.error("月間評価のサビ管名を入力してください。")
                 return
 
-            with st.spinner("Geminiで在宅評価を生成中."):
-                home_eval_json = generate_json_with_gemini(
-                    build_home_eval_from_support_record_prompt(
-                        resident_name=resident_name,
-                        year_val=create_year,
-                        month_val=create_month,
-                        support_record_text=support_record_text,
-                    )
+            weekly_visits = {
+                "1": visit_1,
+                "2": visit_2,
+                "3": visit_3,
+                "4": visit_4,
+                "5": visit_5,
+            }
+
+            driver = None
+            support_record_text = ""
+
+            try:
+                ctx = resolve_bee_company_context(
+                    company_login_id="",
+                    company_login_password="",
+                    knowbe_login_username="",
+                    knowbe_login_password="",
                 )
 
-            goals = home_eval_json.get("goals", [])
-            monthly_evaluations = home_eval_json.get("monthly_evaluations", [])
-            weekly_reports = home_eval_json.get("weekly_reports", {})
+                if not ctx.get("ok", False):
+                    st.error(ctx.get("error", "Knowbeログイン情報が取得できませんでした。"))
+                    return
 
-            # 生成結果が実質空なら作成しない
-            has_goals = any(str(x).strip() for x in goals)
-            has_monthly = any(str(x).strip() for x in monthly_evaluations)
-            has_weekly = any(str(v).strip() for v in weekly_reports.values())
+                login_username = str(ctx.get("knowbe_login_username", "")).strip()
+                login_password = str(ctx.get("knowbe_login_password", "")).strip()
 
-            if not (has_goals or has_monthly or has_weekly):
-                st.warning("支援記録は取得できましたが、在宅評価シートの生成結果が空だったため作成しませんでした。")
-                st.session_state["secret_home_eval_json"] = home_eval_json
-                st.session_state["secret_home_eval_cell_data"] = None
-                st.session_state["secret_home_eval_file"] = None
-                return
+                if not login_username or not login_password:
+                    st.error("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
+                    return
 
-            st.session_state["secret_home_eval_json"] = home_eval_json
+                with st.spinner("Knowbeへ接続中."):
+                    driver = build_chrome_driver()
+                    driver.get("https://mgr.knowbe.jp/v2/")
+                    time.sleep(1.0)
+                    manual_login_wait(driver, login_username, login_password)
 
-            cell_data = build_home_eval_cell_data(
-                resident_name=resident_name,
-                create_year=create_year,
-                create_month=create_month,
-                manager_name=manager_name,
-                goals=goals,
-                monthly_evaluations=monthly_evaluations,
-                weekly_dates=weekly_dates,
-                weekly_reports=weekly_reports,
-                weekly_visits=weekly_visits,
-            )
+                support_record_text = fetch_home_eval_support_record_text(
+                    resident_name=resident_name,
+                    create_year=create_year,
+                    create_month=create_month,
+                    driver=driver,
+                )
 
-            st.session_state["secret_home_eval_cell_data"] = cell_data
+                st.session_state["secret_home_eval_support_record_text"] = support_record_text
 
-            excel_buffer = create_excel_file("在宅評価シート", cell_data)
-            st.session_state["secret_home_eval_file"] = excel_buffer.getvalue()
+                # 支援記録が空なら作成しない
+                if not support_record_text or not str(support_record_text).strip():
+                    st.warning("この月は利用実績がないため、在宅評価シートは作成できませんでした（入院・未利用の可能性があります）。")
+                    st.session_state["secret_home_eval_json"] = None
+                    st.session_state["secret_home_eval_cell_data"] = None
+                    st.session_state["secret_home_eval_file"] = None
+                    return
 
-            st.success("在宅評価シートの1人分自動作成が完了しました。")
-
-        except Exception as e:
-            import traceback
-            st.error(f"在宅評価シート1人分自動作成エラー: {e}")
-            st.code(traceback.format_exc())
-
-        finally:
-            try:
-                if driver is not None:
-                    driver.quit()
-            except Exception:
-                pass
-
-    # ===== 全員分作成 =====
-    if all_generate:
-        if not str(create_year).strip() or not str(create_month).strip():
-            st.error("作成年と作成月を入力してください。")
-            return
-
-        if not str(manager_name).strip():
-            st.error("月間評価のサビ管名を入力してください。")
-            return
-
-        weekly_visits = {
-            "1": visit_1,
-            "2": visit_2,
-            "3": visit_3,
-            "4": visit_4,
-            "5": visit_5,
-        }
-
-        driver = None
-        created_files = []
-        created_names = []
-        failed_names = []
-        support_record_map = {}
-        home_eval_json_map = {}
-
-        try:
-            ctx = resolve_bee_company_context(
-                company_login_id="",
-                company_login_password="",
-                knowbe_login_username="",
-                knowbe_login_password="",
-            )
-
-            if not ctx.get("ok", False):
-                st.error(ctx.get("error", "Knowbeログイン情報が取得できませんでした。"))
-                return
-
-            login_username = str(ctx.get("knowbe_login_username", "")).strip()
-            login_password = str(ctx.get("knowbe_login_password", "")).strip()
-
-            if not login_username or not login_password:
-                st.error("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
-                return
-
-            with st.spinner("Knowbeへ接続中."):
-                driver = build_chrome_driver()
-                driver.get("https://mgr.knowbe.jp/v2/")
-                time.sleep(1.0)
-                manual_login_wait(driver, login_username, login_password)
-
-            progress = st.progress(0)
-            status_box = st.empty()
-
-            total_count = len(resident_options)
-
-            for idx, selected_label in enumerate(resident_options, start=1):
-                selected_row = resident_map.get(selected_label, {})
-                resident_name_loop = str(selected_row.get("resident_name", "")).strip()
-
-                if not resident_name_loop:
-                    failed_names.append(f"{selected_label}：利用者名取得失敗")
-                    progress.progress(idx / total_count)
-                    continue
-
-                try:
-                    status_box.info(f"{idx}/{total_count} 作成中: {resident_name_loop}")
-
-                    support_record_text = fetch_home_eval_support_record_text(
-                        resident_name=resident_name_loop,
-                        create_year=create_year,
-                        create_month=create_month,
-                        driver=driver,
-                    )
-
-                    if not support_record_text or not str(support_record_text).strip():
-                        msg = "この月は利用実績がないため、在宅評価シートは作成できませんでした（入院・未利用の可能性があります）。"
-                        failed_names.append(f"{resident_name_loop}：{msg}")
-                        st.warning(f"{resident_name_loop}：{msg}")
-                        progress.progress(idx / total_count)
-                        continue
-
-                    support_record_map[resident_name_loop] = support_record_text
-
+                with st.spinner("Geminiで在宅評価を生成中."):
                     home_eval_json = generate_json_with_gemini(
                         build_home_eval_from_support_record_prompt(
-                            resident_name=resident_name_loop,
+                            resident_name=resident_name,
                             year_val=create_year,
                             month_val=create_month,
                             support_record_text=support_record_text,
                         )
                     )
 
-                    goals = home_eval_json.get("goals", [])
-                    monthly_evaluations = home_eval_json.get("monthly_evaluations", [])
-                    weekly_reports = home_eval_json.get("weekly_reports", {})
+                goals = home_eval_json.get("goals", [])
+                monthly_evaluations = home_eval_json.get("monthly_evaluations", [])
+                weekly_reports = home_eval_json.get("weekly_reports", {})
 
-                    has_goals = any(str(x).strip() for x in goals)
-                    has_monthly = any(str(x).strip() for x in monthly_evaluations)
-                    has_weekly = any(str(v).strip() for v in weekly_reports.values())
+                # 生成結果が実質空なら作成しない
+                has_goals = any(str(x).strip() for x in goals)
+                has_monthly = any(str(x).strip() for x in monthly_evaluations)
+                has_weekly = any(str(v).strip() for v in weekly_reports.values())
 
-                    if not (has_goals or has_monthly or has_weekly):
-                        msg = "支援記録は取得できましたが、在宅評価シートの生成結果が空でした。"
-                        failed_names.append(f"{resident_name_loop}：{msg}")
-                        st.warning(f"{resident_name_loop}：{msg}")
+                if not (has_goals or has_monthly or has_weekly):
+                    st.warning("支援記録は取得できましたが、在宅評価シートの生成結果が空だったため作成しませんでした。")
+                    st.session_state["secret_home_eval_json"] = home_eval_json
+                    st.session_state["secret_home_eval_cell_data"] = None
+                    st.session_state["secret_home_eval_file"] = None
+                    return
+
+                st.session_state["secret_home_eval_json"] = home_eval_json
+
+                cell_data = build_home_eval_cell_data(
+                    resident_name=resident_name,
+                    create_year=create_year,
+                    create_month=create_month,
+                    manager_name=manager_name,
+                    goals=goals,
+                    monthly_evaluations=monthly_evaluations,
+                    weekly_dates=weekly_dates,
+                    weekly_reports=weekly_reports,
+                    weekly_visits=weekly_visits,
+                )
+
+                st.session_state["secret_home_eval_cell_data"] = cell_data
+
+                excel_buffer = create_excel_file("在宅評価シート", cell_data)
+                st.session_state["secret_home_eval_file"] = excel_buffer.getvalue()
+
+                st.success("在宅評価シートの1人分自動作成が完了しました。")
+
+            except Exception as e:
+                import traceback
+                st.error(f"在宅評価シート1人分自動作成エラー: {e}")
+                st.code(traceback.format_exc())
+
+            finally:
+                try:
+                    if driver is not None:
+                        driver.quit()
+                except Exception:
+                    pass
+
+        finally:
+            st.session_state["secret_home_eval_running_single"] = False
+
+    # ===== 全員分作成 =====
+    if all_generate and not st.session_state.get("secret_home_eval_running_all", False):
+        st.session_state["secret_home_eval_running_all"] = True
+        try:
+            if not str(create_year).strip() or not str(create_month).strip():
+                st.error("作成年と作成月を入力してください。")
+                return
+
+            if not str(manager_name).strip():
+                st.error("月間評価のサビ管名を入力してください。")
+                return
+
+            weekly_visits = {
+                "1": visit_1,
+                "2": visit_2,
+                "3": visit_3,
+                "4": visit_4,
+                "5": visit_5,
+            }
+
+            driver = None
+            created_files = []
+            created_names = []
+            failed_names = []
+            support_record_map = {}
+            home_eval_json_map = {}
+
+            try:
+                ctx = resolve_bee_company_context(
+                    company_login_id="",
+                    company_login_password="",
+                    knowbe_login_username="",
+                    knowbe_login_password="",
+                )
+
+                if not ctx.get("ok", False):
+                    st.error(ctx.get("error", "Knowbeログイン情報が取得できませんでした。"))
+                    return
+
+                login_username = str(ctx.get("knowbe_login_username", "")).strip()
+                login_password = str(ctx.get("knowbe_login_password", "")).strip()
+
+                if not login_username or not login_password:
+                    st.error("この事業所のKnowbeログイン情報が未登録です。『Knowbe情報登録』で保存してください。")
+                    return
+
+                with st.spinner("Knowbeへ接続中."):
+                    driver = build_chrome_driver()
+                    driver.get("https://mgr.knowbe.jp/v2/")
+                    time.sleep(1.0)
+                    manual_login_wait(driver, login_username, login_password)
+
+                progress = st.progress(0)
+                status_box = st.empty()
+
+                total_count = len(resident_options)
+
+                for idx, selected_label in enumerate(resident_options, start=1):
+                    selected_row = resident_map.get(selected_label, {})
+                    resident_name_loop = str(selected_row.get("resident_name", "")).strip()
+
+                    if not resident_name_loop:
+                        failed_names.append(f"{selected_label}：利用者名取得失敗")
                         progress.progress(idx / total_count)
                         continue
 
-                    home_eval_json_map[resident_name_loop] = home_eval_json
-
-                    cell_data = build_home_eval_cell_data(
-                        resident_name=resident_name_loop,
-                        create_year=create_year,
-                        create_month=create_month,
-                        manager_name=manager_name,
-                        goals=goals,
-                        monthly_evaluations=monthly_evaluations,
-                        weekly_dates=weekly_dates,
-                        weekly_reports=weekly_reports,
-                        weekly_visits=weekly_visits,
-                    )
-
-                    excel_buffer = create_excel_file("在宅評価シート", cell_data)
-
-                    if hasattr(excel_buffer, "getvalue"):
-                        excel_bytes = excel_buffer.getvalue()
-                    else:
-                        excel_bytes = excel_buffer
-
-                    created_files.append((resident_name_loop, excel_bytes))
-                    created_names.append(resident_name_loop)
-
-                except Exception as e:
-                    current_url = ""
                     try:
-                        if driver is not None:
-                            current_url = driver.current_url or ""
-                    except Exception:
+                        status_box.info(f"{idx}/{total_count} 作成中: {resident_name_loop}")
+
+                        support_record_text = fetch_home_eval_support_record_text(
+                            resident_name=resident_name_loop,
+                            create_year=create_year,
+                            create_month=create_month,
+                            driver=driver,
+                        )
+
+                        if not support_record_text or not str(support_record_text).strip():
+                            msg = "この月は利用実績がないため、在宅評価シートは作成できませんでした（入院・未利用の可能性があります）。"
+                            failed_names.append(f"{resident_name_loop}：{msg}")
+                            st.warning(f"{resident_name_loop}：{msg}")
+                            progress.progress(idx / total_count)
+                            continue
+
+                        support_record_map[resident_name_loop] = support_record_text
+
+                        home_eval_json = generate_json_with_gemini(
+                            build_home_eval_from_support_record_prompt(
+                                resident_name=resident_name_loop,
+                                year_val=create_year,
+                                month_val=create_month,
+                                support_record_text=support_record_text,
+                            )
+                        )
+
+                        goals = home_eval_json.get("goals", [])
+                        monthly_evaluations = home_eval_json.get("monthly_evaluations", [])
+                        weekly_reports = home_eval_json.get("weekly_reports", {})
+
+                        has_goals = any(str(x).strip() for x in goals)
+                        has_monthly = any(str(x).strip() for x in monthly_evaluations)
+                        has_weekly = any(str(v).strip() for v in weekly_reports.values())
+
+                        if not (has_goals or has_monthly or has_weekly):
+                            msg = "支援記録は取得できましたが、在宅評価シートの生成結果が空でした。"
+                            failed_names.append(f"{resident_name_loop}：{msg}")
+                            st.warning(f"{resident_name_loop}：{msg}")
+                            progress.progress(idx / total_count)
+                            continue
+
+                        home_eval_json_map[resident_name_loop] = home_eval_json
+
+                        cell_data = build_home_eval_cell_data(
+                            resident_name=resident_name_loop,
+                            create_year=create_year,
+                            create_month=create_month,
+                            manager_name=manager_name,
+                            goals=goals,
+                            monthly_evaluations=monthly_evaluations,
+                            weekly_dates=weekly_dates,
+                            weekly_reports=weekly_reports,
+                            weekly_visits=weekly_visits,
+                        )
+
+                        excel_buffer = create_excel_file("在宅評価シート", cell_data)
+
+                        if hasattr(excel_buffer, "getvalue"):
+                            excel_bytes = excel_buffer.getvalue()
+                        else:
+                            excel_bytes = excel_buffer
+
+                        created_files.append((resident_name_loop, excel_bytes))
+                        created_names.append(resident_name_loop)
+
+                    except Exception as e:
                         current_url = ""
+                        try:
+                            if driver is not None:
+                                current_url = driver.current_url or ""
+                        except Exception:
+                            current_url = ""
 
-                    failed_names.append(f"{resident_name_loop}：{e} | url={current_url}")
+                        failed_names.append(f"{resident_name_loop}：{e} | url={current_url}")
 
-                progress.progress(idx / total_count)
+                    progress.progress(idx / total_count)
 
-            progress.empty()
+                progress.empty()
 
-            if not created_files:
-                status_box.error("全員分の在宅評価シート作成に失敗しました。")
-                st.session_state["secret_home_eval_all_book"] = None
-                st.session_state["secret_home_eval_all_book_name"] = ""
+                if not created_files:
+                    status_box.error("全員分の在宅評価シート作成に失敗しました。")
+                    st.session_state["secret_home_eval_all_book"] = None
+                    st.session_state["secret_home_eval_all_book_name"] = ""
+                    st.session_state["secret_home_eval_all_created_names"] = created_names
+                    st.session_state["secret_home_eval_all_failed_names"] = failed_names
+                    st.session_state["secret_home_eval_support_record_map"] = support_record_map
+                    st.session_state["secret_home_eval_json_map"] = home_eval_json_map
+                    return
+
+                merged_book_bytes = build_home_eval_multi_workbook(created_files)
+
+                st.session_state["secret_home_eval_all_book"] = merged_book_bytes
+                st.session_state["secret_home_eval_all_book_name"] = f"{create_year}年{create_month}月_在宅評価シート_全員分.xlsx"
                 st.session_state["secret_home_eval_all_created_names"] = created_names
                 st.session_state["secret_home_eval_all_failed_names"] = failed_names
                 st.session_state["secret_home_eval_support_record_map"] = support_record_map
                 st.session_state["secret_home_eval_json_map"] = home_eval_json_map
-                return
 
-            merged_book_bytes = build_home_eval_multi_workbook(created_files)
+                status_box.success(f"全員分作成完了：成功 {len(created_names)}名 / 失敗 {len(failed_names)}名")
 
-            st.session_state["secret_home_eval_all_book"] = merged_book_bytes
-            st.session_state["secret_home_eval_all_book_name"] = f"{create_year}年{create_month}月_在宅評価シート_全員分.xlsx"
-            st.session_state["secret_home_eval_all_created_names"] = created_names
-            st.session_state["secret_home_eval_all_failed_names"] = failed_names
-            st.session_state["secret_home_eval_support_record_map"] = support_record_map
-            st.session_state["secret_home_eval_json_map"] = home_eval_json_map
+            except Exception as e:
+                st.error(f"在宅評価シート全員分自動作成エラー: {e}")
 
-            status_box.success(f"全員分作成完了：成功 {len(created_names)}名 / 失敗 {len(failed_names)}名")
-
-        except Exception as e:
-            st.error(f"在宅評価シート全員分自動作成エラー: {e}")
+            finally:
+                try:
+                    if driver is not None:
+                        driver.quit()
+                except Exception:
+                    pass
 
         finally:
-            try:
-                if driver is not None:
-                    driver.quit()
-            except Exception:
-                pass
+            st.session_state["secret_home_eval_running_all"] = False
 
     # ===== 1人分プレビュー =====
     if st.session_state.get("secret_home_eval_support_record_text"):

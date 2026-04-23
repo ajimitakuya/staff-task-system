@@ -67,7 +67,7 @@ def append_journal_log(row_dict):
 # =========================================
 # 月単位の日誌再生成
 # =========================================
-def generate_json_with_gemini_local(page_text: str, outside_workplace: str = ""):
+def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workplace: str = ""):
     api_key = _get_gemini_api_key()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY が見つかりません")
@@ -75,7 +75,7 @@ def generate_json_with_gemini_local(page_text: str, outside_workplace: str = "")
     genai.configure(api_key=api_key)
 
     system_instruction = """
-支援記録リライト専用 命令書 v7.1
+支援記録リライト専用 命令書 v8.0
 あなたの仕事は、Knowbe支援記録の原文をもとに、「利用者状態」と「職員考察」を、
 そのまま現場で貼り付けできる自然で完成度の高い文章へ再構成することです。
 
@@ -87,67 +87,137 @@ def generate_json_with_gemini_local(page_text: str, outside_workplace: str = "")
 """
 
     outside_info = str(outside_workplace or "").strip() or "未指定"
-    print(f"[FIX] Geminiへ送る施設外就労先 = {outside_info}", flush=True)
-
-    prompt = f"""
-以下はKnowbeの支援記録ページを月単位で取得した本文です。
-本文を読み取り、日付ごとに「利用者状態」と「職員考察」をJSONのみで返してください。
-
-【今回の施設外就労先指定】
-{outside_info}
-
-【絶対条件】
-- 出力はJSONのみ
-- キーは YYYY-MM-DD
-- 値は user_state / staff_note の2つ
-- 捏造禁止
-- 利用者状態は必ず完成文にする
-- 利用者状態には、開始時の様子、体調、作業内容、終了時の報告が分かるようにする
-- 「精神安定、体調不安定」などの短語のみは禁止
-
-【支援記録本文】
-{page_text}
-"""
+    day_text = str(day_text or "")
 
     model = genai.GenerativeModel(
         model_name="gemini-2.5-flash",
         system_instruction=system_instruction
     )
 
-    response = model.generate_content(prompt)
-    text = str(getattr(response, "text", "") or "").strip()
+    # =========================
+    # ① 抽出フェーズ
+    # =========================
+    prompt_extract = f"""
+以下はKnowbeの支援記録の1日分です。
 
-    print("[JR] Gemini raw response start", flush=True)
-    print(text[:3000], flush=True)
-    print("[JR] Gemini raw response end", flush=True)
+【日付】
+{day_key}
 
-    if not text:
-        return {}
+【本文】
+{day_text}
 
-    no_record_words = [
-        "利用実績がありません",
-        "利用実績を入力後、ご利用ください",
-        "支援記録がありません",
-        "JSONを生成できません",
-    ]
-    if any(w in text for w in no_record_words):
-        print("[JR] Gemini returned no-record message; skip month", flush=True)
-        return {}
+【目的】
+この文章から、事実情報を漏れなく抽出すること。
+文章を整えたり綺麗にしなくてよい。
 
-    cleaned = text.replace("```json", "").replace("```", "").strip()
-    json_start = cleaned.find("{")
-    json_end = cleaned.rfind("}")
-    if json_start == -1 or json_end == -1 or json_end <= json_start:
-        print("[JR] Gemini JSON block not found; skip month", flush=True)
-        return {}
+【抽出ルール】
+・元の表現をできるだけそのまま使う
+・「」の発言は絶対に残す
+・推測は禁止
+・余計なまとめは禁止
 
-    json_text = cleaned[json_start:json_end + 1]
+【出力形式（JSONのみ）】
+{{
+  "{day_key}": {{
+    "start": "",
+    "condition": "",
+    "work": "",
+    "end": "",
+    "voice": "",
+    "staff_observation": "",
+    "support_hint": ""
+  }}
+}}
+"""
+
+    print(f"[JR-DAY] {day_key} extract start", flush=True)
+
     try:
-        return json.loads(json_text)
+        res1 = model.generate_content(prompt_extract)
+        text1 = str(getattr(res1, "text", "") or "").strip()
     except Exception as e:
-        print(f"[JR] Gemini JSON parse failed; skip month: {e}", flush=True)
+        print(f"[JR-DAY] {day_key} extract error: {e}", flush=True)
         return {}
 
+    cleaned1 = text1.replace("```json", "").replace("```", "").strip()
+
+    try:
+        json_start = cleaned1.find("{")
+        json_end = cleaned1.rfind("}")
+        extracted_json = json.loads(cleaned1[json_start:json_end + 1])
+    except Exception as e:
+        print(f"[JR-DAY] {day_key} extract parse error: {e}", flush=True)
+        return {}
+
+    # =========================
+    # ② 整形フェーズ
+    # =========================
+    prompt_build = f"""
+以下は支援記録から抽出した情報です。
+
+{json.dumps(extracted_json, ensure_ascii=False)}
+
+【在宅ルール（最重要）】
+
+■利用者状態（必ず3文）
+① 作業開始の連絡
+② 体調
+③ 作業終了の連絡と具体的数量
+
+■職員考察（必ず2文）
+⑤ 状態の見立て
+⑥ 今後の支援
+
+【最重要ルール】
+・作業内容は終了文にまとめること
+・「〇〇を＜具体的数量＞やりました」は必ず終了文に含める
+・作業内容単独の文は禁止
+・必ず具体的数量を入れる
+
+■元文優先
+・元の言葉をできるだけ残す
+・「」の発言は絶対に残す
+
+■禁止
+・時刻禁止
+・「精神状態」など単語だけ禁止
+・挨拶禁止
+
+■終了文（最重要）
+必ず以下にする：
+「作業終了の連絡があり、〇〇を○枚（個）行った。」
+
+【出力形式（JSONのみ）】
+{{
+  "{day_key}": {{
+    "user_state": "",
+    "staff_note": ""
+  }}
+}}
+"""
+
+    print(f"[JR-DAY] {day_key} build start", flush=True)
+
+    try:
+        res2 = model.generate_content(prompt_build)
+        text2 = str(getattr(res2, "text", "") or "").strip()
+    except Exception as e:
+        print(f"[JR-DAY] {day_key} build error: {e}", flush=True)
+        return {}
+
+    print(f"[JR-DAY] {day_key} final raw start", flush=True)
+    print(text2[:2000], flush=True)
+    print(f"[JR-DAY] {day_key} final raw end", flush=True)
+
+    cleaned2 = text2.replace("```json", "").replace("```", "").strip()
+
+    try:
+        json_start = cleaned2.find("{")
+        json_end = cleaned2.rfind("}")
+        return json.loads(cleaned2[json_start:json_end + 1])
+    except Exception as e:
+        print(f"[JR-DAY] {day_key} build parse error: {e}", flush=True)
+        return {}
 
 # =========================================
 # textarea操作
@@ -186,6 +256,7 @@ def _textarea_value(el):
         return str(el.get_attribute("value") or "").strip()
     except Exception:
         return ""
+
 
 
 # =========================================
@@ -412,6 +483,313 @@ def _has_explicit_quantity(text: str):
     s = _normalize_text(text)
     return bool(re.search(r"(?:\d+\s*(?:枚|個|膳|本|羽)|[一二三四五六七八九十]+\s*(?:枚|個|膳|本|羽))", s))
 
+def _extract_first_sentence_by_keywords(text: str, keywords):
+    for s in _sentencize_jp(text):
+        if any(k in s for k in keywords):
+            return s.rstrip("。") + "。"
+    return ""
+
+def _uniq_sentences(*args):
+    seen = set()
+    result = []
+    for a in args:
+        a = _normalize_text(a)
+        if not a:
+            continue
+        key = re.sub(r"\s+", "", a.rstrip("。"))
+        if key and key not in seen:
+            seen.add(key)
+            result.append(a.rstrip("。") + "。")
+    return result
+
+def _extract_home_work_result(user_source: str, work_label: str, row_text: str) -> str:
+    user_src = _normalize_text(user_source)
+    work = _normalize_text(work_label)
+    row = _normalize_text(row_text)
+
+    # 1. 作業名＋数量が同じ文にあるものを最優先
+    if work:
+        for s in _sentencize_jp(user_src):
+            s2 = _normalize_work_quantity_phrase(s, work)
+            if work in s2 and re.search(r"\d+\s*(枚|個|膳|本|羽)", s2):
+                return s2.rstrip("。") + "。"
+
+    # 2. 数量文だけある場合（塗り絵を1枚など）
+    for s in _sentencize_jp(user_src):
+        s2 = _normalize_work_quantity_phrase(s, work)
+        if re.search(r"\d+\s*(枚|個|膳|本|羽)", s2):
+            return s2.rstrip("。") + "。"
+
+    # 3. work_labelから自然に作る
+    result_phrase = _build_work_result_phrase(work, user_src, row)
+
+    if "に取り組まれました" in result_phrase and _is_quantifiable_work(work):
+        est = _estimate_quantity_phrase(work, row) or _estimate_quantity_phrase(work, user_src)
+        if est:
+            return f"{est}実施されました。"
+
+        if "塗り絵" in work:
+            return "塗り絵を1枚実施されました。"
+        elif "箸" in work or "箸入れ" in work or "お箸" in work:
+            return f"{work}を1膳実施されました。"
+        elif "チラシ" in work:
+            return f"{work}を1枚実施されました。"
+        elif "折り鶴" in work or "鶴" in work:
+            return f"{work}を1羽実施されました。"
+
+    if result_phrase:
+        return result_phrase.rstrip("。") + "。"
+
+    if work:
+        return f"{work}に取り組まれました。"
+
+    return "作業に取り組まれました。"
+
+def _rebuild_home_record_strict(raw_user: str, raw_staff: str, work_label: str, row_text: str = ""):
+    raw_u = _normalize_text(raw_user)
+    raw_s = _normalize_text(raw_staff)
+    row = _normalize_text(row_text)
+    work = _normalize_text(work_label)
+
+    merged = " ".join([x for x in [raw_u, raw_s, row] if x]).strip()
+
+    # ---------------------------
+    # ① 利用者状態で使う要素
+    # ---------------------------
+
+    # 作業開始
+    start_line = _extract_first_sentence_by_keywords(
+        raw_u,
+        ["作業開始", "開始時", "開始前", "開始の連絡", "朝の連絡"]
+    )
+
+    # 体調（raw_user優先、なければraw_staffから救う）
+    health_line = _extract_first_sentence_by_keywords(
+        raw_u,
+        ["体調", "元気", "不調", "しんどい", "倦怠感", "安定", "不安定", "眠れ", "気分"]
+    )
+
+    # ★ここが追加（重要）
+    if not health_line:
+        health_line = _extract_first_sentence_by_keywords(
+            raw_s,
+            ["体調", "元気", "不調", "しんどい", "倦怠感", "安定", "不安定", "眠れ", "気分"]
+        )
+
+    # ★さらに補強（重要）
+    if health_line:
+        health_line = health_line.replace("との連絡を受けるが", "と報告がありました")
+        health_line = health_line.replace("との事でした", "と報告がありました")
+        health_line = health_line.replace("とされていた", "と報告がありました")
+        health_line = health_line.replace("と聞いている", "と報告がありました")
+        health_line = health_line.replace("と伺っている", "と報告がありました")
+    if not health_line:
+        health_line = _extract_first_sentence_by_keywords(
+            raw_s,
+            ["体調", "元気", "不調", "しんどい", "倦怠感", "安定", "不安定", "眠れ", "気分"]
+        )
+
+    # 終了文は「終了連絡 + 作業内容」を1文にまとめる
+    combined_end_line = ""
+
+    if work_result_line:
+        work_core = work_result_line.rstrip("。")
+        work_core = re.sub(r'^(作業終了時に連絡があり、|作業終了の連絡があり、)', '', work_core)
+        combined_end_line = f"作業終了の連絡があり、{work_core}。"
+    else:
+        combined_end_line = "作業終了の連絡がありました。"
+
+    # ---------------------------
+    # ② 職員考察で使う要素
+    # ---------------------------
+
+    opinion_line = _extract_first_sentence_by_keywords(
+        raw_s,
+        ["様子", "見られ", "感じられ", "うかがえ", "状態", "安定", "不安定", "しんどい", "倦怠感"]
+    )
+
+    support_line = _extract_first_sentence_by_keywords(
+        raw_s,
+        ["支援", "声掛け", "配慮", "確認", "見守り", "無理のない範囲", "継続"]
+    )
+
+    # ---------------------------
+    # ③ 不足分だけ補完
+    # ---------------------------
+
+    if not start_line:
+        start_line = "作業開始時に連絡がありました。"
+
+    if not health_line:
+        health_line = _extract_home_health_phrase(raw_u, raw_s, row)
+        if not health_line:
+            health_line = "体調について確認すると、大きな変化はない様子でした。"
+
+    # 体調文を利用者状態向けに軽く整える
+    health_line = health_line.replace("との連絡を受けるが", "と報告がありました")
+    health_line = health_line.replace("との事でした", "との報告がありました")
+    health_line = health_line.replace("と話される", "と報告がありました")
+    health_line = health_line.replace("ご本人様", "利用者さん")
+    health_line = health_line.replace("利用者様", "利用者さん")
+
+    if not work_result_line:
+        work_result_line = "作業に取り組まれました。"
+
+    # 終了文は内容を重ねない
+    if not end_line:
+        end_line = "作業終了時に連絡がありました。"
+
+    # 職員考察は「体調への見立て」と「支援」のみ
+    if not opinion_line:
+        if any(k in merged for k in ["不調", "しんどい", "倦怠感", "眠れない", "眠りが浅い", "不安定"]):
+            opinion_line = "体調に波がある中でも、無理のない範囲で作業に取り組まれていたようである。"
+        elif any(k in merged for k in ["良好", "元気", "普通", "大丈夫", "安定", "変わりなく"]):
+            opinion_line = "体調が安定していたことで、落ち着いて作業が進められたようである。"
+        else:
+            opinion_line = "その日の体調に応じて、無理なく作業に取り組めていたようである。"
+
+    # 作業そのものの説明や意味不明文は落とす
+    if opinion_line:
+        if any(k in opinion_line for k in ["塗り絵", "内職", "観葉植物", "作業開始の連絡", "希望にて", "にて作業"]):
+            opinion_line = ""
+
+    if not opinion_line:
+        if any(k in merged for k in ["不調", "しんどい", "倦怠感", "眠れない", "眠りが浅い", "不安定"]):
+            opinion_line = "体調が優れない中でも、できる範囲で作業に取り組まれていたようである。"
+        else:
+            opinion_line = "体調は安定しており、落ち着いて作業に取り組まれていたようである。"
+
+    if not support_line:
+        if any(k in merged for k in ["不調", "しんどい", "倦怠感", "眠れない", "眠りが浅い", "不安定"]):
+            support_line = "体調に配慮しながら、無理のない範囲で継続できるよう支援していきます。"
+        else:
+            support_line = "体調や作業の様子を確認しながら、安定して継続できるよう支援していきます。"
+
+    # ---------------------------
+    # ④ 利用者状態＝開始・体調・作業・終了
+    # ---------------------------
+    user_parts = _uniq_sentences(start_line, health_line, combined_end_line)
+
+    # ---------------------------
+    # ⑤ 職員考察＝体調への意見・支援
+    # ---------------------------
+    staff_parts = _uniq_sentences(opinion_line, support_line)
+
+    user_state = " ".join(user_parts).strip()
+    staff_note = " ".join(staff_parts).strip()
+
+    # 数量表現の整形
+    user_state = _normalize_work_quantity_phrase(user_state, work)
+    user_state = _convert_ambiguous_quantity_to_one_or_more(user_state, work, False)
+    user_state = _append_default_quantity_if_missing(user_state, work, False)
+
+    # 丁寧すぎる言い回しを落とす
+    user_state = user_state.replace("お聞きしております", "と報告がありました")
+    user_state = user_state.replace("お聞きしました", "と報告がありました")
+    user_state = user_state.replace("伺っております", "と報告がありました")
+    user_state = user_state.replace("伺いました", "と報告がありました")
+
+    staff_note = staff_note.replace("お聞きしております", "と報告がありました")
+    staff_note = staff_note.replace("お聞きしました", "と報告がありました")
+    staff_note = staff_note.replace("伺っております", "と報告がありました")
+    staff_note = staff_note.replace("伺いました", "と報告がありました")
+
+    # 呼称を統一
+    user_state = user_state.replace("ご本人様", "利用者さん")
+    user_state = user_state.replace("利用者様", "利用者さん")
+    staff_note = staff_note.replace("ご本人様", "利用者さん")
+    staff_note = staff_note.replace("利用者様", "利用者さん")
+
+    user_state = _fix_japanese_artifacts(user_state)
+    staff_note = _fix_japanese_artifacts(staff_note)
+
+    user_state = _cleanup_user_state_garbage(user_state, "在宅")
+    staff_note = _cleanup_staff_note_garbage(staff_note)
+
+    user_state = _dedupe_sentences(user_state)
+    staff_note = _dedupe_sentences(staff_note)
+
+    return user_state, staff_note
+
+def _fix_japanese_artifacts(text: str) -> str:
+    text = text.replace("とと報告がありました", "との報告がありました")
+    text = text.replace("。。", "。")
+    text = text.replace("..", ".")
+    text = text.replace("にてにて", "にて")
+
+    # 時刻は不要
+    text = re.sub(r'\b\d{1,2}:\d{2}\b', '', text)
+    text = re.sub(r'\b\d{1,2}時\d{1,2}分\b', '', text)
+    text = re.sub(r'\b\d{1,2}時\b', '', text)
+
+    # 時刻を消した後の不自然な残りを軽く整理
+    text = text.replace("に作業開始の連絡があった", "作業開始の連絡があった")
+    text = text.replace("に作業開始の連絡がありました", "作業開始の連絡がありました")
+    text = text.replace("に作業を開始した", "作業を開始した")
+    text = text.replace("に作業を開始する連絡があった", "作業開始の連絡があった")
+    text = text.replace("に作業終了の連絡があった", "作業終了の連絡があった")
+    text = text.replace("に作業終了の連絡がありました", "作業終了の連絡がありました")
+    text = text.replace("に作業を終了した", "作業を終了した")
+
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+def _force_end_sentence_order(user_state: str, work_label: str) -> str:
+    s = _normalize_text(user_state)
+    work = _normalize_text(work_label)
+
+    if not s:
+        return s
+
+    # まず時刻を消しておく
+    s = re.sub(r'\b\d{1,2}:\d{2}\b', '', s)
+    s = re.sub(r'\b\d{1,2}時\d{1,2}分\b', '', s)
+    s = re.sub(r'\b\d{1,2}時\b', '', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+
+    # 「作業終了の連絡」があり、かつ作業数量が別文にある場合に結合する
+    has_end = any(k in s for k in ["作業終了の連絡", "作業終了", "終了の連絡"])
+    if not has_end:
+        return s
+
+    qty_match = re.search(r'([^。]*\d+\s*(?:枚|個|膳|本|羽)[^。]*)。?', s)
+    if not qty_match:
+        return s
+
+    qty_phrase = qty_match.group(1).strip()
+
+    # 既に「作業終了の連絡があり、～」の形ならそのまま
+    if re.search(r'作業終了[^。]*、[^。]*\d+\s*(?:枚|個|膳|本|羽)', s):
+        return s
+
+    # 数量文を消して、終了文をまとめ直す
+    s = re.sub(r'[^。]*\d+\s*(?:枚|個|膳|本|羽)[^。]*。?', '', s)
+    s = re.sub(r'作業終了[^。]*。?', '', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+
+    end_line = f"作業終了の連絡があり、{qty_phrase}。"
+
+    if s:
+        return (s.rstrip("。") + "。 " + end_line).strip()
+    return end_line
+
+def _is_health_only_user_state(text: str) -> bool:
+    s = _normalize_text(text)
+    if not s:
+        return False
+
+    # 時刻削除
+    s = re.sub(r'\b\d{1,2}:\d{2}\b', '', s)
+    s = re.sub(r'\b\d{1,2}時\d{1,2}分\b', '', s)
+    s = re.sub(r'\b\d{1,2}時\b', '', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+
+    # 体調・精神だけで、作業や終了がないなら health only
+    has_health = any(k in s for k in ["体調", "精神", "良好", "安定", "不安定", "不調", "元気"])
+    has_work = any(k in s for k in ["塗り絵", "内職", "観葉植物", "箸", "チラシ", "折り鶴", "作業"])
+    has_end = any(k in s for k in ["作業終了", "終了の連絡", "作業開始", "開始の連絡"])
+
+    return has_health and not has_work and not has_end
 
 def _append_default_quantity_if_missing(text: str, work: str, allow_zero: bool):
     """
@@ -1100,6 +1478,233 @@ def _force_diamond_staff_note(staff_note: str, before_staff: str) -> str:
     result = _dedupe_sentences(_lighten_journal_tone(eval_line + " " + support_line))
     return result.strip()
 
+def _extract_home_health_phrase(*texts) -> str:
+    source = " ".join([_normalize_text(t) for t in texts if _normalize_text(t)])
+
+    patterns = [
+        r"(体調[^。]*?(?:良好|良い|よい|普通|まあまあ|まぁまぁ|大丈夫|不調|優れない|優れず|しんどい|安定|不安定)[^。]*。)",
+        r"(精神[^。]*?(?:安定|不安定)[^。]*。)",
+        r"(元気[^。]*。)",
+    ]
+    for pat in patterns:
+        m = re.search(pat, source)
+        if m:
+            return m.group(1).strip()
+
+    if any(k in source for k in ["不調", "優れない", "優れず", "しんどい", "だるい", "眠れない", "眠りが浅い"]):
+        return "作業開始時に体調について確認すると、あまり良くない状態との報告がありました。"
+
+    if any(k in source for k in ["良好", "元気", "普通", "大丈夫", "安定", "変わりなく"]):
+        return "作業開始時に体調について確認すると、大きな変化はなく落ち着いている様子でした。"
+
+    return "作業開始時に体調について確認すると、体調について報告がありました。"
+
+
+def _ensure_home_required_items(
+    user_state: str,
+    staff_note: str,
+    raw_user: str,
+    raw_staff: str,
+    work_label: str,
+    row_text: str = "",
+):
+    work = _normalize_text(work_label) or "作業"
+    src_user = _normalize_text(user_state)
+    src_staff = _normalize_text(staff_note)
+    raw_u = _normalize_text(raw_user)
+    raw_s = _normalize_text(raw_staff)
+    row = _normalize_text(row_text)
+
+    source_all = " ".join([src_user, src_staff, raw_u, raw_s, row]).strip()
+
+    # 0や半分はNGなので、在宅では allow_zero=False 扱いで固定
+    allow_zero = False
+
+    # ① 作業開始・終了
+    has_start = any(k in src_user for k in ["作業開始", "開始時", "開始前"])
+    has_end = any(k in src_user for k in ["作業終了", "終了時", "終了後"])
+
+    start_line = ""
+    end_line = ""
+
+    if not has_start:
+        start_line = _extract_home_health_phrase(raw_u, raw_s, row)
+        if not any(k in start_line for k in ["作業開始", "開始時", "開始前"]):
+            start_line = "作業開始時に体調について確認すると、" + start_line.rstrip("。") + "。"
+
+    # ② 体調
+    has_health = any(k in src_user for k in ["体調", "精神", "元気", "不調", "しんどい", "安定", "不安定"])
+    if not has_health:
+        health_line = _extract_home_health_phrase(raw_u, raw_s, row)
+    else:
+        health_line = ""
+
+    # ③ 作業内容＋具体的数量
+    result_phrase = _build_work_result_phrase(work, src_user, src_staff, raw_u, raw_s, row)
+    if "に取り組まれました" in result_phrase and _is_quantifiable_work(work):
+        # 数量が出ていないときは関数補完へ
+        est = _estimate_quantity_phrase(work, row) or _estimate_quantity_phrase(work, source_all)
+        if est:
+            result_phrase = est
+        else:
+            # 最後の保険
+            if "塗り絵" in work:
+                result_phrase = "塗り絵を1枚"
+            elif "箸" in work or "箸入れ" in work or "お箸" in work:
+                result_phrase = f"{work}を1膳"
+            elif "チラシ" in work:
+                result_phrase = f"{work}を1枚"
+            elif "折り鶴" in work or "鶴" in work:
+                result_phrase = f"{work}を1羽"
+
+    has_qty = bool(re.search(r"\d+\s*(枚|個|膳|本|羽)", src_user))
+    if not has_end or not has_qty:
+        end_line = f"作業終了時に連絡があり、{result_phrase}行ったとの報告がありました。"
+
+    # user_state 再構成
+    user_parts = []
+    if start_line:
+        user_parts.append(start_line)
+    elif has_start:
+        user_parts.append(src_user)
+
+    if health_line and health_line not in " ".join(user_parts):
+        user_parts.append(health_line)
+
+    if end_line:
+        user_parts.append(end_line)
+    elif src_user:
+        user_parts.append(src_user)
+
+    rebuilt_user = " ".join([p for p in user_parts if _normalize_text(p)])
+    rebuilt_user = _normalize_work_quantity_phrase(rebuilt_user, work)
+    rebuilt_user = _convert_ambiguous_quantity_to_one_or_more(rebuilt_user, work, allow_zero)
+    rebuilt_user = _append_default_quantity_if_missing(rebuilt_user, work, allow_zero)
+    rebuilt_user = _dedupe_sentences(rebuilt_user)
+
+    # ④ 支援内容
+    has_support = any(k in src_staff for k in ["支援", "声掛け", "確認", "配慮", "見守り", "無理のない範囲", "継続"])
+    if not has_support:
+        if any(k in source_all for k in ["不調", "優れない", "しんどい", "だるい", "眠れない", "不安定"]):
+            support_line = "体調に配慮しながら、無理のない範囲で取り組めるよう支援していきます。"
+        else:
+            support_line = "その日の状態を確認しながら、無理のない範囲で継続できるよう支援していきます。"
+
+        if src_staff:
+            rebuilt_staff = _dedupe_sentences(src_staff + " " + support_line)
+        else:
+            rebuilt_staff = support_line
+    else:
+        rebuilt_staff = _dedupe_sentences(src_staff)
+
+    rebuilt_staff = _cleanup_staff_note_garbage(rebuilt_staff)
+    rebuilt_user = _cleanup_user_state_garbage(rebuilt_user, "在宅")
+
+    return rebuilt_user, rebuilt_staff
+
+def _finalize_non_home_mode(
+    mode: str,
+    user_state: str,
+    staff_note: str,
+    raw_user: str,
+    raw_staff: str,
+    work_label: str,
+    row_text: str = "",
+):
+    user = _normalize_text(user_state)
+    staff = _normalize_text(staff_note)
+    raw_u = _normalize_text(raw_user)
+    raw_s = _normalize_text(raw_staff)
+    work = _normalize_text(work_label)
+    row = _normalize_text(row_text)
+
+    # まず既存のモード整形を必ず通す
+    user = _apply_mode_prefix_to_user_state(mode, user)
+    staff = _apply_mode_prefix_to_staff_note(mode, staff)
+    user, staff = _enforce_mode_phrasing(mode, user, staff)
+
+    if mode == "通所":
+        forbidden_user = [
+            r'作業開始の連絡があり[^。]*。?',
+            r'作業終了の連絡があり[^。]*。?',
+            r'開始前に連絡があり[^。]*。?',
+            r'終了時に連絡があり[^。]*。?',
+            r'電話連絡[^。]*。?',
+            r'電話で[^。]*作業開始[^。]*。?',
+            r'電話で[^。]*報告[^。]*。?',
+        ]
+        forbidden_staff = [
+            r'作業開始の連絡があり[^。]*。?',
+            r'作業終了の連絡があり[^。]*。?',
+            r'電話連絡[^。]*。?',
+        ]
+        for pat in forbidden_user:
+            user = re.sub(pat, '', user)
+        for pat in forbidden_staff:
+            staff = re.sub(pat, '', staff)
+
+        # 通所なのに崩れたら、通所専用再構成
+        if (not user.strip()) or any(k in user for k in ["作業開始の連絡", "作業終了の連絡", "電話連絡", "在宅"]):
+            row_data = {
+                "利用者状態": raw_u,
+                "職員考察": raw_s,
+                "作業": work,
+                "row_text": row,
+            }
+            user = _build_office_user_state(row_data)
+            staff = _build_office_staff_note(row_data)
+
+        user = _apply_mode_prefix_to_user_state(mode, user)
+        staff = _apply_mode_prefix_to_staff_note(mode, staff)
+        user, staff = _enforce_mode_phrasing(mode, user, staff)
+
+    elif mode == "施設外":
+        forbidden_user = [
+            r'作業開始の連絡があり[^。]*。?',
+            r'作業終了の連絡があり[^。]*。?',
+            r'開始前に連絡があり[^。]*。?',
+            r'終了時に連絡があり[^。]*。?',
+            r'電話連絡[^。]*。?',
+            r'電話で[^。]*作業開始[^。]*。?',
+            r'来所時[^。]*。?',
+            r'来所され[^。]*。?',
+            r'時間通りに来所[^。]*。?',
+            r'通所[^。]*。?',
+        ]
+        forbidden_staff = [
+            r'作業開始の連絡があり[^。]*。?',
+            r'作業終了の連絡があり[^。]*。?',
+            r'電話連絡[^。]*。?',
+            r'来所時[^。]*。?',
+            r'通所[^。]*。?',
+        ]
+        for pat in forbidden_user:
+            user = re.sub(pat, '', user)
+        for pat in forbidden_staff:
+            staff = re.sub(pat, '', staff)
+
+        # 施設外なのに崩れたら最低限の施設外文へ戻す
+        if (not user.strip()) or any(k in user for k in ["作業開始の連絡", "作業終了の連絡", "電話連絡", "来所", "在宅"]):
+            detail = _facility_cleaning_detail_phrase(" ".join([raw_u, raw_s, row, work]))
+            user = f"{detail}に取り組まれました。"
+            if raw_u and any(k in raw_u for k in ["体調", "元気", "良好", "普通", "不調", "しんどい"]):
+                user = raw_u.rstrip("。") + "。 " + user
+
+            if raw_s:
+                staff = raw_s
+            else:
+                staff = "その日の体調や作業の様子を確認しながら、無理なく続けられるよう支援していきます。"
+
+        user = _apply_mode_prefix_to_user_state(mode, user)
+        staff = _apply_mode_prefix_to_staff_note(mode, staff)
+        user, staff = _enforce_mode_phrasing(mode, user, staff)
+
+    user = _cleanup_user_state_garbage(user, mode)
+    staff = _cleanup_staff_note_garbage(staff)
+    user = _dedupe_sentences(user)
+    staff = _dedupe_sentences(staff)
+
+    return user.strip(), staff.strip()
 
 def _update_live_status(live_status_box, text: str, level: str = "info"):
     if live_status_box is None:
@@ -1189,39 +1794,47 @@ def _detect_service_mode(row_text: str, work_text: str = "", user_text: str = ""
     if any(k in src for k in outside_keywords):
         return "施設外"
 
-    # 2. 食事ありは100%通所
-    has_meal = any(k in src for k in ["食事あり", "昼食あり", "昼食提供", "食事提供"])
-    if has_meal:
-        return "通所"
+    # 2. 「通所」+ 時間帯あり の Knowbe行は、
+    #    食事あり がなければ在宅判定にする（ゆー運用の最重要ルール）
+    has_tsuusho = "通所" in row_src
+    has_time_range = bool(re.search(r'\d{1,2}:\d{2}\s*〜\s*\d{1,2}:\d{2}', row_src))
+    has_meal = any(k in row_src for k in ["食事あり", "昼食あり", "昼食提供", "食事提供"])
 
-    # 3. 在宅明記
-    if "在宅" in src:
+    if has_tsuusho and has_time_range:
+        if has_meal:
+            return "通所"
         return "在宅"
 
-    # 4. 在宅っぽい語
+    # 3. 在宅の強い根拠
     remote_keywords = [
-        "電話", "連絡", "作業開始の連絡", "作業終了の連絡",
-        "開始前の連絡", "終了時の連絡", "電話連絡"
+        "在宅",
+        "在宅利用",
+        "作業開始の連絡",
+        "作業終了の連絡",
+        "開始前に連絡",
+        "終了時に連絡",
+        "電話連絡",
+        "自宅にて",
+        "自宅で作業"
     ]
-    has_remote_signal = any(k in src for k in remote_keywords)
+    if any(k in src for k in remote_keywords):
+        return "在宅"
 
-    # 5. 通所っぽい語
+    # 4. 通所の強い根拠（食事あり以外の補助判定）
     office_keywords = [
         "来所", "来られ", "来室", "来訪",
         "作業場に来", "作業場へ来",
         "時間通りに来所", "定刻通りに来所",
-        "時間通り作業場", "定刻通り作業場",
-        "予定通り来所", "予定通り作業場",
-        "通所", "帰った"
+        "予定通り来所", "帰宅", "退所"
     ]
-    has_office_signal = any(k in src for k in office_keywords)
-
-    if has_office_signal and not has_remote_signal:
+    if any(k in src for k in office_keywords):
         return "通所"
 
-    if has_remote_signal:
+    # 5. その他に在宅利用があれば在宅優先
+    if "在宅利用" in row_src:
         return "在宅"
 
+    # 6. デフォルトは在宅寄りにしておく
     return "在宅"
 
 def _apply_mode_prefix_to_user_state(mode: str, user_state: str) -> str:
@@ -1306,7 +1919,12 @@ def _enforce_mode_phrasing(mode: str, user_state: str, staff_note: str):
         forbidden_user = [
             r'在宅[^。]*。?',
             r'作業開始の電話があり[^。]*。?',
+            r'作業開始の連絡があり[^。]*。?',
+            r'作業終了の連絡があり[^。]*。?',
+            r'開始前に連絡があり[^。]*。?',
+            r'終了時に連絡があり[^。]*。?',
             r'電話で[^。]*作業開始[^。]*。?',
+            r'電話連絡[^。]*。?',
             r'施設外就労[^。]*。?',
             r'施設外支援[^。]*。?',
         ]
@@ -1315,6 +1933,9 @@ def _enforce_mode_phrasing(mode: str, user_state: str, staff_note: str):
 
         forbidden_staff = [
             r'在宅[^。]*。?',
+            r'作業開始の連絡があり[^。]*。?',
+            r'作業終了の連絡があり[^。]*。?',
+            r'電話連絡[^。]*。?',
             r'施設外就労[^。]*。?',
             r'施設外支援[^。]*。?',
         ]
@@ -1326,6 +1947,10 @@ def _enforce_mode_phrasing(mode: str, user_state: str, staff_note: str):
         forbidden_user = [
             r'作業開始の電話があり[^。]*。?',
             r'作業開始の連絡があり[^。]*。?',
+            r'作業終了の連絡があり[^。]*。?',
+            r'開始前に連絡があり[^。]*。?',
+            r'終了時に連絡があり[^。]*。?',
+            r'電話連絡[^。]*。?',
             r'来所時[^。]*。?',
             r'来所され[^。]*。?',
             r'時間通りに来所[^。]*。?',
@@ -1337,6 +1962,9 @@ def _enforce_mode_phrasing(mode: str, user_state: str, staff_note: str):
         forbidden_staff = [
             r'来所時[^。]*。?',
             r'来所され[^。]*。?',
+            r'作業開始の連絡があり[^。]*。?',
+            r'作業終了の連絡があり[^。]*。?',
+            r'電話連絡[^。]*。?',
             r'在宅[^。]*。?',
         ]
         for pat in forbidden_staff:
@@ -1460,10 +2088,31 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
                 user_state = _normalize_text(user_state)
                 staff_note = _normalize_text(staff_note)
 
-                ng_words = ["在宅", "電話", "連絡", "作業開始の連絡"]
+                ng_words = ["在宅", "在宅利用", "作業開始の連絡", "作業開始の電話", "電話で作業開始"]
                 if any(w in user_state for w in ng_words) or any(w in staff_note for w in ng_words):
                     user_state = _build_office_user_state(row_data)
                     staff_note = _build_office_staff_note(row_data)
+
+        if mode == "在宅":
+            user_state = _fix_japanese_artifacts(_normalize_text(user_state))
+            staff_note = _fix_japanese_artifacts(_normalize_text(staff_note))
+
+            user_state = _cleanup_user_state_garbage(user_state, "在宅")
+            staff_note = _cleanup_staff_note_garbage(staff_note)
+
+            user_state = _dedupe_sentences(user_state)
+            staff_note = _dedupe_sentences(staff_note)
+
+        if mode in ["通所", "施設外"]:
+            user_state, staff_note = _finalize_non_home_mode(
+                mode=mode,
+                user_state=user_state,
+                staff_note=staff_note,
+                raw_user=raw_user,
+                raw_staff=raw_staff,
+                work_label=work,
+                row_text=row_data.get("row_text", ""),
+            )
 
         fixed[date_str] = {
             "user_state": user_state,
@@ -1533,10 +2182,31 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
                 rebuilt_user = _normalize_text(rebuilt_user)
                 rebuilt_staff = _normalize_text(rebuilt_staff)
 
-                ng_words = ["在宅", "電話", "連絡", "作業開始の連絡"]
+                ng_words = ["在宅", "在宅利用", "作業開始の連絡", "作業開始の電話", "電話で作業開始"]
                 if any(w in rebuilt_user for w in ng_words) or any(w in rebuilt_staff for w in ng_words):
                     rebuilt_user = _build_office_user_state(row_data)
                     rebuilt_staff = _build_office_staff_note(row_data)
+
+        if mode == "在宅":
+            rebuilt_user = _fix_japanese_artifacts(_normalize_text(rebuilt_user))
+            rebuilt_staff = _fix_japanese_artifacts(_normalize_text(rebuilt_staff))
+
+            rebuilt_user = _cleanup_user_state_garbage(rebuilt_user, "在宅")
+            rebuilt_staff = _cleanup_staff_note_garbage(rebuilt_staff)
+
+            rebuilt_user = _dedupe_sentences(rebuilt_user)
+            rebuilt_staff = _dedupe_sentences(rebuilt_staff)
+
+        if mode in ["通所", "施設外"]:
+            rebuilt_user, rebuilt_staff = _finalize_non_home_mode(
+                mode=mode,
+                user_state=rebuilt_user,
+                staff_note=rebuilt_staff,
+                raw_user=raw_user,
+                raw_staff=raw_staff,
+                work_label=work,
+                row_text=row_data.get("row_text", ""),
+            )
 
         fixed[key] = {
             "user_state": rebuilt_user,
@@ -1825,9 +2495,31 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
             return
 
         # 月全体ヘッダに「施設外支援 0/180日」が含まれるため、
-        # 月単位で mode 判定すると全員が施設外扱いになる。
-        # したがって月全体判定はせず、必ず Gemini → 日別postprocess へ流す。
-        result_json = generate_json_with_gemini_local(page_text_str, outside_workplace)
+        # 月まとめでの一括生成はやめて、1日ずつ Gemini に投げる
+        blocks = _split_support_record_blocks(page_text_str)
+        result_json = {}
+
+        for day, block in sorted(blocks.items()):
+            day_key = f"{year:04d}-{month:02d}-{day:02d}"
+            day_text = _normalize_text(block.get("all_text", ""))
+
+            print(f"[JR-DAY] processing {resident_name} {day_key}", flush=True)
+
+            day_json = generate_json_with_gemini_one_day(
+                day_key=day_key,
+                day_text=day_text,
+                outside_workplace=outside_workplace,
+            )
+
+            if day_key in day_json:
+                result_json[day_key] = day_json[day_key]
+            else:
+                result_json[day_key] = {
+                    "user_state": "",
+                    "staff_note": "",
+                    "preserve_raw": False,
+                }
+
         result_json = _postprocess_gemini_result(
             page_text_str,
             result_json,
@@ -1931,19 +2623,31 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                     or len(_sentencize_jp(final_user_state)) < 2
                 )
 
-                if gemini_is_weak and not preserve_raw:
-                    rebuilt = _rebuild_user_state_from_existing(
-                        before_user=before_user,
-                        before_staff=before_staff,
-                        work_label=work_label,
-                    )
-                    if rebuilt and (
-                        not _looks_like_short_health_only(rebuilt)
-                        and len(_sentencize_jp(rebuilt)) >= 2
-                    ):
-                        final_user_state = rebuilt
-                    elif rebuilt and not final_user_state:
-                        final_user_state = rebuilt
+                if (gemini_is_weak or _is_health_only_user_state(final_user_state)) and not preserve_raw:
+                    if mode == "在宅":
+                        rebuilt_user, rebuilt_staff = _rebuild_home_record_strict(
+                            raw_user="",
+                            raw_staff=before_staff,
+                            work_label=work_label,
+                            row_text=row_text,
+                        )
+                        if rebuilt_user:
+                            final_user_state = rebuilt_user
+                        if rebuilt_staff and not final_staff_note:
+                            final_staff_note = rebuilt_staff
+                    else:
+                        rebuilt = _rebuild_user_state_from_existing(
+                            before_user=before_user,
+                            before_staff=before_staff,
+                            work_label=work_label,
+                        )
+                        if rebuilt and (
+                            not _looks_like_short_health_only(rebuilt)
+                            and len(_sentencize_jp(rebuilt)) >= 2
+                        ):
+                            final_user_state = rebuilt
+                        elif rebuilt and not final_user_state:
+                            final_user_state = rebuilt
 
                 # preserve_raw の日は raw を守る
                 if preserve_raw:
@@ -2005,6 +2709,11 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
 
                 final_user_state = re.sub(r'\s+', ' ', final_user_state).strip()
                 final_staff_note = re.sub(r'\s+', ' ', final_staff_note).strip()
+
+                final_user_state = _fix_japanese_artifacts(final_user_state)
+                final_staff_note = _fix_japanese_artifacts(final_staff_note)
+
+                final_user_state = _force_end_sentence_order(final_user_state, work_label)                
 
                 final_user_state = _dedupe_sentences(final_user_state)
                 final_staff_note = _dedupe_sentences(final_staff_note)
@@ -2135,59 +2844,6 @@ FUTURE_PATTERNS = [
     "引き続き体調面に留意しながら安定して取り組めるよう支援する。",
     "今後も無理のない範囲で継続できるよう支援していく。",
 ]
-
-def rewrite_with_gemini(user_state: str, staff_note: str):
-    api_key = _get_gemini_api_key()
-    if not api_key:
-        return user_state, staff_note
-
-    genai.configure(api_key=api_key)
-
-    prompt = f"""
-次の文章を自然な日本語に言い換えてください。
-
-【絶対ルール】
-・文数は変えない
-・意味は絶対に変えない
-・新しい情報を追加しない
-・体調、作業内容、数量は絶対に変更しない
-・在宅/通所/施設外の文脈を壊さない
-
-【やっていいこと】
-・言い回しの変更
-・語尾の調整
-・接続の自然化
-
-【禁止】
-・要約
-・削除
-・文の追加
-・推測の追加
-
-【入力】
-利用者状態：
-{user_state}
-
-職員考察：
-{staff_note}
-
-【出力形式】
-{{
-  "user_state": "...",
-  "staff_note": "..."
-}}
-"""
-
-    model = genai.GenerativeModel("gemini-2.5-flash")
-    res = model.generate_content(prompt)
-
-    try:
-        text = res.text.strip()
-        text = text.replace("```json", "").replace("```", "")
-        data = json.loads(text)
-        return data.get("user_state", user_state), data.get("staff_note", staff_note)
-    except:
-        return user_state, staff_note
 
 # =========================================
 # メイン処理

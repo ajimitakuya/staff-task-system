@@ -1,31 +1,19 @@
 import time
-import re
 from datetime import timedelta, date
 
 import streamlit as st
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-
 from data_access import load_db
 from run_assistance import (
     build_chrome_driver,
     get_knowbe_login_credentials,
     manual_login_wait,
     goto_report_daily,
-    goto_report_date,
-    safe_click,
-    set_input_value,
-    click_pencil_in_row,
-    wait_table_stable_after_date_change,
+    update_report_note_only,
 )
 
 # ===================================
 # 共通
 # ===================================
-def _norm_name(s: str) -> str:
-    return re.sub(r"\s+", "", str(s or "").strip())
-
 def _iter_dates(start_date: date, end_date: date):
     cur = start_date
     while cur <= end_date:
@@ -60,173 +48,32 @@ def _get_active_residents(company_id: str):
     return sorted(work["resident_name"].unique().tolist())
 
 # ===================================
-# 利用実績一覧の対象行探し
-# ===================================
-def _find_usage_row_by_name(driver, resident_name: str, timeout: int = 15):
-    wait = WebDriverWait(driver, timeout)
-    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table")))
-
-    target = _norm_name(resident_name)
-
-    try:
-        rows = driver.find_elements(By.XPATH, "//tbody/tr")
-    except Exception:
-        rows = []
-
-    # まず完全一致寄り
-    for row in rows:
-        try:
-            txt = _norm_name((row.text or "").replace("\n", " "))
-            if txt == target or txt.startswith(target):
-                return row
-        except Exception:
-            continue
-
-    # 次に部分一致
-    for row in rows:
-        try:
-            txt = _norm_name((row.text or "").replace("\n", " "))
-            if target and target in txt:
-                return row
-        except Exception:
-            continue
-
-    return None
-
-# ===================================
-# 備考欄
-# ===================================
-def _find_remark_input(driver, timeout: int = 10):
-    wait = WebDriverWait(driver, timeout)
-
-    xpaths = [
-        # 備考ラベル → textarea
-        "//label[contains(., '備考')]/following::textarea[1]",
-        "//div[contains(., '備考')]/following::textarea[1]",
-
-        # contenteditable対応（React対策）
-        "//div[contains(., '備考')]/following::*[@contenteditable='true'][1]",
-
-        # fallback
-        "(//textarea)[last()]",
-        "//*[@contenteditable='true']",
-    ]
-
-    for xp in xpaths:
-        try:
-            el = wait.until(EC.presence_of_element_located((By.XPATH, xp)))
-            return el
-        except Exception:
-            continue
-
-    return None
-
-# ===================================
-# 保存
-# ===================================
-def _save_dialog(driver, timeout: int = 10):
-    wait = WebDriverWait(driver, timeout)
-
-    xpaths = [
-        "//button[contains(normalize-space(.),'保存')]",
-        "//button[contains(normalize-space(.),'更新')]",
-        "//span[contains(normalize-space(.),'保存')]/ancestor::button[1]",
-        "//span[contains(normalize-space(.),'更新')]/ancestor::button[1]",
-    ]
-
-    for xp in xpaths:
-        try:
-            btn = wait.until(EC.element_to_be_clickable((By.XPATH, xp)))
-            if safe_click(driver, btn):
-                time.sleep(0.8)
-                return True
-        except Exception:
-            continue
-
-    return False
-
-# ===================================
-# 1人・1日処理
-# ===================================
-def _apply_home_flag_one(driver, target_date: date, resident_name: str, remark_text="在宅利用"):
-    try:
-        goto_report_date(driver, target_date.year, target_date.month, target_date.day)
-        wait_table_stable_after_date_change(driver, timeout=20)
-        time.sleep(0.8)
-
-        row = _find_usage_row_by_name(driver, resident_name)
-        if row is None:
-            return False, f"{resident_name}: {target_date} 一覧で見つからない"
-
-        # run_assistance 側の最新版に合わせる
-        if not click_pencil_in_row(driver, row):
-            return False, f"{resident_name}: {target_date} 鉛筆ボタンを押せない"
-
-        time.sleep(1.0)
-
-        remark_el = _find_remark_input(driver)
-        if remark_el is None:
-            return False, f"{resident_name}: {target_date} 備考欄が見つからない"
-
-        # 👇ここ追加
-        try:
-            print("DEBUG: 備考入力対象:", remark_el.get_attribute("outerHTML")[:200])
-        except:
-            print("DEBUG: 備考入力対象: 取得できず")
-
-        try:
-            tag = remark_el.tag_name.lower()
-
-            if tag == "textarea" or tag == "input":
-                set_input_value(driver, remark_el, remark_text)
-            else:
-                # contenteditable用
-                remark_el.click()
-                remark_el.clear() if hasattr(remark_el, "clear") else None
-                remark_el.send_keys(remark_text)
-
-        except Exception as e:
-            print("DEBUG: 入力エラー:", e)
-        time.sleep(0.3)
-
-        if not _save_dialog(driver):
-            return False, f"{resident_name}: {target_date} 保存ボタンが見つからない"
-
-        time.sleep(1.0)
-        return True, f"{resident_name}: {target_date} 完了"
-
-    except Exception as e:
-        return False, f"{resident_name}: {target_date} {e}"
-
-# ===================================
 # 期間一括
 # ===================================
 def run_set_home_flag_period(driver, resident_names, start_date: date, end_date: date, remark_text="在宅利用", status_box=None):
     done = []
     failed = []
 
-    goto_report_daily(driver)
-    wait_table_stable_after_date_change(driver, timeout=20)
-    time.sleep(1.0)
-
     all_dates = list(_iter_dates(start_date, end_date))
 
     for d in all_dates:
+        day_str = d.strftime("%Y-%m-%d")
+
         for resident_name in resident_names:
             if status_box is not None:
-                status_box.info(f"処理中: {d} / {resident_name}")
+                status_box.info(f"処理中: {day_str} / {resident_name}")
 
-            ok, msg = _apply_home_flag_one(
+            ok = update_report_note_only(
                 driver=driver,
-                target_date=d,
+                target_date=day_str,
                 resident_name=resident_name,
-                remark_text=remark_text,
+                note_text=remark_text,
             )
 
             if ok:
-                done.append(msg)
+                done.append(f"{resident_name}: {day_str} 完了")
             else:
-                failed.append(msg)
+                failed.append(f"{resident_name}: {day_str} 失敗")
 
     return done, failed
 
