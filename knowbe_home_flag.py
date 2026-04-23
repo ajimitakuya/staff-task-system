@@ -99,14 +99,19 @@ def _find_usage_row_by_name(driver, resident_name: str, timeout: int = 15):
 def _find_remark_input(driver, timeout: int = 10):
     wait = WebDriverWait(driver, timeout)
 
-    candidates = [
-        (By.XPATH, "//textarea"),
-        (By.XPATH, "//input[@type='text']"),
+    # 「備考」ラベルの近くを狙う
+    xpaths = [
+        # ラベル→textarea
+        "//label[contains(., '備考')]/following::textarea[1]",
+        # 見出し→textarea
+        "//div[contains(., '備考')]/following::textarea[1]",
+        # フォールバック
+        "(//textarea)[last()]"
     ]
 
-    for by, selector in candidates:
+    for xp in xpaths:
         try:
-            el = wait.until(EC.presence_of_element_located((by, selector)))
+            el = wait.until(EC.presence_of_element_located((By.XPATH, xp)))
             return el
         except Exception:
             continue
@@ -159,6 +164,12 @@ def _apply_home_flag_one(driver, target_date: date, resident_name: str, remark_t
         remark_el = _find_remark_input(driver)
         if remark_el is None:
             return False, f"{resident_name}: {target_date} 備考欄が見つからない"
+
+        # 👇ここ追加
+        try:
+            print("DEBUG: 備考入力対象:", remark_el.get_attribute("outerHTML")[:200])
+        except:
+            print("DEBUG: 備考入力対象: 取得できず")
 
         set_input_value(driver, remark_el, remark_text)
         time.sleep(0.3)
