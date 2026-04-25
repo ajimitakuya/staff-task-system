@@ -31,6 +31,7 @@ from knowbe_home_flag import render_knowbe_home_flag_page
 
 JST = timezone(timedelta(hours=9))
 
+
 # --- ページ基本設定 ---
 st.set_page_config(page_title="作業管理システム", layout="wide")
 # st.caption("APP_VERSION = 2026-03-21-knowbe-debug-01")

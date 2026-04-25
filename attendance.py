@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import uuid
 
 from common import now_jst
 from data_access import (
@@ -11,6 +12,12 @@ from data_access import (
     get_companies_df,
 )
 
+from supabase import create_client
+
+SUPABASE_URL = "https://qofabfhjorqeeyrlrnwv.supabase.co"
+SUPABASE_KEY = "sb_publishable_G3oY4S2zu8piW0-wR5CNLQ_IaIrDekc"
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =========================
 # 初期化
@@ -64,10 +71,7 @@ def init_attendance_runtime_state():
 # 保存
 # =========================
 def flush_attendance_pending_logs(force: bool = False):
-    """
-    pending に積んだ勤怠ログをまとめて attendance_logs へ保存する。
-    force=False のときは、前回flushから5分以上経過した場合のみ保存。
-    """
+
     pending_logs = st.session_state.get("attendance_pending_logs", [])
     if not pending_logs:
         return False
@@ -89,26 +93,19 @@ def flush_attendance_pending_logs(force: bool = False):
     if not should_flush:
         return False
 
-    attendance_logs_df = st.session_state.get("attendance_logs_df")
-    if attendance_logs_df is None or attendance_logs_df.empty:
-        attendance_logs_df = pd.DataFrame(columns=[
-            "attendance_id", "date", "user_id", "company_id",
-            "action", "timestamp", "device_name", "recorded_by"
-        ])
-    else:
-        attendance_logs_df = attendance_logs_df.copy()
+    try:
+        # 🔥 insertのみ（IDはDBが作る）
+        supabase.table("attendance_logs").insert(pending_logs).execute()
+    except Exception as e:
+        st.error(f"勤怠保存エラー: {e}")
+        return False
 
-    add_df = pd.DataFrame(pending_logs)
-    attendance_logs_df = pd.concat([attendance_logs_df, add_df], ignore_index=True)
-
-    save_db(attendance_logs_df, "attendance_logs")
-
-    st.session_state["attendance_logs_df"] = attendance_logs_df
     st.session_state["attendance_pending_logs"] = []
     st.session_state["attendance_last_flush_at"] = now_dt
     st.session_state["attendance_flush_message"] = (
-        f"勤怠ログを {len(add_df)} 件まとめて保存しました（{now_dt.strftime('%H:%M:%S')}）"
+        f"{len(pending_logs)}件保存（{now_dt.strftime('%H:%M:%S')}）"
     )
+
     return True
 
 
@@ -152,8 +149,9 @@ def apply_attendance_action(uid: str, selected_company: str, current_user_id: st
     st.session_state["attendance_local_status"][uid] = action_text_map.get(action, "退勤")
 
     pending_logs = st.session_state.get("attendance_pending_logs", [])
+
+    # 🔥 attendance_idは完全削除
     new_log = {
-        "attendance_id": f"A{len(attendance_logs_df) + len(pending_logs) + 1:04}",
         "date": now.strftime("%Y-%m-%d"),
         "user_id": uid,
         "company_id": selected_company,
@@ -167,12 +165,15 @@ def apply_attendance_action(uid: str, selected_company: str, current_user_id: st
         [attendance_logs_df, pd.DataFrame([new_log])],
         ignore_index=True
     )
+
     st.session_state["attendance_logs_df"] = attendance_logs_df
 
     pending_logs.append(new_log)
     st.session_state["attendance_pending_logs"] = pending_logs
 
-    st.session_state["attendance_last_action_message"] = f"{uid} を {result_text_map.get(action, '打刻')} しました"
+    st.session_state["attendance_last_action_message"] = (
+        f"{uid} を {result_text_map.get(action, '打刻')} しました"
+    )
 
     return attendance_logs_df
 
@@ -401,11 +402,16 @@ def render_attendance_page():
 
     if attendance_logs_df is None or attendance_logs_df.empty:
         attendance_logs_df = pd.DataFrame(columns=[
-            "attendance_id", "date", "user_id", "company_id",
-            "action", "timestamp", "device_name", "recorded_by"
+            "date",
+            "user_id",
+            "company_id",
+            "action",
+            "timestamp",
+            "device_name",
+            "recorded_by"
         ])
     else:
-        for col in ["attendance_id", "date", "user_id", "company_id", "action", "timestamp", "device_name", "recorded_by"]:
+        for col in ["date", "user_id", "company_id", "action", "timestamp", "device_name", "recorded_by"]:
             if col not in attendance_logs_df.columns:
                 attendance_logs_df[col] = ""
 
