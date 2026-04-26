@@ -3117,49 +3117,92 @@ def _replace_placeholder_name(text: str, full_name: str) -> str:
 
 def click_daily_edit_button(driver) -> bool:
     """
-    右上の「編集」ボタンを押す
+    日々の記録ページの編集ボタンを押す。
+    Knowbe側の表示揺れ対策として、
+    - ボタン本文「編集」
+    - span内「編集」
+    - svg/icon付きボタン
+    - 画面右上/下部にある編集ボタン
+    を広めに探す。
     """
-    try:
-        btn = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((
-                By.XPATH,
-                "//button[.//span[contains(normalize-space(.),'編集')] or contains(normalize-space(.),'編集')]"
-            ))
-        )
-    except Exception:
-        dump_debug(driver, "click_daily_edit_button_not_found")
-        return False
+    time.sleep(1.0)
 
+    # ページ本文確認
     try:
-        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
-        time.sleep(0.1)
+        body_text = driver.find_element(By.TAG_NAME, "body").text
+        print("[DEBUG] daily body preview =", body_text[:500], flush=True)
+    except Exception:
+        body_text = ""
+
+    # すでに編集モードなら成功扱い
+    try:
+        saves = driver.find_elements(
+            By.XPATH,
+            "//button[contains(normalize-space(.),'保存') or contains(normalize-space(.),'保存する')]"
+        )
+        for s in saves:
+            try:
+                if s.is_displayed():
+                    print("[DEBUG] daily already edit mode", flush=True)
+                    return True
+            except Exception:
+                pass
     except Exception:
         pass
 
-    if not safe_click(driver, btn):
-        dump_debug(driver, "click_daily_edit_button_click_fail")
-        return False
+    xpaths = [
+        "//button[normalize-space(.)='編集']",
+        "//button[contains(normalize-space(.),'編集')]",
+        "//button[.//span[normalize-space(.)='編集']]",
+        "//button[.//span[contains(normalize-space(.),'編集')]]",
+        "//*[self::button or @role='button'][contains(normalize-space(.),'編集')]",
+    ]
 
-    # 編集後に「保存する」が見えたら成功
-    t0 = time.time()
-    while time.time() - t0 < 10:
+    for xp in xpaths:
         try:
-            saves = driver.find_elements(
-                By.XPATH,
-                "//button[.//span[contains(normalize-space(.),'保存する')] or contains(normalize-space(.),'保存する')]"
-            )
-            for s in saves:
-                try:
-                    if s.is_displayed():
-                        time.sleep(0.5)
-                        return True
-                except Exception:
-                    pass
+            buttons = driver.find_elements(By.XPATH, xp)
         except Exception:
-            pass
-        time.sleep(0.3)
+            buttons = []
 
-    dump_debug(driver, "click_daily_edit_button_after_click_fail")
+        print(f"[DEBUG] daily edit candidates {xp} = {len(buttons)}", flush=True)
+
+        for b in buttons:
+            try:
+                if not b.is_displayed():
+                    continue
+
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", b)
+                time.sleep(0.2)
+
+                if not safe_click(driver, b):
+                    driver.execute_script("arguments[0].click();", b)
+
+                time.sleep(0.8)
+
+                # 編集後に保存ボタンが見えたら成功
+                saves = driver.find_elements(
+                    By.XPATH,
+                    "//button[contains(normalize-space(.),'保存') or contains(normalize-space(.),'保存する')]"
+                )
+                for s in saves:
+                    try:
+                        if s.is_displayed():
+                            print("[DEBUG] daily edit clicked OK", flush=True)
+                            return True
+                    except Exception:
+                        pass
+
+                # 保存ボタンが見えなくても、textarea/inputが増えていれば成功扱い
+                areas = driver.find_elements(By.TAG_NAME, "textarea")
+                if len(areas) >= 2:
+                    print("[DEBUG] daily edit clicked OK by textarea", flush=True)
+                    return True
+
+            except Exception as e:
+                print(f"[DEBUG] daily edit click candidate error: {e}", flush=True)
+                continue
+
+    dump_debug(driver, "click_daily_edit_button_not_found")
     return False
     
 def _wait_daily_save_complete(driver, timeout=15) -> bool:
