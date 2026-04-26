@@ -6,3 +6,4 @@ streamlit-calendar
 google-generativeai
 selenium
 webdriver-manager
+supabase
