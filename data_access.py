@@ -63,6 +63,43 @@ def load_db(file, retries=3, delay=0.8):
 
     return pd.DataFrame()
 
+def save_db(df, file, retries=3, delay=1.0):
+
+    if df is None:
+        df = pd.DataFrame()
+
+    if file in SUPABASE_TABLES:
+        work = df.fillna("").copy()
+
+        if file == "attendance_logs" and "attendance_id" in work.columns:
+            work = work.drop_duplicates(subset=["attendance_id"], keep="last")
+
+        rows = work.to_dict(orient="records")
+
+        if rows:
+            supabase.table(file).upsert(rows).execute()
+
+        st.cache_data.clear()
+        return
+
+    # 👇 Sheets fallback
+    sheet_candidates = get_sheet_name_candidates(file)
+    last_error = None
+
+    for s_name in sheet_candidates:
+        for attempt in range(retries):
+            try:
+                conn.update(worksheet=s_name, data=df)
+                st.cache_data.clear()
+                return
+            except Exception as e:
+                last_error = e
+                if attempt < retries - 1:
+                    time.sleep(delay + random.random() * 0.7)
+
+    if last_error is not None:
+        raise last_error
+
 def get_companies_df_cached():
     df = load_db("companies")
     if df is None or df.empty:
