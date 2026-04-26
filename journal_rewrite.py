@@ -252,9 +252,66 @@ def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workp
     try:
         json_start = cleaned2.find("{")
         json_end = cleaned2.rfind("}")
-        return json.loads(cleaned2[json_start:json_end + 1])
+        data = json.loads(cleaned2[json_start:json_end + 1])
+
+        # =========================
+        # ③ 最終整形フェーズ
+        # =========================
+        if day_key in data:
+            item = data.get(day_key, {})
+
+            raw_user_state = str(item.get("user_state", "") or "")
+            raw_staff_note = str(item.get("staff_note", "") or "")
+
+            work_label = str(outside_workplace or "").strip()
+            if not work_label:
+                work_label = str(item.get("work", "") or "").strip()
+            if not work_label:
+                work_label = "作業"
+
+            mode = _detect_service_mode(
+                row_text=day_text,
+                work_text=work_label,
+                user_text=raw_user_state,
+                staff_text=raw_staff_note,
+            )
+
+            if mode == "在宅":
+                user_state, staff_note = _force_final_home_format(
+                    raw_user_state,
+                    raw_staff_note,
+                    day_text,
+                    work_label,
+                )
+
+            elif mode == "施設外":
+                user_state, staff_note = _force_final_outside_format(
+                    raw_user_state,
+                    raw_staff_note,
+                    day_text,
+                    work_label,
+                )
+
+            else:
+                user_state, staff_note = _force_final_office_format(
+                    raw_user_state,
+                    raw_staff_note,
+                    day_text,
+                    work_label,
+                )
+
+            data[day_key]["user_state"] = _final_cleanup_journal_text(user_state)
+            data[day_key]["staff_note"] = _final_cleanup_journal_text(staff_note)
+            data[day_key]["mode"] = mode
+
+            print(f"[JR-DAY] {day_key} final formatted mode={mode}", flush=True)
+            print(data[day_key]["user_state"], flush=True)
+            print(data[day_key]["staff_note"], flush=True)
+
+        return data
+
     except Exception as e:
-        print(f"[JR-DAY] {day_key} build parse error: {e}", flush=True)
+        print(f"[JR-DAY] {day_key} build parse/final format error: {e}", flush=True)
         return {}
 
 # =========================================
@@ -1763,7 +1820,7 @@ def _update_live_status(live_status_box, text: str, level: str = "info"):
 
 def _should_preserve_office_raw(raw_user: str, raw_staff: str, row_text: str) -> bool:
     """
-    通所の長文・具体文はGeminiやロジック生成で潰さず、そのまま活かすための判定
+    通所の長文・具体文はChatGPTやロジック生成で潰さず、そのまま活かすための判定
     True なら raw を優先して整形だけにする
     """
     user = _normalize_text(raw_user)
@@ -3142,7 +3199,7 @@ def render_journal_rewrite_page():
     from run_assistance import build_chrome_driver, manual_login_wait
 
     st.header("過去日誌訂正（自動上書き）")
-    st.caption("Knowbeの支援記録を月単位で取得し、Geminiで利用者状態と職員考察を再生成して上書きします。")
+    st.caption("Knowbeの支援記録を月単位で取得し、ChatGPTで利用者状態と職員考察を再生成して上書きします。")
 
     if "jr_running" not in st.session_state:
         st.session_state["jr_running"] = False

@@ -4979,7 +4979,7 @@ def build_plan_draft_generation_prompt(
     return prompt
 
 # ==========================================
-# 🤫 秘密モード Gemini 自動生成まわり
+# 🤫 秘密モード ChatGPT 自動生成まわり
 # ==========================================
 
 TEST_ALLOW_EMPTY_REFERENCE = False
@@ -5323,7 +5323,7 @@ def run_secret_gemini_generation(doc_title: str, resident_id, resident_name, new
             new_policy=new_policy_text,
         )
     else:
-        raise RuntimeError("この書類はGemini自動生成対象ではありません。")
+        raise RuntimeError("この書類はChatGPT自動生成対象ではありません。")
 
     return call_gemini_json(prompt)
 
@@ -9634,7 +9634,7 @@ def render_bulk_knowbe_diary_page():
 
             send_mode = str(saved_json.get("send_mode", "raw")).strip()
             st.session_state[f"{block_key}_send_mode"] = (
-                "Geminiで編集して送信" if send_mode == "gemini" else "入力文のまま送信"
+                "ChatGPTで編集して送信" if send_mode == "gemini" else "入力文のまま送信"
             )
 
             st.session_state[f"{block_key}_generated_start_memo"] = str(
@@ -9730,7 +9730,7 @@ def render_bulk_knowbe_diary_page():
 
         send_mode = str(saved_json.get("send_mode", "raw")).strip()
         st.session_state[f"{block_key}_send_mode"] = (
-            "Geminiで編集して送信" if send_mode == "gemini" else "入力文のまま送信"
+            "ChatGPTで編集して送信" if send_mode == "gemini" else "入力文のまま送信"
         )
 
         st.session_state[f"{block_key}_generated_start_memo"] = str(
@@ -9759,7 +9759,7 @@ def render_bulk_knowbe_diary_page():
             preview_note = str(st.session_state.get(f"{block_key}_remark_text", "")).strip()
 
         send_mode_label = str(st.session_state.get(f"{block_key}_send_mode", "入力文のまま送信")).strip()
-        send_mode = "gemini" if send_mode_label == "Geminiで編集して送信" else "raw"
+        send_mode = "gemini" if send_mode_label == "ChatGPTで編集して送信" else "raw"
 
         form_data = {
             "company_id": current_company_id,
@@ -10087,7 +10087,7 @@ def render_bulk_knowbe_diary_page():
 
             send_mode = st.radio(
                 "送信方式",
-                ["Geminiで編集して送信", "入力文のまま送信"],
+                ["ChatGPTで編集して送信", "入力文のまま送信"],
                 horizontal=True,
                 key=f"{block_key}_send_mode",
                 disabled=inputs_disabled,
@@ -10723,7 +10723,7 @@ def render_bee_journal_page():
 
         with send_memo_cols[1]:
             start_send_gemini = st.button(
-                "<職員考察欄>\n開始メモをだけをGeminiで\n文を編集してknowbeへ送信",
+                "<職員考察欄>\n開始メモをだけをChatGPTで\n文を編集してknowbeへ送信",
                 key="bee_send_start_gemini",
                 use_container_width=True
             )
@@ -10737,7 +10737,7 @@ def render_bee_journal_page():
 
         with send_memo_cols[3]:
             end_send_gemini = st.button(
-                "<職員考察欄>\n終了メモをだけをGeminiで\n文を編集してknowbeへ送信",
+                "<職員考察欄>\n終了メモをだけをChatGPTで\n文を編集してknowbeへ送信",
                 key="bee_send_end_gemini",
                 use_container_width=True
             )
@@ -10902,7 +10902,7 @@ def render_bee_journal_page():
 
         with send_cols[0]:
             bulk_send_gemini = st.button(
-                "開始メモをGeminiで編集して利用者状態欄へ\n終了メモをGeminiで編集して職員考察欄へ\nまとめて送信",
+                "開始メモをChatGPTで編集して利用者状態欄へ\n終了メモをChatGPTで編集して職員考察欄へ\nまとめて送信",
                 key="bee_bulk_send_gemini",
                 width="stretch",
                 disabled=bool(time_errors)
@@ -10995,9 +10995,9 @@ def render_bee_journal_page():
                         )
                         st.session_state["bee_journal_loaded_record_id"] = new_id
 
-                    st.success("Gemini文で一気送信できました！自動保存も完了しました。")
+                    st.success("ChatGPT文で一気送信できました！自動保存も完了しました。")
             except Exception as e:
-                st.error(f"Gemini一気送信失敗です: {e}")
+                st.error(f"ChatGPT一気送信失敗です: {e}")
 
         elif bulk_send_raw:
             try:
@@ -11025,7 +11025,7 @@ def render_bee_journal_page():
                 )
 
                 if ok:
-                    st.success("Gemini編集なしでそのままKnowbeへ入力できました！")
+                    st.success("ChatGPT編集なしでそのままKnowbeへ入力できました！")
 
             except Exception as e:
                 st.error(f"編集なし送信失敗です: {e}")
@@ -11205,7 +11205,7 @@ def render_bee_journal_page():
                         end_to_send = str(payload.get("end_memo_generated", "")).strip() or str(payload.get("end_memo_raw", payload.get("end_memo", ""))).strip()
 
                         if not str(payload.get("start_memo_generated", "")).strip() and not str(payload.get("end_memo_generated", "")).strip():
-                            st.session_state["bee_saved_loop_current_status"] = f"{idx}/{total} {target_resident_name}：Geminiで文章を整形中"
+                            st.session_state["bee_saved_loop_current_status"] = f"{idx}/{total} {target_resident_name}：ChatGPTで文章を整形中"
                             current_status_box.info(st.session_state["bee_saved_loop_current_status"])
                             start_to_send, end_to_send = generate_bee_texts(
                                 resident_name=target_resident_name,
@@ -16005,7 +16005,7 @@ def render_secret_home_eval_auto_page():
                     st.session_state["secret_home_eval_file"] = None
                     return
 
-                with st.spinner("Geminiで在宅評価を生成中."):
+                with st.spinner("ChatGPTで在宅評価を生成中."):
                     home_eval_json = generate_json_with_gemini(
                         build_home_eval_from_support_record_prompt(
                             resident_name=resident_name,
@@ -16322,7 +16322,7 @@ def render_secret_home_eval_auto_page():
 # 利用者書類
 # ==========================================
 def render_secret_generation_panel(doc_title: str):
-    st.markdown("## 🤫 Gemini自動作成")
+    st.markdown("## 🤫 ChatGPT自動作成")
     st.caption("直近の前段書類を参照して、入力欄へ自動反映します。")
 
     resident_options, resident_map = get_resident_option_map()
@@ -16354,10 +16354,10 @@ def render_secret_generation_panel(doc_title: str):
         "新しい方針・補足（任意）",
         key=f"{doc_title}_secret_new_policy",
         height=100,
-        placeholder="Geminiに追加で考慮させたい内容があれば入れる",
+        placeholder="ChatGPTに追加で考慮させたい内容があれば入れる",
     )
 
-    if st.button(f"🤖 {doc_title}をGeminiで作成", key=f"{doc_title}_secret_generate"):
+    if st.button(f"🤖 {doc_title}をChatGPTで作成", key=f"{doc_title}_secret_generate"):
         if not selected_label or not resident_id or not resident_name:
             st.warning("先に下の利用者選択をしてから押してください。")
             return
@@ -16371,11 +16371,11 @@ def render_secret_generation_panel(doc_title: str):
             )
 
             apply_generated_data_to_form(doc_title, generated)
-            st.success("Geminiで作成して入力欄へ反映しました。")
+            st.success("ChatGPTで作成して入力欄へ反映しました。")
             st.rerun()
 
         except Exception as e:
-            st.error(f"Gemini作成でエラーです: {e}")
+            st.error(f"ChatGPT作成でエラーです: {e}")
 
 
 def render_secret_page(doc_title: str):
