@@ -3,7 +3,10 @@ import time
 import random
 import pandas as pd
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
+try:
+    from streamlit_gsheets import GSheetsConnection
+except Exception:
+    GSheetsConnection = None
 
 from supabase import create_client
 
@@ -12,7 +15,12 @@ SUPABASE_KEY = "sb_publishable_G3oY4S2zu8piW0-wR5CNLQ_IaIrDekc"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-conn = st.connection("gsheets", type=GSheetsConnection)
+conn = None
+if GSheetsConnection is not None:
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+    except Exception:
+        conn = None
 
 
 SUPABASE_TABLES = {

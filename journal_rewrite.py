@@ -269,6 +269,11 @@ def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workp
             if not work_label:
                 work_label = "作業"
 
+            work_label = _infer_home_work_label(
+                "\n".join([raw_user_state, raw_staff_note, day_text]),
+                work_label
+            )
+
             mode = _detect_service_mode(
                 row_text=day_text,
                 work_text=work_label,
@@ -277,6 +282,11 @@ def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workp
             )
 
             if mode == "在宅":
+                work_label = _infer_home_work_label(
+                    "\n".join([raw_user_state, raw_staff_note, day_text]),
+                    work_label
+                )
+
                 user_state, staff_note = _force_final_home_format(
                     raw_user_state,
                     raw_staff_note,
@@ -2905,52 +2915,268 @@ def generate_journal_from_memo(memo: str, work_label: str, start_time: str = "",
         "mode": mode
     }
 
+def _is_empty_work_label(work: str) -> bool:
+    w = _normalize_text(work)
+    return (not w) or w in ["未指定", "作業", "-", "なし"]
+
+
+def _infer_home_work_label(source: str, fallback: str = "") -> str:
+    src = _normalize_text(source)
+    fb = _normalize_text(fallback)
+
+    if not _is_empty_work_label(fb):
+        return fb
+
+    known = [
+        "箱折り", "仕分け", "シール貼り", "チラシ折り", "袋詰め",
+        "観葉植物の水やり", "観葉植物", "塗り絵", "内職",
+        "箸入れ", "お箸", "折り鶴"
+    ]
+
+    hits = []
+    for k in known:
+        if k in src and k not in hits:
+            hits.append(k)
+
+    if hits:
+        return "、".join(hits[:3])
+
+    return "作業"
+
+def _format_home_work_result_naturally(work_label: str) -> str:
+    w = _normalize_text(work_label)
+
+    parts = []
+
+    if "観葉植物" in w:
+        parts.append("観葉植物への水やり")
+
+    if "塗り絵" in w:
+        parts.append("塗り絵を1枚")
+
+    if "内職" in w:
+        parts.append("内職")
+
+    if not parts:
+        return f"{w or '作業'}を行った"
+
+    if len(parts) == 1:
+        return f"{parts[0]}をした" if parts[0] == "内職" else f"{parts[0]}をした"
+
+    # 最後だけ「〜をした」にして自然にする
+    return "、".join(parts[:-1]) + f"、{parts[-1]}をした"
+
+def _extract_first_quote(source: str) -> str:
+    src = _normalize_text(source)
+    m = re.search(r"「([^」]{1,120})」", src)
+    if m:
+        return m.group(1).strip()
+    return ""
+
+
+def _extract_last_quote(source: str) -> str:
+    src = _normalize_text(source)
+    qs = re.findall(r"「([^」]{1,120})」", src)
+    if qs:
+        return qs[-1].strip()
+    return ""
+
+
+def _extract_home_quantity_line(source: str, work_label: str) -> str:
+    src = _normalize_text(source)
+    work = _infer_home_work_label(src, work_label)
+
+    # 作業名＋数量が同じ文にある場合
+    for s in _sentencize_jp(src):
+        if re.search(r"\d+\s*(枚|個|膳|本|羽|袋|点)", s):
+            s2 = s.rstrip("。")
+            s2 = re.sub(r"^作業終了[^。]*?、", "", s2)
+            s2 = s2.replace("行いました", "行った")
+            s2 = s2.replace("取り組みました", "取り組んだ")
+            return s2 + "。"
+
+    # 数量なしだが作業名がある場合
+    if work and work != "作業":
+        return f"{work}に取り組まれたとのことだった。"
+
+    return "作業に取り組まれたとのことだった。"
+
+
+def _build_home_staff_reply(health_text: str) -> str:
+    h = _normalize_text(health_text)
+
+    if any(k in h for k in ["しんど", "不調", "頭痛", "痛", "不安定", "気分", "疲", "風邪"]):
+        return "職員より「無理せず休みながらで大丈夫ですよ」と伝えた。"
+
+    if any(k in h for k in ["良好", "安定", "調子がよ", "元気", "普通"]):
+        return "職員より「無理のない範囲で、この調子で進めてください」と伝えた。"
+
+    return "職員より「無理のない範囲で進めてください」と伝えた。"
+
+
+def _build_home_end_reply(source: str) -> str:
+    src = _normalize_text(source)
+
+    if any(k in src for k in ["しんど", "不調", "頭痛", "痛", "不安定", "疲", "気分"]):
+        return "職員より「無理せずできましたね」と声をかけた。"
+
+    if any(k in src for k in ["良好", "安定", "調子がよ", "元気"]):
+        return "職員より「落ち着いて取り組めていますね」と声をかけた。"
+
+    return "職員より「無理のない範囲で取り組めていますね」と声をかけた。"
+
+def _extract_home_context_line(source: str) -> str:
+    """
+    在宅記録で、必須項目ではないが残すべき近況を1文だけ拾う。
+    例：通院、次回予約、花粉、外出、映画、生活上の出来事など。
+    作業終了文の直前に入れる用。
+    """
+    src = _normalize_text(source)
+
+    # ラベル・作業・開始終了・職員考察系は除外
+    ng_words = [
+        "作業開始", "作業終了", "開始の連絡", "終了の連絡",
+        "観葉植物", "塗り絵", "内職", "作業量",
+        "職員より", "支援", "見守り", "取り組まれていた",
+        "体調安定", "精神安定", "精神不安定", "体調良好",
+    ]
+
+    keep_words = [
+        "病院", "通院", "予約", "受診",
+        "花粉", "くしゃみ", "鼻水", "咳",
+        "映画", "外出", "買い物", "散歩",
+        "家でゆっくり", "自宅で過ごす",
+        "眠れ", "睡眠", "食欲",
+    ]
+
+    for s in _sentencize_jp(src):
+        s = s.strip().rstrip("。")
+
+        if not s:
+            continue
+
+        if any(ng in s for ng in ng_words):
+            continue
+
+        if any(k in s for k in keep_words):
+            # 本人発言っぽい場合は自然な形にする
+            q = re.search(r"「([^」]{1,120})」", s)
+            if q:
+                return f"また、本人より「{q.group(1).strip()}」との話があった。"
+
+            # そのままでも自然な文にする
+            s = s.replace("とのこと", "との話があった")
+            s = s.replace("との事", "との話があった")
+            if not s.endswith("話があった"):
+                return f"また、{s}との話があった。"
+            return f"また、{s}。"
+
+    return ""
 
 def _force_final_home_format(user_state: str, staff_note: str, memo: str, work: str):
-    source = _normalize_text(" ".join([user_state, staff_note, memo]))
-    work = _normalize_text(work) or "作業"
+    """
+    在宅用：型固定版
+    - ラベル文（体調安定/精神安定など）はそのまま使わない
+    - 利用者状態は固定の流れ
+    - 職員考察は型を保ちつつ少しだけ分岐
+    """
+    source = _normalize_text("\n".join([user_state or "", staff_note or "", memo or ""]))
+    work_label = _infer_home_work_label(source, work)
 
-    start_line = _extract_first_sentence_by_keywords(
-        source,
-        ["作業開始", "開始前", "開始時", "開始の連絡", "朝の連絡"]
-    )
-    if not start_line:
-        start_line = "作業開始前に連絡があり、体調について確認を行った。"
+    if not work_label or work_label in ["未指定", "-", "なし"]:
+        work_label = "作業"
 
-    health_line = _extract_first_sentence_by_keywords(
-        source,
-        ["体調", "元気", "良好", "普通", "不調", "しんどい", "安定", "不安定", "眠れ", "気分", "痛み"]
-    )
-    if not health_line:
-        if any(k in source for k in ["良好", "元気", "普通", "安定"]):
-            health_line = "体調は大きな変化なく、落ち着いているとの報告があった。"
-        elif any(k in source for k in ["不調", "しんどい", "不安定", "痛み", "眠れ"]):
-            health_line = "体調に不安があるとの報告があった。"
-        else:
-            health_line = "体調について報告があった。"
+    bad_health = any(k in source for k in [
+        "しんど", "不調", "頭痛", "腰", "痛み", "体調が優れ", "体調不良", "気分が優れ", "落ち込", "精神的にしんど", "不安"
+    ])
 
-    result_line = _extract_home_work_result(source, work, source)
-    result_line = _normalize_text(result_line)
+    good_health = any(k in source for k in [
+        "良好", "元気", "普通", "調子がよ", "大丈夫", "慣れてき", "頑張"
+    ])
 
-    if not result_line:
-        result_line = f"{work}に取り組まれたとの報告があった。"
-
-    result_line = result_line.rstrip("。")
-    result_line = re.sub(r"^(作業終了時に連絡があり、|作業終了の連絡があり、)", "", result_line)
-    end_line = f"作業終了の連絡があり、{result_line}。"
-
-    if any(k in source for k in ["不調", "しんどい", "不安定", "痛み", "眠れ", "疲れ"]):
-        opinion_line = "体調に不安がある中でも、無理のない範囲で作業に取り組まれていた。"
-        support_line = "今後も体調の変化を確認しながら、無理なく継続できるよう支援していく。"
-    elif any(k in source for k in ["良好", "元気", "普通", "安定", "大丈夫"]):
-        opinion_line = "体調が安定していたことで、作業も落ち着いて進められていた。"
-        support_line = "今後も体調や作業の様子を確認しながら、安定して継続できるよう支援していく。"
+    if bad_health:
+        health_quote = "今日は少し体調が優れない"
+        staff_start_reply = "無理せず休みながらで大丈夫ですよ"
+        staff_end_reply = "無理のない範囲で取り組めていますね"
+        after_line = "その後は体調を優先して休まれるとのことだった。"
+    elif good_health:
+        health_quote = "今日は体調も大きく変わりなく進められそうです"
+        staff_start_reply = "無理のない範囲で、この調子で進めてください"
+        staff_end_reply = "落ち着いて取り組めていますね"
+        after_line = "その後も大きな変化なく過ごされるとのことだった。"
     else:
-        opinion_line = "その日の体調に応じて、無理のない範囲で作業に取り組まれていた。"
-        support_line = "今後も状態を確認しながら、無理なく取り組めるよう支援していく。"
+        health_quote = "今日は無理のない範囲で進めます"
+        staff_start_reply = "無理のない範囲で進めてください"
+        staff_end_reply = "無理なく取り組めていますね"
+        after_line = "その後は無理のない範囲で過ごされるとのことだった。"
 
-    user_result = "\n".join(_uniq_sentences(start_line, health_line, end_line))
-    staff_result = "\n".join(_uniq_sentences(opinion_line, support_line))
+    first_quote = _extract_first_quote(source)
+    if first_quote:
+        q_clean = first_quote.strip()
+        label_words = ["体調安定", "精神安定", "精神不安定", "体調良好", "良好", "普通"]
+        bad_quote_words = ["冷えないように", "気をつけてください", "無理せず", "大丈夫ですよ", "進めてください"]
+        if q_clean in label_words or any(k in q_clean for k in bad_quote_words):
+            first_quote = health_quote
+        else:
+            first_quote = q_clean
+    else:
+        first_quote = health_quote
+
+    result_core = _format_home_work_result_naturally(work_label) + "との報告があった"
+
+    context_line = _extract_home_context_line(source)
+    user_lines = [
+        "作業開始前に連絡があり、体調について確認を行った。",
+        f"本人より「{first_quote}」との話があった。",
+        f"職員より「{staff_start_reply}」と伝えた。",
+        "事業所外での作業のため、作業状況は本人からの申告にて確認した。",
+        f"本日は{work_label}に取り組まれる予定とのことだった。",
+        context_line,
+        "",
+        f"作業終了時に連絡があり、{result_core}。",
+        f"職員より「{staff_end_reply}」と声をかけた。",
+        after_line,
+    ]
+
+    if any(k in source for k in ["頭痛", "風邪", "体調が優れ", "体調不良", "しんど"]):
+        staff_lines = [
+            "体調面に配慮が必要な中でも、無理のない範囲で作業に取り組まれていた。",
+            "体調についての報告と作業終了の連絡があり、状況共有は適切に行われている。",
+            "今後も体調の変化を確認しながら、負担が大きくならないよう支援していく。",
+        ]
+    elif any(k in source for k in ["気分", "落ち込", "精神的にしんど", "不安"]):
+        staff_lines = [
+            "気分面に波がある中でも、本人の状態に合わせて作業に取り組まれていた。",
+            "作業終了の報告も行えており、不安定さがある中でも状況共有はできている。",
+            "今後も気持ちの変化に配慮しながら、無理なく取り組めるよう支援していく。",
+        ]
+    elif any(k in source for k in ["調子がよ", "良好", "大丈夫", "慣れてき", "頑張"]):
+        staff_lines = [
+            "体調に大きな変化はなく、落ち着いて作業に取り組まれていた。",
+            "作業終了の報告も行えており、継続して取り組む姿勢が見られる。",
+            "今後も現在の安定した状態を保てるよう、作業状況を確認しながら支援していく。",
+        ]
+    elif any(k in source for k in ["病院", "通院"]):
+        staff_lines = [
+            "通院後の利用であったが、無理のない範囲で作業に取り組まれていた。",
+            "予定や体調に合わせて作業を行えており、状況の報告もできている。",
+            "今後も通院や体調の予定を確認しながら、負担の少ない形で支援していく。",
+        ]
+    elif any(k in source for k in ["忘れて", "すみません"]):
+        staff_lines = [
+            "連絡の遅れはあったが、その後は作業状況を共有できていた。",
+            "作業終了の報告も行えており、確認後は落ち着いて対応できている。",
+            "今後も連絡のタイミングを確認しながら、安心して取り組めるよう支援していく。",
+        ]
+    else:
+        staff_lines = [
+            "その日の状態に合わせて、無理のない範囲で作業に取り組まれていた。",
+            "作業終了の報告も行えており、状況共有は適切に行われている。",
+            "今後も本人の状態を確認しながら、無理なく続けられるよう支援していく。",
+        ]
+
+    user_result = _final_cleanup_journal_text("\n".join(user_lines).strip())
+    staff_result = _final_cleanup_journal_text("\n".join(staff_lines).strip())
 
     return user_result, staff_result
 
