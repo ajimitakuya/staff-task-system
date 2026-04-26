@@ -1,9 +1,10 @@
-streamlit
-pandas
 openpyxl
 st-gsheets-connection
 streamlit-calendar
 google-generativeai
 selenium
 webdriver-manager
+streamlit
+pandas
 supabase
+openai
