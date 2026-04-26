@@ -3650,10 +3650,20 @@ def process_one_daily_record(
     log(f"✅ 日々の記録 保存成功ある: {it.name}")
     return True
 
-def open_daily_record_page(driver):
-    driver.get("https://mgr.knowbe.jp/v2/#/record/daily")
+def open_daily_record_page(driver, y=None, mo=None, d=None):
+    """
+    日々の記録ページへ移動する。
+    y/mo/d が渡された場合は、その日付のページへ直接移動する。
+    """
+    if y is not None and mo is not None and d is not None:
+        url = f"https://mgr.knowbe.jp/v2/#/record/daily/{int(y):04d}{int(mo):02d}{int(d):02d}"
+    else:
+        url = "https://mgr.knowbe.jp/v2/#/record/daily"
+
+    driver.get(url)
     time.sleep(2)
 
+    print("[DEBUG] open_daily_record_page target_url =", url, flush=True)
     print("[DEBUG] open_daily_record_page current_url =", driver.current_url, flush=True)
     print("[DEBUG] open_daily_record_page __file__ =", __file__, flush=True)
 
@@ -4183,7 +4193,7 @@ def run_daily_records(driver, excel_path: str, items: List[PersonItem], targets:
 
     log(f"📝 日々の記録の記録者: {recorder_name}")
 
-    if not open_daily_record_page(driver):
+    if not open_daily_record_page(driver, y, m, d):
         raise RuntimeError("[FATAL] 日々の記録ページへ行けないある")
 
     for it in targets:
