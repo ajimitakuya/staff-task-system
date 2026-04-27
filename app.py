@@ -126,6 +126,8 @@ COMPANY_SCOPED_SHEETS = {
     "piecework_entries",
     "piecework_production",
     "piecework_clients",
+    "outside_workplaces",
+    "outside_work_tasks",    
 }
 
 def go_page(page_name: str):
@@ -5844,6 +5846,7 @@ page_options = [
     "ICカード管理",
     "勤怠管理",
     "過去日誌訂正",
+    "施設外就労先登録",
     "🐝knowbe日誌一括入力🐝",
     "🐝在宅利用一括入力🐝"
 ]
@@ -6139,6 +6142,9 @@ if st.session_state.get("is_admin", False):
 
     if st.sidebar.button("過去日誌訂正", key="menu_support_record_audit", use_container_width=True):
         st.session_state.current_page = "過去日誌訂正"
+        st.rerun()
+    if st.sidebar.button("施設外就労先登録", key="menu_outside_workplace", use_container_width=True):
+        st.session_state.current_page = "施設外就労先登録"
         st.rerun()
 
 # ===== 最下部 =====
@@ -11319,6 +11325,346 @@ def render_bee_journal_page():
         with st.expander("入力内容確認（開発用）"):
             st.json(save_payload)
 
+def get_outside_workplaces_df():
+    df = load_db("outside_workplaces")
+    if df is None or df.empty:
+        return pd.DataFrame(columns=[
+            "workplace_id", "company_id", "workplace_name", "category",
+            "status", "created_at", "updated_at"
+        ])
+    return df.fillna("")
+
+
+def get_outside_work_tasks_df():
+    df = load_db("outside_work_tasks")
+    if df is None or df.empty:
+        return pd.DataFrame(columns=[
+            "task_id", "workplace_id", "task_text", "priority",
+            "status", "created_at", "updated_at"
+        ])
+    return df.fillna("")
+
+
+def render_outside_workplace_master_page():
+    st.title("🏢 施設外就労先登録")
+    st.caption("施設外就労先と、その場所で行う作業内容を登録します。")
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+    if not company_id:
+        st.error("事業所が選択されていません。")
+        return
+
+    workplaces_df = get_outside_workplaces_df()
+    tasks_df = get_outside_work_tasks_df()
+
+    workplaces_df = workplaces_df[
+        (workplaces_df["company_id"].astype(str) == company_id) &
+        (workplaces_df["status"].astype(str) == "active")
+    ].copy()
+
+    st.subheader("施設外就労先を追加")
+
+    with st.form("add_outside_workplace_form"):
+        workplace_name = st.text_input("施設外就労先名", placeholder="例：合同会社エバーグリーン")
+        category = st.text_input("メモ・分類", placeholder="例：マンション清掃、居酒屋清掃など")
+        submitted = st.form_submit_button("施設外就労先を登録")
+
+        if submitted:
+            if not workplace_name.strip():
+                st.error("施設外就労先名を入力してください。")
+            else:
+                df = get_outside_workplaces_df()
+                now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+                new_id = f"OW{int(time.time() * 1000)}"
+
+                new_row = pd.DataFrame([{
+                    "workplace_id": new_id,
+                    "company_id": company_id,
+                    "workplace_name": workplace_name.strip(),
+                    "category": category.strip(),
+                    "status": "active",
+                    "created_at": now_str,
+                    "updated_at": now_str,
+                }])
+
+                df = pd.concat([df, new_row], ignore_index=True)
+                save_db(df, "outside_workplaces")
+                st.success("施設外就労先を登録しました。")
+                st.rerun()
+
+    st.divider()
+    st.subheader("登録済み施設外就労先")
+
+    if workplaces_df.empty:
+        st.info("まだ施設外就労先が登録されていません。")
+        return
+
+    workplace_options = {
+        f'{row["workplace_name"]}（{row.get("category", "")}）': row["workplace_id"]
+        for _, row in workplaces_df.iterrows()
+    }
+
+    selected_label = st.selectbox(
+        "作業内容を登録する就労先",
+        list(workplace_options.keys())
+    )
+    selected_workplace_id = workplace_options[selected_label]
+
+    selected_wp_row = workplaces_df[
+        workplaces_df["workplace_id"].astype(str).str.strip() == str(selected_workplace_id).strip()
+    ]
+
+    if not selected_wp_row.empty:
+        wp = selected_wp_row.iloc[0]
+        current_wp_name = str(wp.get("workplace_name", "")).strip()
+        current_category = str(wp.get("category", "")).strip()
+
+        with st.expander("✏️ この施設外就労先を修正する"):
+            with st.form("edit_outside_workplace_form"):
+                new_wp_name = st.text_input(
+                    "施設外就労先名",
+                    value=current_wp_name,
+                    key="edit_outside_workplace_name"
+                )
+                new_category = st.text_input(
+                    "メモ・分類",
+                    value=current_category,
+                    key="edit_outside_workplace_category"
+                )
+
+                col_update, col_delete = st.columns(2)
+
+                with col_update:
+                    update_wp = st.form_submit_button("更新")
+
+                with col_delete:
+                    delete_wp = st.form_submit_button("削除")
+
+                if update_wp:
+                    if not new_wp_name.strip():
+                        st.error("施設外就労先名を入力してください。")
+                    else:
+                        df = get_outside_workplaces_df()
+                        df = df.fillna("").copy()
+
+                        mask = df["workplace_id"].astype(str).str.strip() == str(selected_workplace_id).strip()
+                        df.loc[mask, "workplace_name"] = new_wp_name.strip()
+                        df.loc[mask, "category"] = new_category.strip()
+                        df.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+                        save_db(df, "outside_workplaces")
+                        st.success("施設外就労先を更新しました。")
+                        st.rerun()
+
+                if delete_wp:
+                    df = get_outside_workplaces_df()
+                    df = df.fillna("").copy()
+
+                    mask = df["workplace_id"].astype(str).str.strip() == str(selected_workplace_id).strip()
+                    df.loc[mask, "status"] = "deleted"
+                    df.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+                    save_db(df, "outside_workplaces")
+                    st.success("施設外就労先を削除しました。")
+                    st.rerun()
+
+    selected_tasks = tasks_df[
+        (tasks_df["workplace_id"].astype(str) == selected_workplace_id) &
+        (tasks_df["status"].astype(str) == "active")
+    ].copy()
+
+    if "task_type" not in selected_tasks.columns:
+        selected_tasks["task_type"] = "optional"
+
+    st.markdown("### 作業内容を追加")
+
+    with st.form("add_outside_task_form"):
+        task_text = st.text_input(
+            "作業内容",
+            placeholder="例：ほうきで廊下を掃く"
+        )
+
+        task_type = st.selectbox(
+            "作業種別",
+            ["required", "optional"],
+            format_func=lambda x: "必須作業" if x == "required" else "選択作業",
+            key="outside_task_type",
+        )
+
+        priority = st.number_input(
+            "優先度",
+            min_value=1,
+            max_value=99,
+            value=1
+        )
+
+        task_submitted = st.form_submit_button("作業内容を登録")
+
+        if task_submitted:
+            if not task_text.strip():
+                st.error("作業内容を入力してください。")
+            else:
+                df = get_outside_work_tasks_df()
+
+                if "task_type" not in df.columns:
+                    df["task_type"] = "optional"
+
+                now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+                new_task_id = f"OWT{int(time.time() * 1000)}"
+
+                new_row = pd.DataFrame([{
+                    "task_id": new_task_id,
+                    "workplace_id": selected_workplace_id,
+                    "task_text": task_text.strip(),
+                    "task_type": task_type,
+                    "priority": int(priority),
+                    "status": "active",
+                    "created_at": now_str,
+                    "updated_at": now_str,
+                }])
+
+                df = pd.concat([df, new_row], ignore_index=True)
+                save_db(df, "outside_work_tasks")
+                st.success("作業内容を登録しました。")
+                st.rerun()
+
+    st.markdown("### 登録済み作業内容")
+
+    if selected_tasks.empty:
+        st.info("この就労先にはまだ作業内容が登録されていません。")
+        return
+
+    selected_tasks = selected_tasks.sort_values("priority")
+
+    required_tasks = selected_tasks[
+        selected_tasks["task_type"].astype(str) == "required"
+    ].copy()
+
+    optional_tasks = selected_tasks[
+        selected_tasks["task_type"].astype(str) != "required"
+    ].copy()
+
+    def render_task_list(title, caption, task_df, empty_message):
+        st.markdown(title)
+        st.caption(caption)
+
+        if task_df.empty:
+            st.info(empty_message)
+            return
+
+        for _, row in task_df.iterrows():
+            task_id = str(row.get("task_id", "")).strip()
+            task_text = str(row.get("task_text", "")).strip()
+            task_type = str(row.get("task_type", "optional")).strip()
+            priority = str(row.get("priority", "1")).strip()
+
+            col_text, col_edit, col_delete = st.columns([7, 1, 1])
+
+            with col_text:
+                st.write(f"・{task_text}（優先度: {priority}）")
+
+            with col_edit:
+                if st.button("✏️", key=f"edit_outside_task_{task_id}"):
+                    st.session_state["edit_outside_task_id"] = task_id
+                    st.session_state["edit_outside_task_text"] = task_text
+                    st.session_state["edit_outside_task_type"] = task_type
+                    st.session_state["edit_outside_task_priority"] = int(priority) if priority.isdigit() else 1
+                    st.rerun()
+
+            with col_delete:
+                if st.button("🗑️", key=f"delete_outside_task_{task_id}"):
+                    df = get_outside_work_tasks_df()
+                    df = df.fillna("").copy()
+                    mask = df["task_id"].astype(str).str.strip() == task_id
+                    df.loc[mask, "status"] = "deleted"
+                    df.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+                    save_db(df, "outside_work_tasks")
+                    st.success("削除しました。")
+                    st.rerun()
+
+    col_req, col_opt = st.columns(2)
+
+    with col_req:
+        render_task_list(
+            "#### 必須作業",
+            "日誌に必ず入れる作業です。",
+            required_tasks,
+            "必須作業はまだ登録されていません。"
+        )
+
+    with col_opt:
+        render_task_list(
+            "#### 選択作業",
+            "日誌作成時にこの中からいくつか選びます。",
+            optional_tasks,
+            "選択作業はまだ登録されていません。"
+        )
+
+    if st.session_state.get("edit_outside_task_id"):
+        st.divider()
+        st.markdown("### ✏️ 作業内容を編集")
+
+        edit_task_id = str(st.session_state.get("edit_outside_task_id", "")).strip()
+        edit_text = str(st.session_state.get("edit_outside_task_text", "")).strip()
+        edit_type = str(st.session_state.get("edit_outside_task_type", "optional")).strip()
+        edit_priority = int(st.session_state.get("edit_outside_task_priority", 1) or 1)
+
+        with st.form("edit_outside_task_form"):
+            new_text = st.text_input("作業内容", value=edit_text)
+
+            new_type = st.selectbox(
+                "作業種別",
+                ["required", "optional"],
+                index=0 if edit_type == "required" else 1,
+                format_func=lambda x: "必須作業" if x == "required" else "選択作業",
+            )
+
+            new_priority = st.number_input(
+                "優先度",
+                min_value=1,
+                max_value=99,
+                value=edit_priority,
+            )
+
+            col_save, col_cancel = st.columns(2)
+
+            with col_save:
+                submitted = st.form_submit_button("更新")
+
+            with col_cancel:
+                cancelled = st.form_submit_button("キャンセル")
+
+            if submitted:
+                if not new_text.strip():
+                    st.error("作業内容を入力してください。")
+                else:
+                    df = get_outside_work_tasks_df()
+                    df = df.fillna("").copy()
+                    mask = df["task_id"].astype(str).str.strip() == edit_task_id
+
+                    df.loc[mask, "task_text"] = new_text.strip()
+                    df.loc[mask, "task_type"] = new_type
+                    df.loc[mask, "priority"] = int(new_priority)
+                    df.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+                    save_db(df, "outside_work_tasks")
+
+                    st.session_state.pop("edit_outside_task_id", None)
+                    st.session_state.pop("edit_outside_task_text", None)
+                    st.session_state.pop("edit_outside_task_type", None)
+                    st.session_state.pop("edit_outside_task_priority", None)
+
+                    st.success("更新しました。")
+                    st.rerun()
+
+            if cancelled:
+                st.session_state.pop("edit_outside_task_id", None)
+                st.session_state.pop("edit_outside_task_text", None)
+                st.session_state.pop("edit_outside_task_type", None)
+                st.session_state.pop("edit_outside_task_priority", None)
+                st.rerun()
+
+
 
 def get_external_contacts_df():
     return get_external_contacts_df_cached().copy()
@@ -16435,6 +16781,8 @@ def render_secret_page(doc_title: str):
     else:
         render_plan_form_page(doc_title)
 
+
+
 import traceback
 
 def run_page_debug(page_name, fn):
@@ -16548,3 +16896,8 @@ elif page == "🐝在宅利用一括入力🐝":
         st.error("このページは管理者専用です。")
     else:
         run_page_debug("🐝在宅利用一括入力🐝", render_knowbe_home_flag_page)
+elif page == "施設外就労先登録":
+    if not st.session_state.get("is_admin", False):
+        st.error("このページは管理者専用です。")
+    else:
+        run_page_debug("施設外就労先登録", render_outside_workplace_master_page)

@@ -36,6 +36,8 @@ SUPABASE_TABLES = {
     "record_status",
     "saved_documents",
     "user_company_permissions",
+    "outside_workplaces",
+    "outside_work_tasks",    
 }
 
 @st.cache_data(ttl=60)

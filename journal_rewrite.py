@@ -4,11 +4,12 @@ import json
 import re
 import pandas as pd
 import streamlit as st
-import google.generativeai as genai
+from openai import OpenAI
 from selenium.webdriver.common.by import By
 from common import now_jst
 from data_access import load_db, save_db, get_companies_df
 import random
+
 
 OPENINGS_HOME = [
     "作業開始前の連絡では、",
@@ -50,18 +51,72 @@ OUTSIDE_FUTURE = [
 # =========================================
 # Gemini JSON生成
 # =========================================
-def _get_gemini_api_key():
+def _get_openai_api_key():
     api_key = ""
     try:
-        api_key = st.secrets.get("GEMINI_API_KEY", "")
+        api_key = st.secrets.get("OPENAI_API_KEY", "")
     except Exception:
         api_key = ""
 
     if not api_key:
         import os
-        api_key = os.environ.get("GEMINI_API_KEY", "")
+        api_key = os.environ.get("OPENAI_API_KEY", "")
 
     return str(api_key or "").strip()
+
+
+def _get_openai_client():
+    api_key = _get_openai_api_key()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY が見つかりません")
+
+    return OpenAI(
+        api_key=api_key,
+        timeout=60.0,
+        max_retries=1,
+    )
+
+
+def _extract_openai_text(response) -> str:
+    try:
+        text = str(getattr(response, "output_text", "") or "").strip()
+        if text:
+            return text
+    except Exception:
+        pass
+
+    try:
+        parts = []
+        for item in getattr(response, "output", []) or []:
+            for content in getattr(item, "content", []) or []:
+                if getattr(content, "type", "") == "output_text":
+                    parts.append(str(getattr(content, "text", "") or ""))
+        return "\n".join([p for p in parts if p]).strip()
+    except Exception:
+        return ""
+
+
+def _openai_generate_text(prompt: str, system_instruction: str = "") -> str:
+    client = _get_openai_client()
+
+    last_error = None
+    for model_name in ["gpt-5.2", "gpt-5.1", "gpt-4.1"]:
+        try:
+            response = client.responses.create(
+                model=model_name,
+                instructions=system_instruction,
+                input=prompt,
+            )
+            text = _extract_openai_text(response)
+            if text:
+                return text
+            last_error = RuntimeError(f"{model_name} empty response")
+        except Exception as e:
+            last_error = e
+            print(f"[JR-DAY] OpenAI error model={model_name}: {e}", flush=True)
+            continue
+
+    raise RuntimeError(f"OpenAI生成失敗: {last_error}")
 
 
 def get_current_company_saved_knowbe_info():
@@ -106,31 +161,27 @@ def append_journal_log(row_dict):
 # 月単位の日誌再生成
 # =========================================
 def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workplace: str = ""):
-    api_key = _get_gemini_api_key()
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY が見つかりません")
-
-    genai.configure(api_key=api_key)
-
+    """
+    互換維持のため関数名は gemini のまま。
+    実体は OpenAI Responses API を使用する。
+    """
     system_instruction = """
-支援記録リライト専用 命令書 v8.0
-あなたの仕事は、Knowbe支援記録の原文をもとに、「利用者状態」と「職員考察」を、
-そのまま現場で貼り付けできる自然で完成度の高い文章へ再構成することです。
+支援記録リライト専用 命令書 v9.0
 
-【最重要原則】
-1. 捏造禁止
-2. 利用者状態は必ず完成文にする
-3. 職員考察は支援者視点のみ
-4. 出力はJSONのみ
+あなたの仕事は、Knowbe支援記録の原文をもとに、
+「利用者状態」と「職員考察」を、現場でそのまま貼り付けできる自然な文章へ再構成することです。
+
+【共通原則】
+1. 捏造禁止。
+2. 原文にある本人発言は、使えるものを優先して残す。
+3. 「体調安定」「精神安定」「精神不安定」「体調良好」などのラベル表現をそのまま本文に使わない。
+4. 数量は原文に明示されている場合のみ使う。
+5. 作業内容が曖昧な場合、勝手に数量を作らない。
+6. 出力はJSONのみ。
 """
 
-    outside_info = str(outside_workplace or "").strip() or "未指定"
+    outside_workplace = str(outside_workplace or "").strip()
     day_text = str(day_text or "")
-
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
-        system_instruction=system_instruction
-    )
 
     # =========================
     # ① 抽出フェーズ
@@ -145,23 +196,30 @@ def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workp
 {day_text}
 
 【目的】
-この文章から、事実情報を漏れなく抽出すること。
-文章を整えたり綺麗にしなくてよい。
+この文章から、日誌作成に必要な事実情報だけを抽出してください。
+文章を綺麗に整える必要はありません。
 
 【抽出ルール】
-・元の表現をできるだけそのまま使う
-・「」の発言は絶対に残す
+・本人の発言「」は必ず残す
+・体調、不調、気分、作業内容、作業量、終了時の発言を抽出する
 ・推測は禁止
-・余計なまとめは禁止
+・原文にない数量を作らない
+・時刻は抽出しなくてよい
 
-【出力形式（JSONのみ）】
+【出力形式 JSONのみ】
 {{
   "{day_key}": {{
-    "start": "",
+    "start_contact": "",
     "condition": "",
-    "work": "",
-    "end": "",
-    "voice": "",
+    "start_quote": "",
+    "staff_start_reply": "",
+    "work_plan": "",
+    "extra_note_before_end": "",
+    "end_contact": "",
+    "work_result": "",
+    "end_quote": "",
+    "staff_end_reply": "",
+    "after_note": "",
     "staff_observation": "",
     "support_hint": ""
   }}
@@ -171,8 +229,7 @@ def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workp
     print(f"[JR-DAY] {day_key} extract start", flush=True)
 
     try:
-        res1 = model.generate_content(prompt_extract)
-        text1 = str(getattr(res1, "text", "") or "").strip()
+        text1 = _openai_generate_text(prompt_extract, system_instruction)
     except Exception as e:
         print(f"[JR-DAY] {day_key} extract error: {e}", flush=True)
         return {}
@@ -195,37 +252,72 @@ def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workp
 
 {json.dumps(extracted_json, ensure_ascii=False)}
 
-【在宅ルール（最重要）】
+【重要】
+この段階では、下記の理想文の流れに合わせて文章を作成してください。
+ただし、最終的にはPython側でさらに型固定整形します。
 
-■利用者状態（必ず3文）
-① 作業開始の連絡
-② 体調
-③ 作業終了の連絡と具体的数量
+【在宅の理想フォーマット】
 
-■職員考察（必ず2文）
-⑤ 状態の見立て
-⑥ 今後の支援
+■利用者状態
+作業開始前に連絡があり、体調確認を行った。
+本人より「〇〇」との話があった。
+職員より「〇〇」と伝えると、「〇〇」と返答があった。
+在宅での作業のため、本人からの報告にて確認した。
+本日は〇〇を予定しているとのことだった。
+必要があれば、原文にある通院・花粉・外出・生活状況などの補足をここに自然に入れる。
 
-【最重要ルール】
-・作業内容は終了文にまとめること
-・「〇〇を＜具体的数量＞やりました」は必ず終了文に含める
-・作業内容単独の文は禁止
-・必ず具体的数量を入れる
+作業終了時に連絡があり、「〇〇」と報告があった。
+作業量は〇〇とのことだった。
+職員より「〇〇」と声をかけた。
+本人からは「〇〇」と返答があった。
+その後は休養されるとのことだった。
 
-■元文優先
-・元の言葉をできるだけ残す
-・「」の発言は絶対に残す
+■職員考察
+体調や気分の状態に関する見立て。
+作業の区切り方や報告状況に関する評価。
+今後の支援内容。
 
-■禁止
-・時刻禁止
-・「精神状態」など単語だけ禁止
-・挨拶禁止
+【施設外の理想フォーマット】
 
-■終了文（最重要）
-必ず以下にする：
-「作業終了の連絡があり、〇〇を○枚（個）行った。」
+■利用者状態
+作業開始前に体調確認を行うと、〇〇とのことだった。
+本人より「〇〇」との話があった。
+職員より「〇〇」と返答した。
+〇〇を行う予定とのことだった。
+作業は〇〇との報告があった。
+途中で休憩を挟みながら対応されていた様子であった。
+作業終了時には予定範囲を実施したとの連絡があった。
+必要があれば本人発言を1つ入れる。
 
-【出力形式（JSONのみ）】
+■職員考察
+体調や作業状況に関する見立て。
+無理のない範囲で取り組めているかの評価。
+作業の質や報告状況。
+今後の支援内容。
+
+【通所の理想フォーマット】
+
+■利用者状態
+来所時に体調確認を行った。
+本人より「〇〇」との話があった。
+本日は〇〇に取り組まれた。
+数量が明示されている場合のみ、作業量を記載する。
+作業終了時には〇〇との報告があった。
+
+■職員考察
+来所時の体調や様子。
+作業中の様子。
+作業量や集中状況。
+今後の支援内容。
+
+【禁止】
+・原文にない数量を作らない
+・通所で「自分でこの辺でやめる」と書かない
+・「精神安定」「体調安定」などをそのまま書かない
+・「清掃作業をした」だけで終わらせない
+・職員考察に本人発言だけを並べない
+
+【出力形式 JSONのみ】
 {{
   "{day_key}": {{
     "user_state": "",
@@ -237,8 +329,7 @@ def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workp
     print(f"[JR-DAY] {day_key} build start", flush=True)
 
     try:
-        res2 = model.generate_content(prompt_build)
-        text2 = str(getattr(res2, "text", "") or "").strip()
+        text2 = _openai_generate_text(prompt_build, system_instruction)
     except Exception as e:
         print(f"[JR-DAY] {day_key} build error: {e}", flush=True)
         return {}
@@ -254,9 +345,6 @@ def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workp
         json_end = cleaned2.rfind("}")
         data = json.loads(cleaned2[json_start:json_end + 1])
 
-        # =========================
-        # ③ 最終整形フェーズ
-        # =========================
         if day_key in data:
             item = data.get(day_key, {})
 
@@ -280,6 +368,12 @@ def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workp
                 user_text=raw_user_state,
                 staff_text=raw_staff_note,
             )
+
+            if mode == "施設外":
+                registered_tasks_text = _pick_outside_registered_tasks(outside_workplace)
+                if registered_tasks_text:
+                    work_label = registered_tasks_text
+                    print(f"[OUTSIDE_TASK] selected = {work_label}", flush=True)
 
             if mode == "在宅":
                 work_label = _infer_home_work_label(
@@ -309,6 +403,21 @@ def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workp
                     day_text,
                     work_label,
                 )
+
+            # =========================
+            # 施設外：登録済み作業内容を本文へ強制反映
+            # =========================
+            if mode == "施設外" and registered_tasks_text:
+                task_text = registered_tasks_text
+
+                old_line_pattern = r"[^。\n]*(通路清掃|手すり拭き|共用部の清掃|清掃作業|清掃)[^。\n]*予定[^。\n]*。"
+                new_line = f"{task_text}を行う予定とのことだった。"
+
+                if re.search(old_line_pattern, user_state):
+                    user_state = re.sub(old_line_pattern, new_line, user_state, count=1)
+                else:
+                    user_state = user_state.rstrip()
+                    user_state = user_state + "\n" + new_line
 
             data[day_key]["user_state"] = _final_cleanup_journal_text(user_state)
             data[day_key]["staff_note"] = _final_cleanup_journal_text(staff_note)
@@ -370,6 +479,92 @@ def _textarea_value(el):
 def _normalize_text(s):
     return str(s or "").replace("\r\n", "\n").replace("\r", "\n").strip()
 
+def _pick_outside_registered_tasks(outside_workplace: str, max_optional: int = 3) -> str:
+    """
+    施設外就労先名から登録済み作業を取得し、
+    必須作業は全部、選択作業は優先度順から最大3つ使う。
+    """
+    workplace_name = _normalize_text(outside_workplace)
+    if not workplace_name:
+        return ""
+
+    try:
+        workplaces_df = load_db("outside_workplaces")
+        tasks_df = load_db("outside_work_tasks")
+    except Exception as e:
+        print(f"[OUTSIDE_TASK] load error: {e}", flush=True)
+        return ""
+
+    if workplaces_df is None or workplaces_df.empty or tasks_df is None or tasks_df.empty:
+        return ""
+
+    workplaces_df = workplaces_df.fillna("").copy()
+    tasks_df = tasks_df.fillna("").copy()
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+
+    hit = workplaces_df[
+        (workplaces_df["status"].astype(str).str.strip() == "active") &
+        (workplaces_df["workplace_name"].astype(str).str.strip() == workplace_name)
+    ].copy()
+
+    if company_id and "company_id" in hit.columns:
+        hit = hit[hit["company_id"].astype(str).str.strip() == company_id].copy()
+
+    if hit.empty:
+        return ""
+
+    workplace_id = str(hit.iloc[0].get("workplace_id", "")).strip()
+    if not workplace_id:
+        return ""
+
+    work = tasks_df[
+        (tasks_df["workplace_id"].astype(str).str.strip() == workplace_id) &
+        (tasks_df["status"].astype(str).str.strip() == "active")
+    ].copy()
+
+    if work.empty:
+        return ""
+
+    if "task_type" not in work.columns:
+        work["task_type"] = "optional"
+
+    try:
+        work["priority_num"] = pd.to_numeric(work["priority"], errors="coerce").fillna(99)
+        work = work.sort_values(["priority_num", "task_text"])
+    except Exception:
+        pass
+
+    required = work[work["task_type"].astype(str).str.strip() == "required"]
+    optional = work[work["task_type"].astype(str).str.strip() != "required"]
+
+    required_list = [
+        _normalize_text(x)
+        for x in required["task_text"].tolist()
+        if _normalize_text(x)
+    ]
+
+    optional_list = [
+        _normalize_text(x)
+        for x in optional["task_text"].tolist()
+        if _normalize_text(x)
+    ]
+
+    # 今は安定優先でランダムではなく優先度順。あとでランダム化可能。
+    picked_optional = optional_list[:max_optional]
+
+    tasks = []
+    for x in required_list + picked_optional:
+        if x and x not in tasks:
+            tasks.append(x)
+
+    if not tasks:
+        return ""
+
+    if len(tasks) == 1:
+        return tasks[0]
+
+    return "、".join(tasks)
 
 def _sentencize_jp(text: str):
     s = _normalize_text(text).replace("\n", " ")
@@ -2699,6 +2894,14 @@ def process_one_month(
                     staff_text=before_staff,
                 )
 
+                registered_tasks_text = ""
+
+                if mode == "施設外":
+                    registered_tasks_text = _pick_outside_registered_tasks(outside_workplace)
+                    if registered_tasks_text:
+                        work_label = registered_tasks_text
+                        print(f"[OUTSIDE_TASK] selected = {work_label}", flush=True)
+
                 final_user_state = _normalize_text((content or {}).get("user_state", ""))
                 final_staff_note = _normalize_text((content or {}).get("staff_note", ""))
                 preserve_raw = bool((content or {}).get("preserve_raw", False))
@@ -2788,8 +2991,57 @@ def process_one_month(
                     final_user_state = re.sub(r'(^|。)\s*での', r'\1', final_user_state)
                     final_user_state = final_user_state.replace("清掃作業作業", "清掃作業")
 
-                final_user_state = re.sub(r'\s+', ' ', final_user_state).strip()
-                final_staff_note = re.sub(r'\s+', ' ', final_staff_note).strip()
+                    if registered_tasks_text:
+                        task_line = f"{registered_tasks_text}を行う予定とのことだった。"
+
+                        old_line_pattern = (
+                            r"[^。\n]*"
+                            r"(通路清掃|手すり拭き|共用部の清掃|清掃作業|清掃)"
+                            r"[^。\n]*(予定|取り組む予定|行う予定)"
+                            r"[^。\n]*。"
+                        )
+
+                        if re.search(old_line_pattern, final_user_state):
+                            final_user_state = re.sub(
+                                old_line_pattern,
+                                task_line,
+                                final_user_state,
+                                count=1
+                            )
+                        else:
+                            insert_marker = "職員より"
+                            if insert_marker in final_user_state:
+                                parts = final_user_state.split("。")
+                                new_parts = []
+                                inserted = False
+                                for p in parts:
+                                    p = p.strip()
+                                    if not p:
+                                        continue
+                                    new_parts.append(p + "。")
+                                    if (not inserted) and "職員より" in p:
+                                        new_parts.append(task_line)
+                                        inserted = True
+                                final_user_state = "\n".join(new_parts)
+                            else:
+                                final_user_state = final_user_state.rstrip("。") + "。\n" + task_line
+
+                        # AIが勝手に作った登録外ワードを消す
+                        final_user_state = final_user_state.replace("共用部の清掃", registered_tasks_text)
+                        final_user_state = final_user_state.replace("通路清掃や手すり拭き", registered_tasks_text)
+
+                # 改行は残し、行内の余分な空白だけ整える
+                final_user_state = "\n".join(
+                    re.sub(r"[ \t　]+", " ", line).strip()
+                    for line in str(final_user_state).splitlines()
+                    if line.strip()
+                )
+
+                final_staff_note = "\n".join(
+                    re.sub(r"[ \t　]+", " ", line).strip()
+                    for line in str(final_staff_note).splitlines()
+                    if line.strip()
+                )
 
                 final_user_state = _fix_japanese_artifacts(final_user_state)
                 final_staff_note = _fix_japanese_artifacts(final_staff_note)
@@ -2798,7 +3050,7 @@ def process_one_month(
 
                 final_user_state = _dedupe_sentences(final_user_state)
                 final_staff_note = _dedupe_sentences(final_staff_note)
-
+                
                 _set_react_textarea_value(driver, user_state_el, final_user_state)
                 _set_react_textarea_value(driver, staff_note_el, final_staff_note)
 
@@ -3211,9 +3463,19 @@ def _force_final_outside_format(user_state: str, staff_note: str, memo: str, wor
         reply = "無理せずこのまま進めてください"
 
     # -------------------------
-    # 作業内容（場所ごと）
+    # 作業内容（施設外就労先・作業詳細を優先）
     # -------------------------
-    if place == "居酒屋琴":
+    detail_text = _normalize_text(source)
+
+    outside_detail = ""
+    m = re.search(r"④数量・施設外での具体的作業内容：(.+)", detail_text)
+    if m:
+        outside_detail = _normalize_text(m.group(1))
+
+    if outside_detail:
+        work_line = f"{outside_detail}を行う予定とのことだった。"
+
+    elif place == "居酒屋琴":
         work_line = "店内清掃や机・いす拭き、トイレ清掃等を行う予定とのことだった。"
 
     elif place == "マンション清掃":
