@@ -2544,7 +2544,18 @@ def _build_office_staff_note(row):
 # =========================================
 # 1ヶ月処理
 # =========================================
-def process_one_month(driver, resident_name, year, month, exec_id, user, company, outside_workplace="", live_status_box=None):
+def process_one_month(
+    driver,
+    resident_name,
+    year,
+    month,
+    exec_id,
+    user,
+    company,
+    outside_workplace="",
+    live_status_box=None,
+    progress_callback=None,
+):
     from run_assistance import (
         goto_support_record_month,
         fetch_support_record_page_text,
@@ -2554,34 +2565,30 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
 
     ym = f"{year}-{month:02d}"
 
+    def step(msg, level="info"):
+        if progress_callback:
+            progress_callback(msg, level)
+
     try:
+        step("月ページへ移動中")
         ok = goto_support_record_month(driver, year, month)
         if not ok:
-            print("[JR] 月移動失敗", flush=True)
-            _update_live_status(
-                live_status_box,
-                f"月移動失敗: {resident_name} / {ym}",
-                "error"
-            )
-            return
+            _update_live_status(live_status_box, f"月移動失敗: {resident_name} / {ym}", "error")
+            return {"result": "エラー", "count": 0, "message": "月移動失敗"}
 
         time.sleep(1.0)
 
+        step("支援記録本文を取得中")
         page_text = fetch_support_record_page_text(driver) or ""
         page_text_str = _normalize_text(page_text)
 
         if not page_text_str:
-            print(f"[JR] page_text empty: {resident_name} {ym}", flush=True)
-            _update_live_status(
-                live_status_box,
-                f"支援記録取得失敗: {resident_name} / {ym}",
-                "error"
-            )
-            return
+            _update_live_status(live_status_box, f"支援記録取得失敗: {resident_name} / {ym}", "error")
+            return {"result": "エラー", "count": 0, "message": "支援記録取得失敗"}
 
-        # 月全体ヘッダに「施設外支援 0/180日」が含まれるため、
-        # 月まとめでの一括生成はやめて、1日ずつ Gemini に投げる
         blocks = _split_support_record_blocks(page_text_str)
+        step(f"支援記録を取得しました。対象日数: {len(blocks)}日")
+
         result_json = {}
 
         for day, block in sorted(blocks.items()):
@@ -2589,12 +2596,15 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
             day_text = _normalize_text(block.get("all_text", ""))
 
             print(f"[JR-DAY] processing {resident_name} {day_key}", flush=True)
+            step(f"{day_key} ChatGPT生成中")
 
             day_json = generate_json_with_gemini_one_day(
                 day_key=day_key,
                 day_text=day_text,
                 outside_workplace=outside_workplace,
             )
+
+            step(f"{day_key} ChatGPT生成完了")
 
             if day_key in day_json:
                 result_json[day_key] = day_json[day_key]
@@ -2605,6 +2615,7 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                     "preserve_raw": False,
                 }
 
+        step("生成結果を後処理中")
         result_json = _postprocess_gemini_result(
             page_text_str,
             result_json,
@@ -2625,27 +2636,20 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                 "count": 0,
                 "message": "対象月の支援記録がないか、JSON生成結果が空でした"
             })
-            _update_live_status(
-                live_status_box,
-                f"スキップ: {resident_name} / {ym}",
-                "warning"
-            )
-            return
+            _update_live_status(live_status_box, f"スキップ: {resident_name} / {ym}", "warning")
+            return {"result": "スキップ", "count": 0, "message": "対象月の支援記録なし"}
 
+        step("Knowbe編集モードへ移行中")
         ok = enter_edit_mode(driver)
         if not ok:
-            print("[JR] 編集モードへ入れませんでした", flush=True)
-            _update_live_status(
-                live_status_box,
-                f"編集モード失敗: {resident_name} / {ym}",
-                "error"
-            )
-            return
+            _update_live_status(live_status_box, f"編集モード失敗: {resident_name} / {ym}", "error")
+            return {"result": "エラー", "count": 0, "message": "編集モード失敗"}
 
         success_count = 0
 
         for date_str, content in sorted(result_json.items()):
             try:
+                step(f"{date_str} Knowbeへ入力中")
                 print(f"[FIX] 入力対象: {date_str}", flush=True)
 
                 m = re.match(r"(\d{4})-(\d{2})-(\d{2})", str(date_str))
@@ -2655,14 +2659,12 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                 d = int(m.group(3))
                 target_label = f"{d}日"
 
-                # 月全体を包む親divを拾わないよう、まず行だけを対象にする
                 table_rows = driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
 
                 hit_row = None
                 for row in table_rows:
                     try:
                         row_text_full = _normalize_text(row.text)
-                        # 先頭一致で「1日」と「10日」を区別する
                         if re.match(rf"^{d}日（", row_text_full):
                             hit_row = row
                             break
@@ -2701,7 +2703,6 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                 final_staff_note = _normalize_text((content or {}).get("staff_note", ""))
                 preserve_raw = bool((content or {}).get("preserve_raw", False))
 
-                # Gemini が弱いときだけ既存情報から補完
                 gemini_is_weak = (
                     not final_user_state
                     or _looks_like_short_health_only(final_user_state)
@@ -2734,17 +2735,13 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         elif rebuilt and not final_user_state:
                             final_user_state = rebuilt
 
-                # preserve_raw の日は raw を守る
                 if preserve_raw:
                     final_user_state = _light_preserve_text(final_user_state or before_user)
                     final_staff_note = _light_preserve_text(final_staff_note or before_staff)
                 else:
-                    # ここで before_user / before_staff / row_text を材料に再合成すると
-                    # 1日分に月全体が混ざる事故が起きるため、再合成はしない
                     final_user_state = _normalize_text(final_user_state)
                     final_staff_note = _normalize_text(final_staff_note)
 
-                    # モードごとの軽い掃除だけ残す
                     final_user_state = _apply_mode_prefix_to_user_state(mode, final_user_state)
                     final_staff_note = _apply_mode_prefix_to_staff_note(mode, final_staff_note)
 
@@ -2763,7 +2760,6 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                         final_user_state, work_label, allow_zero
                     )
 
-                # 共通の軽い掃除
                 bad_prefixes = [
                     r'^在宅での取り組み状況を踏まえ、',
                     r'^施設外での作業状況を踏まえ、',
@@ -2798,7 +2794,7 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                 final_user_state = _fix_japanese_artifacts(final_user_state)
                 final_staff_note = _fix_japanese_artifacts(final_staff_note)
 
-                final_user_state = _force_end_sentence_order(final_user_state, work_label)                
+                final_user_state = _force_end_sentence_order(final_user_state, work_label)
 
                 final_user_state = _dedupe_sentences(final_user_state)
                 final_staff_note = _dedupe_sentences(final_staff_note)
@@ -2815,9 +2811,10 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
                 if after_user == str(final_user_state).strip() and after_staff == str(final_staff_note).strip():
                     success_count += 1
                     print(f"[FIX] 入力成功: {target_label}", flush=True)
+                    step(f"{date_str} 入力完了")
                     _update_live_status(
                         live_status_box,
-                        f"成功: {resident_name} / {year}-{month:02d} / {target_label} / {mode}",
+                        f"成功: {resident_name} / {ym} / {target_label} / {mode}",
                         "success"
                     )
                 else:
@@ -2829,14 +2826,17 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
 
             except Exception as e:
                 print(f"[JR] 日付処理失敗: {date_str} -> {e}", flush=True)
+                step(f"{date_str} 入力失敗: {e}", "error")
                 _update_live_status(
                     live_status_box,
-                    f"失敗: {resident_name} / {year}-{month:02d} / {date_str} / {e}",
+                    f"失敗: {resident_name} / {ym} / {date_str} / {e}",
                     "error"
                 )
 
         print("[FIX] 保存開始", flush=True)
+        step("Knowbe保存中")
         save_all(driver)
+        step(f"保存完了: {success_count}件更新")
         print(f"[FIX] 完了 件数={success_count}", flush=True)
 
         append_journal_log({
@@ -2850,6 +2850,12 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
             "count": success_count,
             "message": f"{success_count}件更新"
         })
+
+        return {
+            "result": "成功",
+            "count": success_count,
+            "message": f"{success_count}件更新",
+        }
 
     except Exception as e:
         print(f"[JR] month error: {resident_name} {ym} -> {e}", flush=True)
@@ -2869,6 +2875,11 @@ def process_one_month(driver, resident_name, year, month, exec_id, user, company
             f"月処理失敗: {resident_name} / {ym} / {e}",
             "error"
         )
+        return {
+            "result": "エラー",
+            "count": 0,
+            "message": str(e),
+        }
 
 def generate_journal_from_memo(memo: str, work_label: str, start_time: str = "", end_time: str = ""):
     """
@@ -3177,95 +3188,235 @@ def _outside_work_sentence_by_place(source: str, work: str = "") -> str:
     return f"就労先にて{_normalize_text(work) or '作業'}に取り組まれていた。"
 
 def _force_final_outside_format(user_state: str, staff_note: str, memo: str, work: str):
-    source = _normalize_text(" ".join([user_state, staff_note, memo]))
-    work = _normalize_text(work) or "作業"
 
-    health_line = _extract_first_sentence_by_keywords(
-        source,
-        ["作業開始前", "開始前", "体調確認", "体調", "腰", "痛み", "不調", "良好", "普通", "しんどい"]
-    )
-    if not health_line:
-        health_line = "作業開始前に体調確認を行った。"
+    source = _normalize_text("\n".join([user_state or "", staff_note or "", memo or ""]))
 
-    work_line = _outside_work_sentence_by_place(source, work)
+    # -------------------------
+    # 場所判定（ゆーのロジック使用）
+    # -------------------------
+    place = _detect_outside_place(source, work)
 
-    care_line = _extract_first_sentence_by_keywords(
-        source,
-        ["気を付け", "注意", "慎重", "確認", "無理", "負担", "姿勢", "休憩", "区切"]
-    )
-    if not care_line:
-        care_line = "作業中は無理のない範囲で、手順を確認しながら進められていた。"
+    # -------------------------
+    # 本人発言（開始・終了）
+    # -------------------------
+    quote1 = _extract_first_quote(source) or "今日は無理のない範囲で進めます"
+    quote2 = _extract_last_quote(source) or "無理のない範囲で終えました"
 
-    report_line = _extract_first_sentence_by_keywords(
-        source,
-        ["作業終了", "終了時", "報告", "終わり", "終え"]
-    )
-    if not report_line:
-        report_line = "作業終了時には、作業全体を通しての報告があった。"
-
-    response_line = "職員より、体調に無理が出ない範囲で進められていることを確認した。"
-
-    if any(k in source for k in ["腰", "痛み", "不調", "しんどい", "疲れ", "不安"]):
-        opinion_line = "体調面への不安を自覚しながら、作業範囲を調整して取り組めていた。"
-        eval_line = "無理を避ける判断ができており、安全面への意識が見られた。"
-        support_line = "今後も身体への負担を考慮しながら、作業量や声かけを調整して支援していく。"
+    # -------------------------
+    # 職員返答
+    # -------------------------
+    if any(k in source for k in ["しんど", "不調", "痛", "疲", "不安"]):
+        reply = "様子を見ながら無理のない範囲で進めてください"
     else:
-        opinion_line = "体調に大きな変化はなく、就労先での作業に落ち着いて取り組めていた。"
-        eval_line = "作業内容の報告も具体的であり、継続して取り組む姿勢が見られた。"
-        support_line = "今後も作業状況と体調を確認しながら、安定して継続できるよう支援していく。"
+        reply = "無理せずこのまま進めてください"
 
-    user_result = "\n".join(_uniq_sentences(health_line, work_line, care_line, report_line, response_line))
-    staff_result = "\n".join(_uniq_sentences(opinion_line, eval_line, support_line))
+    # -------------------------
+    # 作業内容（場所ごと）
+    # -------------------------
+    if place == "居酒屋琴":
+        work_line = "店内清掃や机・いす拭き、トイレ清掃等を行う予定とのことだった。"
+
+    elif place == "マンション清掃":
+        work_line = "通路清掃や手すり拭き、共用部の清掃を行う予定とのことだった。"
+
+    elif place == "清掃":
+        work_line = "清掃作業を中心に取り組む予定とのことだった。"
+
+    else:
+        work_line = "施設外作業に取り組む予定とのことだった。"
+
+    # -------------------------
+    # 作業の進み方
+    # -------------------------
+    if any(k in source for k in ["昨日より", "回復", "マシ"]):
+        progress_line = "前日よりも安定して進められていたとの報告があった。"
+    elif any(k in source for k in ["しんど", "不調"]):
+        progress_line = "無理のないペースで進められていたとの報告があった。"
+    else:
+        progress_line = "一定のペースで進められていたとの報告があった。"
+
+    # -------------------------
+    # 途中対応
+    # -------------------------
+    middle_line = "途中で休憩を挟みながら対応されていた様子であった。"
+
+    # -------------------------
+    # 終了内容
+    # -------------------------
+    if any(k in source for k in ["広げ", "奥まで"]):
+        finish_line = "作業終了時には範囲を広げたとの連絡があった。"
+    elif any(k in source for k in ["できた", "完了"]):
+        finish_line = "作業終了時には予定範囲を実施したとの連絡があった。"
+    else:
+        finish_line = "作業終了時には予定範囲を概ね実施したとの連絡があった。"
+
+    # -------------------------
+    # 利用者状態（改行構造）
+    # -------------------------
+    user_lines = [
+        "作業開始前に体調確認を行うと、比較的安定しているとのことだった。",
+        f"本人より「{quote1}」との話があった。",
+        f"職員より「{reply}」と返答した。",
+        "",
+        work_line,
+        progress_line,
+        middle_line,
+        "",
+        finish_line,
+        f"本人より「{quote2}」との話があった。",
+    ]
+
+    # -------------------------
+    # 職員考察（分岐あり）
+    # -------------------------
+    if any(k in source for k in ["昨日より", "回復"]):
+        opinion = "回復傾向が見られ、安定した作業ができていた。"
+    elif any(k in source for k in ["しんど", "不調"]):
+        opinion = "体調に配慮しながら無理のない範囲で取り組めていた。"
+    else:
+        opinion = "安定した状態で作業に取り組めていた。"
+
+    staff_lines = [
+        opinion,
+        "無理のない範囲で継続できている。",
+        "作業の質も保たれている。",
+        "報告も適切である。",
+        "今後も無理のない範囲で支援していく。",
+    ]
+
+    # -------------------------
+    # 仕上げ
+    # -------------------------
+    user_result = "\n".join(user_lines).strip()
+    staff_result = "\n".join(staff_lines).strip()
+
+    user_result = _final_cleanup_journal_text(user_result)
+    staff_result = _final_cleanup_journal_text(staff_result)
 
     return user_result, staff_result
 
 
+def _extract_office_quantity(source: str) -> str:
+    s = _normalize_text(source)
+
+    # 明示数量だけ拾う。推定は禁止。
+    m = re.search(r"([ぁ-んァ-ン一-龥A-Za-z0-9ー・の\s]{0,30}?)(\d+|[０-９]+)\s*(個|本|枚|袋|点|膳|セット)", s)
+    if m:
+        work_part = m.group(1).strip()
+        qty = m.group(2).translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+        unit = m.group(3)
+        work_part = re.sub(r"^(作業量は|作業内容は|本日は|作業終了時には|、)", "", work_part).strip()
+        if work_part:
+            return f"{work_part}{qty}{unit}"
+        return f"{qty}{unit}"
+
+    return ""
+
+
+def _infer_office_work_label(source: str, work: str) -> str:
+    s = _normalize_text(source)
+    w = _normalize_text(work)
+
+    # 「内職」「未実施」だけでは弱いので、本文から具体作業名を拾う
+    candidates = [
+        "スマホのクリップスタンド",
+        "スマートフォンフォルダー",
+        "ダニトリシート",
+        "ダニ取りシート",
+        "スプーン作業",
+        "スプーン",
+        "ビーズ",
+        "箸",
+        "お箸",
+        "袋詰め",
+        "箱折り",
+        "シール貼り",
+        "チラシ折り",
+        "内職",
+    ]
+
+    for c in candidates:
+        if c in s:
+            return c
+
+    if w and w not in ["未実施", "-", "なし"]:
+        return w
+
+    return "作業"
+
+
 def _force_final_office_format(user_state: str, staff_note: str, memo: str, work: str):
-    source = _normalize_text(" ".join([user_state, staff_note, memo]))
-    work = _normalize_text(work) or "作業"
+    """
+    通所用：型固定版
+    - 数量は明示があるときだけ入れる
+    - 通所では「本人判断で作業をやめた」表現は禁止
+    - 来所時確認 → 作業内容 → 作業中の様子 → 終了時確認 の流れに固定
+    """
+    source = _normalize_text("\n".join([user_state or "", staff_note or "", memo or ""]))
+    work_label = _infer_office_work_label(source, work)
+    qty_phrase = _extract_office_quantity(source)
 
-    health_line = _extract_first_sentence_by_keywords(
-        source,
-        ["来所時", "体調", "元気", "良好", "普通", "不調", "しんどい", "安定", "不安定", "痛み"]
-    )
-    if not health_line:
-        health_line = "来所時に体調確認を行った。"
-
-    work_line = _extract_first_sentence_by_keywords(
-        source,
-        [work, "作業", "内職", "塗り絵", "スマートフォンフォルダー", "箸", "袋詰め", "チラシ", "清掃"]
-    )
-    if not work_line:
-        work_line = f"通所にて{work}に取り組まれていた。"
-
-    during_line = _extract_first_sentence_by_keywords(
-        source,
-        ["落ち着", "丁寧", "集中", "確認", "慎重", "ペース", "手元", "休憩", "声かけ"]
-    )
-    if not during_line:
-        during_line = "作業中は手元を確認しながら、落ち着いて進められていた。"
-
-    qty_line = _extract_first_sentence_by_keywords(
-        source,
-        ["個", "枚", "膳", "本", "羽", "仕上げ", "完成", "報告"]
-    )
-    if not qty_line:
-        qty = _estimate_quantity_phrase(work, source)
-        if qty:
-            qty_line = f"作業終了時には、{qty}仕上げられたと報告があった。"
+    # 本人発言
+    first_quote = _extract_first_quote(source)
+    bad_quote_words = ["この辺でやめ", "やめときます", "終わりにします", "休みます"]
+    if not first_quote or any(k in first_quote for k in bad_quote_words):
+        if any(k in source for k in ["良好", "普通", "いつも通り", "大丈夫", "安定"]):
+            first_quote = "今日はいつも通りです"
+        elif any(k in source for k in ["しんど", "不調", "疲", "痛", "眠"]):
+            first_quote = "今日は少し体調が優れないです"
         else:
-            qty_line = "作業終了時には、取り組んだ内容について報告があった。"
+            first_quote = "無理のない範囲で取り組みます"
 
-    if any(k in source for k in ["不調", "しんどい", "痛み", "疲れ", "不安定"]):
-        opinion_line = "来所時の体調には配慮が必要であったが、その日の状態に合わせて作業に取り組めていた。"
+    # 体調・声かけ
+    if any(k in source for k in ["しんど", "不調", "疲", "痛", "眠"]):
+        health_line = "来所時に体調確認を行うと、やや不調があるとの報告があった。"
+        reply_line = "職員より「無理のない範囲で進めてください」と声をかけた。"
+        staff_1 = "来所時に体調面への配慮が必要な様子が見られた。"
+        staff_3 = "今後も体調の変化を確認しながら、無理のない範囲で作業に取り組めるよう支援していく。"
     else:
-        opinion_line = "体調に大きな変化は見られず、その日の状態に合わせて作業を進められていた。"
+        health_line = "来所時に体調確認を行うと、体調は大きく変わりないとの報告があった。"
+        reply_line = "職員より「この調子で無理なく進めてください」と声をかけた。"
+        staff_1 = "来所時の体調に大きな変化はなく、落ち着いて作業に入ることができていた。"
+        staff_3 = "今後も体調や作業の様子を確認しながら、安定して取り組めるよう支援していく。"
 
-    eval_line = "作業中は一定のペースを保ちながら、丁寧に取り組まれている点が見られた。"
-    support_line = "今後も無理のない範囲で継続しやすいよう、様子を確認しながら関わっていく。"
+    # 作業中の様子
+    if any(k in source for k in ["丁寧", "手元", "確認"]):
+        work_status = "作業中は手元を確認しながら、丁寧に進められていた。"
+        staff_2 = "作業中は手順を確認しながら進められており、丁寧に取り組む姿勢が見られた。"
+    elif any(k in source for k in ["集中", "一定", "リズム", "ペース"]):
+        work_status = "作業中は一定のペースを保ちながら、集中して取り組まれていた。"
+        staff_2 = "作業中は一定のペースで取り組めており、継続して作業する姿勢が見られた。"
+    else:
+        work_status = "作業中は落ち着いた様子で、無理のない範囲で取り組まれていた。"
+        staff_2 = "作業中は落ち着いて取り組めており、その日の状態に合わせて進められていた。"
 
-    user_result = "\n".join(_uniq_sentences(health_line, work_line, during_line, qty_line))
-    staff_result = "\n".join(_uniq_sentences(opinion_line, eval_line, support_line))
+    # 終了文：数量は明示がある時だけ
+    if qty_phrase:
+        end_line = f"作業終了時には、{qty_phrase}仕上げたことを職員が確認した。"
+    else:
+        end_line = "作業終了時には、取り組み状況を職員が確認した。"
+
+    user_lines = [
+        health_line,
+        f"本人より「{first_quote}」との話があった。",
+        reply_line,
+        "",
+        f"本日は通所にて{work_label}に取り組まれていた。",
+        work_status,
+        end_line,
+    ]
+
+    staff_lines = [
+        staff_1,
+        staff_2,
+        staff_3,
+    ]
+
+    user_result = "\n".join(user_lines).strip()
+    staff_result = "\n".join(staff_lines).strip()
+
+    user_result = _final_cleanup_journal_text(user_result)
+    staff_result = _final_cleanup_journal_text(staff_result)
 
     return user_result, staff_result
 
@@ -3300,10 +3451,116 @@ def _final_cleanup_journal_text(text: str) -> str:
 
     return "\n".join(lines).strip()
 
+def _jr_fmt_seconds(sec):
+    try:
+        sec = int(sec)
+    except Exception:
+        sec = 0
+
+    if sec < 60:
+        return f"{sec}秒"
+
+    m, s = divmod(sec, 60)
+    if m < 60:
+        return f"{m}分{s}秒"
+
+    h, m = divmod(m, 60)
+    return f"{h}時間{m}分"
+
+
+def _jr_make_month_tasks(residents, start_y, start_m, end_y, end_m):
+    tasks = []
+
+    for resident in residents:
+        y, m = int(start_y), int(start_m)
+
+        while (y < int(end_y)) or (y == int(end_y) and m <= int(end_m)):
+            tasks.append({
+                "resident": resident,
+                "year": y,
+                "month": m,
+                "ym": f"{y}-{m:02d}",
+            })
+
+            if m == 12:
+                y += 1
+                m = 1
+            else:
+                m += 1
+
+    return tasks
+
+
+def _jr_update_dashboard(progress_ui, state, current_text="", step_text="", level="info"):
+    if not progress_ui:
+        return
+
+    now = time.time()
+    elapsed = now - state.get("start_time", now)
+
+    total = max(int(state.get("total", 0)), 1)
+    done = int(state.get("done", 0))
+    success = int(state.get("success", 0))
+    error = int(state.get("error", 0))
+    skip = int(state.get("skip", 0))
+
+    progress = min(max(done / total, 0), 1)
+
+    avg = elapsed / done if done > 0 else 0
+    eta = avg * (total - done) if done > 0 else 0
+
+    try:
+        progress_ui["bar"].progress(progress)
+    except Exception:
+        pass
+
+    text = (
+        f"進捗: {done}/{total}件（{progress * 100:.1f}%）\n"
+        f"成功: {success}件 / スキップ: {skip}件 / エラー: {error}件\n"
+        f"経過: {_jr_fmt_seconds(elapsed)} / 残り目安: {_jr_fmt_seconds(eta)} / 平均: {avg:.1f}秒/件"
+    )
+
+    try:
+        progress_ui["summary"].info(text)
+    except Exception:
+        pass
+
+    if current_text:
+        try:
+            if level == "error":
+                progress_ui["current"].error(current_text)
+            elif level == "warning":
+                progress_ui["current"].warning(current_text)
+            else:
+                progress_ui["current"].info(current_text)
+        except Exception:
+            pass
+
+    if step_text:
+        logs = state.setdefault("logs", [])
+        logs.append(step_text)
+        if len(logs) > 12:
+            logs[:] = logs[-12:]
+
+        try:
+            progress_ui["log"].code("\n".join(logs))
+        except Exception:
+            pass
+
 # =========================================
 # メイン処理
 # =========================================
-def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m, outside_workplace="", live_status_box=None):
+def run_bulk_rewrite(
+    driver,
+    residents,
+    start_y,
+    start_m,
+    end_y,
+    end_m,
+    outside_workplace="",
+    live_status_box=None,
+    progress_ui=None,
+):
     from run_assistance import goto_users_summary
     from run_assistance import apply_users_summary_filter_show_expired
     from run_assistance import open_support_record_for_resident
@@ -3314,50 +3571,113 @@ def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m, outside_
 
     st.session_state["jr_running"] = True
 
+    tasks = _jr_make_month_tasks(residents, start_y, start_m, end_y, end_m)
+
+    state = {
+        "start_time": time.time(),
+        "total": len(tasks),
+        "done": 0,
+        "success": 0,
+        "error": 0,
+        "skip": 0,
+        "logs": [],
+    }
+
+    _jr_update_dashboard(
+        progress_ui,
+        state,
+        current_text=f"開始準備中: 全{len(tasks)}件",
+        step_text="処理を開始します。",
+    )
+
+    current_resident = None
+
     try:
-        for resident in residents:
-            ok = goto_users_summary(driver)
-            if not ok:
-                append_journal_log({
-                    "exec_id": exec_id,
-                    "exec_time": _now_str(),
-                    "user": user,
-                    "company": company,
-                    "resident_name": resident,
-                    "target_month": "",
-                    "result": "エラー",
-                    "count": 0,
-                    "message": "利用者ごと一覧へ移動できませんでした"
-                })
-                continue
+        for task in tasks:
+            resident = task["resident"]
+            y = task["year"]
+            m = task["month"]
+            ym = task["ym"]
 
-            apply_users_summary_filter_show_expired(driver)
-
-            ok = open_support_record_for_resident(driver, resident)
-            if not ok:
-                append_journal_log({
-                    "exec_id": exec_id,
-                    "exec_time": _now_str(),
-                    "user": user,
-                    "company": company,
-                    "resident_name": resident,
-                    "target_month": "",
-                    "result": "エラー",
-                    "count": 0,
-                    "message": "対象利用者の支援記録を開けませんでした"
-                })
-                continue
-
-            y, m = int(start_y), int(start_m)
-
-            while (y < int(end_y)) or (y == int(end_y) and m <= int(end_m)):
-                _update_live_status(
-                    live_status_box,
-                    f"処理中: {resident} / {y}-{m:02d}",
-                    "info"
+            try:
+                _jr_update_dashboard(
+                    progress_ui,
+                    state,
+                    current_text=f"処理中: {resident} / {ym}",
+                    step_text=f"[{state['done'] + 1}/{state['total']}] {resident} / {ym} 開始",
                 )
 
-                process_one_month(
+                # 利用者が変わった時だけ一覧から開き直す
+                if current_resident != resident:
+                    _jr_update_dashboard(
+                        progress_ui,
+                        state,
+                        current_text=f"利用者ページへ移動中: {resident}",
+                        step_text=f"{resident}: 利用者ごと一覧へ移動中",
+                    )
+
+                    ok = goto_users_summary(driver)
+                    if not ok:
+                        state["error"] += 1
+                        state["done"] += 1
+                        append_journal_log({
+                            "exec_id": exec_id,
+                            "exec_time": _now_str(),
+                            "user": user,
+                            "company": company,
+                            "resident_name": resident,
+                            "target_month": ym,
+                            "result": "エラー",
+                            "count": 0,
+                            "message": "利用者ごと一覧へ移動できませんでした",
+                        })
+                        _jr_update_dashboard(
+                            progress_ui,
+                            state,
+                            current_text=f"エラー: {resident} / {ym}",
+                            step_text=f"{resident} / {ym}: 利用者ごと一覧へ移動失敗",
+                            level="error",
+                        )
+                        continue
+
+                    apply_users_summary_filter_show_expired(driver)
+
+                    ok = open_support_record_for_resident(driver, resident)
+                    if not ok:
+                        state["error"] += 1
+                        state["done"] += 1
+                        append_journal_log({
+                            "exec_id": exec_id,
+                            "exec_time": _now_str(),
+                            "user": user,
+                            "company": company,
+                            "resident_name": resident,
+                            "target_month": ym,
+                            "result": "エラー",
+                            "count": 0,
+                            "message": "対象利用者の支援記録を開けませんでした",
+                        })
+                        _jr_update_dashboard(
+                            progress_ui,
+                            state,
+                            current_text=f"エラー: {resident} / {ym}",
+                            step_text=f"{resident} / {ym}: 支援記録を開けませんでした",
+                            level="error",
+                        )
+                        continue
+
+                    current_resident = resident
+
+                def progress_callback(step_text, level="info"):
+                    _jr_update_dashboard(
+                        progress_ui,
+                        state,
+                        current_text=f"処理中: {resident} / {ym}",
+                        step_text=f"{resident} / {ym}: {step_text}",
+                        level=level,
+                    )
+
+                result = process_one_month(
                     driver=driver,
                     resident_name=resident,
                     year=y,
@@ -3367,17 +3687,60 @@ def run_bulk_rewrite(driver, residents, start_y, start_m, end_y, end_m, outside_
                     company=company,
                     outside_workplace=outside_workplace,
                     live_status_box=live_status_box,
+                    progress_callback=progress_callback,
                 )
 
-                if m == 12:
-                    y += 1
-                    m = 1
+                result = result or {}
+                result_type = str(result.get("result", "")).strip()
+
+                if result_type == "成功":
+                    state["success"] += 1
+                elif result_type == "スキップ":
+                    state["skip"] += 1
                 else:
-                    m += 1
+                    state["error"] += 1
+
+                state["done"] += 1
+
+                _jr_update_dashboard(
+                    progress_ui,
+                    state,
+                    current_text=f"完了: {resident} / {ym}",
+                    step_text=f"{resident} / {ym}: {result_type or '完了'} / {result.get('message', '')}",
+                )
+
+            except Exception as e:
+                state["error"] += 1
+                state["done"] += 1
+
+                append_journal_log({
+                    "exec_id": exec_id,
+                    "exec_time": _now_str(),
+                    "user": user,
+                    "company": company,
+                    "resident_name": resident,
+                    "target_month": ym,
+                    "result": "エラー",
+                    "count": 0,
+                    "message": str(e),
+                })
+
+                _jr_update_dashboard(
+                    progress_ui,
+                    state,
+                    current_text=f"エラー: {resident} / {ym}",
+                    step_text=f"{resident} / {ym}: エラー {e}",
+                    level="error",
+                )
 
     finally:
         st.session_state["jr_running"] = False
-
+        _jr_update_dashboard(
+            progress_ui,
+            state,
+            current_text="処理が終了しました。",
+            step_text="全体処理が終了しました。",
+        )
 
 # =========================================
 # ページUI
@@ -3445,6 +3808,18 @@ def render_journal_rewrite_page():
 
     live_status_box = st.empty()
 
+    progress_bar = st.progress(0)
+    progress_summary_box = st.empty()
+    progress_current_box = st.empty()
+    progress_log_box = st.empty()
+
+    progress_ui = {
+        "bar": progress_bar,
+        "summary": progress_summary_box,
+        "current": progress_current_box,
+        "log": progress_log_box,
+    }
+
     run_clicked = st.button(
         "自動上書きを実行",
         key="run_journal_rewrite",
@@ -3486,6 +3861,7 @@ def render_journal_rewrite_page():
                     end_m=int(end_m),
                     outside_workplace=outside_workplace,
                     live_status_box=live_status_box,
+                    progress_ui=progress_ui,
                 )
 
             st.success("自動上書き処理が完了したある。")

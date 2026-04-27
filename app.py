@@ -1,5 +1,6 @@
 from common import now_jst, mask_secret_text, safe_text, heart_label, parse_time_range, _to_minutes, _normalize_weekday_label, is_time_overlap, get_saturday_dates_for_month, get_sheet_name_candidates, get_sheet_name, get_next_numeric_id, normalize_company_scoped_df, filter_by_company_id
 from data_access import load_db, save_db, get_companies_df, get_users_df, get_user_company_permissions_df, get_task_required_cols, get_tasks_df, get_urgent_tasks_df, get_resident_master_df, get_resident_schedule_df, get_resident_notes_df, get_attendance_logs_df, get_attendance_logs_df, get_attendance_display_settings_df
+from journal_input_builder import build_journal_generation_input
 from journal_rewrite import render_journal_rewrite_page
 import streamlit as st
 import pandas as pd
@@ -8746,6 +8747,7 @@ def render_work_sheet_form_page(doc_title: str):
     )
 
 
+
 def get_staff_examples_df_cached():
     df = load_db("staff_examples")
     if df is None or df.empty:
@@ -10684,7 +10686,9 @@ def render_bee_journal_page():
                 height=90
             )
 
-        # 互換用変数
+        # =========================
+        # ①〜⑥ 入力値の取得
+        # =========================
         memo_1 = str(st.session_state.get("memo_1", "")).strip()
         memo_2 = str(st.session_state.get("memo_2", "")).strip()
         memo_3 = str(st.session_state.get("memo_3", "")).strip()
@@ -10692,10 +10696,16 @@ def render_bee_journal_page():
         memo_5 = str(st.session_state.get("memo_5", "")).strip()
         memo_6 = str(st.session_state.get("memo_6", "")).strip()
 
-        start_memo = "\n".join([x for x in [memo_1, memo_2, memo_3, memo_4] if x]).strip()
-        end_memo = "\n".join([x for x in [memo_5, memo_6] if x]).strip()
+        # =========================
+        # 備考
+        # =========================
+        preview_note = str(st.session_state.get("bee_note_text", "")).strip()
+        if not preview_note:
+            preview_note = str(st.session_state.get("bee_note_select", "")).strip()
 
-        # 後段互換用
+        # =========================
+        # 作業情報の確定
+        # =========================
         selected_piecework_label = selected_memo_3
         selected_piecework_name = piecework_name_map.get(selected_piecework_label, "")
         selected_piecework_id = piecework_id_map.get(selected_piecework_label, "")
@@ -10711,8 +10721,38 @@ def render_bee_journal_page():
         elif piecework_quantity:
             work_memo_text = piecework_quantity
 
+        # =========================
+        # AI生成用memoの作成
+        # =========================
+        journal_input = build_journal_generation_input(
+            service_type=service_type,
+            meal_flag=meal_flag,
+            note_text=preview_note,
+            memo_1=memo_1,
+            memo_2=memo_2,
+            memo_3=memo_3,
+            memo_4=memo_4,
+            memo_5=memo_5,
+            memo_6=memo_6,
+            piecework_name=selected_piecework_name,
+            piecework_quantity=piecework_quantity,
+        )
+
+        ai_memo = journal_input["memo"]
+        ai_work_label = journal_input["work_label"]
+
+        # 旧ボタン互換用：入力文そのまま送信用
+        raw_start_memo = "\n".join([x for x in [memo_1, memo_2, memo_3, memo_4] if x]).strip()
+        raw_end_memo = "\n".join([x for x in [memo_5, memo_6] if x]).strip()
+
+        # 新フォーマット生成用：①〜⑥を全部まとめたmemo
+        start_memo = ai_memo
+        end_memo = ""
+
+        # =========================
+        # 送信ボタン
+        # =========================
         send_memo_cols = st.columns(4)
-                
 
         with send_memo_cols[0]:
             start_send_raw = st.button(
@@ -10742,23 +10782,9 @@ def render_bee_journal_page():
                 use_container_width=True
             )
 
-        memo_1 = str(st.session_state.get("memo_1", "")).strip()
-        memo_2 = str(st.session_state.get("memo_2", "")).strip()
-        memo_3 = str(st.session_state.get("memo_3", "")).strip()
-        memo_4 = str(st.session_state.get("memo_4", "")).strip()
-        memo_5 = str(st.session_state.get("memo_5", "")).strip()
-        memo_6 = str(st.session_state.get("memo_6", "")).strip()
-
-        # 旧ロジック互換用
-        start_memo = "\n".join([x for x in [memo_1, memo_2, memo_3, memo_4] if x]).strip()
-        end_memo = "\n".join([x for x in [memo_5, memo_6] if x]).strip()
-
-        # ===== 互換用の復活変数 =====
-        preview_note = str(st.session_state.get("bee_note_text", "")).strip()
-        if not preview_note:
-            preview_note = str(st.session_state.get("bee_note_select", "")).strip()
-
+        # =========================
         # 例文・個人ルール
+        # =========================
         example_row = get_staff_example_row(target_company_id, staff_name)
         rule_row = get_personal_rule_row(target_company_id, staff_name)
 
@@ -11212,8 +11238,17 @@ def render_bee_journal_page():
                                 service_type=str(payload.get("service_type", "在宅")).strip() or "在宅",
                                 meal_flag=str(payload.get("meal_flag", "なし")).strip() or "なし",
                                 note_text=str(payload.get("note_text", payload.get("note", ""))).strip(),
-                                start_memo=str(payload.get("start_memo_raw", payload.get("start_memo", ""))).strip(),
-                                end_memo=str(payload.get("end_memo_raw", payload.get("end_memo", ""))).strip(),
+
+                                start_memo=(
+                                    str(payload.get("start_memo_generated", "")).strip()
+                                    or str(payload.get("start_memo_raw", payload.get("start_memo", ""))).strip()
+                                ),
+
+                                end_memo=(
+                                    str(payload.get("end_memo_generated", "")).strip()
+                                    or str(payload.get("end_memo_raw", payload.get("end_memo", ""))).strip()
+                                ),
+
                                 staff_name=str(payload.get("staff_name", "")).strip(),
                                 plan_text="",
                                 examples_text="",

@@ -10,8 +10,10 @@ except Exception:
 
 from supabase import create_client
 
-SUPABASE_URL = "https://qofabfhjorqeeyrlrnwv.supabase.co"
-SUPABASE_KEY = "sb_publishable_G3oY4S2zu8piW0-wR5CNLQ_IaIrDekc"
+import streamlit as st
+
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
