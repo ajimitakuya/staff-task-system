@@ -3050,7 +3050,7 @@ def process_one_month(
 
                 final_user_state = _dedupe_sentences(final_user_state)
                 final_staff_note = _dedupe_sentences(final_staff_note)
-                
+
                 _set_react_textarea_value(driver, user_state_el, final_user_state)
                 _set_react_textarea_value(driver, staff_note_el, final_staff_note)
 
@@ -3141,11 +3141,19 @@ def generate_journal_from_memo(memo: str, work_label: str, start_time: str = "",
     work = _normalize_text(work_label)
 
     mode = _detect_service_mode(
-        row_text=memo,
-        work_text=work,
-        user_text=memo,
-        staff_text=""
+        row_text=day_text,
+        work_text=work_label,
+        user_text=raw_user_state,
+        staff_text=raw_staff_note,
     )
+
+    registered_tasks_text = ""   # ←★これを追加ある！！！
+
+    if mode == "施設外":
+        registered_tasks_text = _pick_outside_registered_tasks(outside_workplace)
+        if registered_tasks_text:
+            work_label = registered_tasks_text
+            print(f"[OUTSIDE_TASK] selected = {work_label}", flush=True)
 
     row_data = {
         "利用者状態": memo,
