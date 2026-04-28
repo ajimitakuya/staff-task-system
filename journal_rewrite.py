@@ -351,31 +351,63 @@ def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workp
             raw_user_state = str(item.get("user_state", "") or "")
             raw_staff_note = str(item.get("staff_note", "") or "")
 
-            work_label = str(outside_workplace or "").strip()
-            if not work_label:
-                work_label = str(item.get("work", "") or "").strip()
-            if not work_label:
-                work_label = "作業"
+            # =========================
+            # 作業ラベルの初期化
+            # ※ここでは outside_workplace を使わない
+            # =========================
+            base_work_label = str(item.get("work", "") or "").strip()
 
-            work_label = _infer_home_work_label(
-                "\n".join([raw_user_state, raw_staff_note, day_text]),
-                work_label
-            )
+            if not base_work_label:
+                base_work_label = _infer_home_work_label(
+                    "\n".join([raw_user_state, raw_staff_note, day_text]),
+                    "作業"
+                )
 
+            # =========================
+            # モード判定
+            # =========================
             mode = _detect_service_mode(
                 row_text=day_text,
-                work_text=work_label,
+                work_text=base_work_label,
                 user_text=raw_user_state,
                 staff_text=raw_staff_note,
             )
 
-            registered_tasks_text = ""  # ←ここ！！！
+            # =========================
+            # 通所判定の強制補正
+            # ※来所・食事あり・通所があれば通所を最優先
+            # =========================
+            raw_joined = "\n".join([raw_user_state, raw_staff_note, day_text])
 
+            if any(k in raw_joined for k in [
+                "来所時",
+                "来所された",
+                "来所され",
+                "来所後",
+                "食事はあり",
+                "食事：あり",
+                "食事\nあり",
+                "通所",
+            ]):
+                mode = "通所"
+
+            registered_tasks_text = ""
+
+            # =========================
+            # 作業ラベル確定
+            # 施設外のときだけ outside_workplace / 登録作業を使う
+            # =========================
             if mode == "施設外":
+                work_label = str(outside_workplace or "").strip() or base_work_label
+
                 registered_tasks_text = _pick_outside_registered_tasks(outside_workplace)
                 if registered_tasks_text:
                     work_label = registered_tasks_text
                     print(f"[OUTSIDE_TASK] selected = {work_label}", flush=True)
+
+            else:
+                # 通所・在宅では施設外就労先を絶対に混ぜない
+                work_label = base_work_label
 
             if mode == "在宅":
                 work_label = _infer_home_work_label(
@@ -3138,9 +3170,12 @@ def process_one_month(
 def generate_journal_from_memo(memo: str, work_label: str, start_time: str = "", end_time: str = ""):
     """
     メモから日誌を生成する（最終整形ルート）
+    通所は「内職内容＝作業」として原文を最大限残す
     """
     memo = _normalize_text(memo)
-    work = _normalize_text(work_label)
+
+    # 🔥 超重要：通所は作業＝memo優先
+    work = _normalize_text(work_label) or memo
 
     mode = _detect_service_mode(
         row_text=memo,
@@ -3167,8 +3202,34 @@ def generate_journal_from_memo(memo: str, work_label: str, start_time: str = "",
         user_state, staff_note = _force_final_outside_format(user_state, staff_note, memo, work)
 
     else:
+        # ===== 通所 =====
         user_state = _build_office_user_state(row_data)
         staff_note = _build_office_staff_note(row_data)
+
+        # 🔥 内職内容を強制反映（AIの丸め防止）
+        if work:
+            lines = user_state.split("。")
+            new_lines = []
+            inserted = False
+
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+
+                # 作業系の行を検出して置き換え
+                if (not inserted) and ("作業" in line or "取り組" in line):
+                    new_lines.append(f"本日は{work}に取り組まれた。")
+                    inserted = True
+                else:
+                    new_lines.append(line + "。")
+
+            # 作業文がなかった場合は追加
+            if not inserted:
+                new_lines.insert(1, f"本日は{work}に取り組まれた。")
+
+            user_state = "\n".join(new_lines)
+
         user_state, staff_note = _force_final_office_format(user_state, staff_note, memo, work)
 
     user_state = _final_cleanup_journal_text(user_state)
