@@ -29,6 +29,7 @@ from run_assistance import (
 )
 from attendance import render_attendance_page, flush_attendance_before_page_change
 from knowbe_home_flag import render_knowbe_home_flag_page
+import uuid
 
 JST = timezone(timedelta(hours=9))
 
@@ -873,30 +874,39 @@ def build_home_eval_cell_data(
     }
 
 def build_home_eval_week_ranges(year_val, month_val):
+    """
+    月曜始まりのカレンダー週で週範囲を作る。
+    例：2026年4月なら
+    第1週 4/1〜4/5
+    第2週 4/6〜4/12
+    第3週 4/13〜4/19
+    第4週 4/20〜4/26
+    第5週 4/27〜4/30
+    """
     try:
         y = int(str(year_val).strip())
         m = int(str(month_val).strip())
     except Exception:
-        return {
-            "1": "",
-            "2": "",
-            "3": "",
-            "4": "",
-            "5": "",
-        }
+        return {"1": "", "2": "", "3": "", "4": "", "5": ""}
 
     last_day = py_calendar.monthrange(y, m)[1]
 
-    result = {
-        "1": f"{m}/1〜{m}/7",
-        "2": f"{m}/8〜{m}/14",
-        "3": f"{m}/15〜{m}/21",
-        "4": f"{m}/22〜{m}/28",
-        "5": "",
-    }
+    result = {"1": "", "2": "", "3": "", "4": "", "5": ""}
 
-    if last_day >= 29:
-        result["5"] = f"{m}/29〜{m}/{last_day}"
+    week_no = 1
+    start_day = 1
+
+    while start_day <= last_day and week_no <= 5:
+        current = date(y, m, start_day)
+
+        # 月曜始まりなので、次の日曜までをその週にする
+        days_until_sunday = 6 - current.weekday()
+        end_day = min(start_day + days_until_sunday, last_day)
+
+        result[str(week_no)] = f"{m}/{start_day}〜{m}/{end_day}"
+
+        start_day = end_day + 1
+        week_no += 1
 
     return result
 
@@ -5848,7 +5858,8 @@ page_options = [
     "過去日誌訂正",
     "施設外就労先登録",
     "🐝knowbe日誌一括入力🐝",
-    "🐝在宅利用一括入力🐝"
+    "🐝在宅利用一括入力🐝",
+    "内職マスター登録",
 ]
 
 if "current_page" not in st.session_state or st.session_state.current_page not in page_options:
@@ -6145,6 +6156,9 @@ if st.session_state.get("is_admin", False):
         st.rerun()
     if st.sidebar.button("施設外就労先登録", key="menu_outside_workplace", use_container_width=True):
         st.session_state.current_page = "施設外就労先登録"
+        st.rerun()
+    if st.sidebar.button("内職マスター登録", key="menu_piecework_master", use_container_width=True):
+        st.session_state.current_page = "内職マスター登録"
         st.rerun()
 
 # ===== 最下部 =====
@@ -10609,28 +10623,60 @@ def render_bee_journal_page():
 
         # ===== 旧: 内職内容 / 数量 / 開始メモ / 終了メモ を廃止 =====
         # memo_3 用の候補を作る（登録済み内職 + 施設外就労）
-        piecework_df = get_piecework_master_df(target_company_id)
+
+        piecework_df = load_db("piecework_master")
         memo_3_options = [""]
 
         piecework_name_map = {"": ""}
         piecework_id_map = {"": ""}
 
         if piecework_df is not None and not piecework_df.empty:
-            piecework_df = piecework_df.copy()
-            if "status" in piecework_df.columns:
-                piecework_df = piecework_df[
-                    piecework_df["status"].fillna("公開").astype(str).str.strip().isin(["公開", "active", "有効", ""])
-                ].copy()
+            piecework_df = piecework_df.fillna("").copy()
+
+            for col in [
+                "id",
+                "company_id",
+                "work_mode",
+                "piecework_name",
+                "quantity_min",
+                "quantity_max",
+                "unit",
+                "priority",
+                "is_active",
+            ]:
+                if col not in piecework_df.columns:
+                    piecework_df[col] = ""
+
+            piecework_df = piecework_df[
+                (piecework_df["company_id"].astype(str).str.strip() == str(target_company_id).strip()) &
+                (piecework_df["is_active"].astype(str).str.lower().isin(["true", "1", "yes", ""]))
+            ].copy()
+
+            piecework_df["priority_num"] = pd.to_numeric(
+                piecework_df["priority"],
+                errors="coerce"
+            ).fillna(9999)
+
+            piecework_df = piecework_df.sort_values(
+                ["work_mode", "priority_num", "piecework_name"]
+            )
 
             for _, pw_row in piecework_df.iterrows():
-                pw_id = str(pw_row.get("piecework_id", "")).strip()
+                pw_id = str(pw_row.get("id", "")).strip()
                 pw_name = str(pw_row.get("piecework_name", "")).strip()
+
                 if not pw_name:
                     continue
-                label = pw_name if not pw_id else f"{pw_name} ({pw_id})"
+
+                label = pw_name
+
                 memo_3_options.append(label)
                 piecework_name_map[label] = pw_name
                 piecework_id_map[label] = pw_id
+
+        # DEBUG：あとで消してOK
+        st.write("DEBUG piecework_df columns:", list(piecework_df.columns) if piecework_df is not None else [])
+        st.write("DEBUG piecework_df id/name:", piecework_df[["id", "piecework_name", "company_id"]] if piecework_df is not None and not piecework_df.empty and "id" in piecework_df.columns else "no data")
 
         # 施設外就労の暫定候補
         if "施設外就労" not in memo_3_options:
@@ -10693,6 +10739,107 @@ def render_bee_journal_page():
             )
 
         # =========================
+        # 内職工程の選択
+        # =========================
+        selected_piecework_label_for_steps = str(selected_memo_3 or "").strip()
+        selected_piecework_id_for_steps = str(piecework_id_map.get(selected_piecework_label_for_steps, "") or "").strip()
+
+        selected_piecework_steps = []
+        selected_piecework_steps_text = ""
+
+        if selected_piecework_id_for_steps:
+            steps_df = load_db("piecework_steps")
+            if steps_df is None or steps_df.empty:
+                steps_df = pd.DataFrame(columns=[
+                    "id",
+                    "company_id",
+                    "piecework_master_id",
+                    "step_no",
+                    "step_name",
+                    "step_detail",
+                    "is_active",
+                ])
+            else:
+                steps_df = steps_df.fillna("").copy()
+
+            for col in [
+                "id",
+                "company_id",
+                "piecework_master_id",
+                "step_no",
+                "step_name",
+                "step_detail",
+                "is_active",
+            ]:
+                if col not in steps_df.columns:
+                    steps_df[col] = ""
+
+            # is_active は boolean/text の両対応
+            active_mask = steps_df["is_active"].astype(str).str.lower().isin(["true", "1", "yes", ""])
+
+            target_steps = steps_df[
+                (steps_df["company_id"].astype(str).str.strip() == str(target_company_id).strip()) &
+                (steps_df["piecework_master_id"].astype(str).str.strip() == selected_piecework_id_for_steps) &
+                active_mask
+            ].copy()
+
+            if not target_steps.empty:
+                target_steps["step_no_num"] = pd.to_numeric(
+                    target_steps["step_no"],
+                    errors="coerce"
+                ).fillna(9999)
+
+                target_steps = target_steps.sort_values("step_no_num")
+
+                step_options = []
+                step_label_map = {}
+
+                for _, step in target_steps.iterrows():
+                    step_no = int(float(step.get("step_no_num", 9999)))
+                    step_name = str(step.get("step_name", "")).strip()
+                    step_detail = str(step.get("step_detail", "")).strip()
+
+                    if not step_name:
+                        continue
+
+                    label = f"{step_no}. {step_name}"
+                    if step_detail:
+                        label = f"{label}（{step_detail}）"
+
+                    step_options.append(label)
+                    step_label_map[label] = {
+                        "step_no": step_no,
+                        "step_name": step_name,
+                        "step_detail": step_detail,
+                    }
+
+                selected_step_labels = st.multiselect(
+                    "本日実施した工程",
+                    step_options,
+                    key="bee_selected_piecework_steps",
+                    help="今日その利用者さんが実際に行った工程だけを選んでください。"
+                )
+
+                selected_piecework_steps = [
+                    step_label_map[label]
+                    for label in selected_step_labels
+                    if label in step_label_map
+                ]
+
+                selected_piecework_steps_text = "\n".join([
+                    f'・{item["step_no"]}. {item["step_name"]}'
+                    + (f'（{item["step_detail"]}）' if item["step_detail"] else "")
+                    for item in selected_piecework_steps
+                ])
+
+                st.session_state["bee_selected_piecework_steps_text"] = selected_piecework_steps_text
+            else:
+                st.info("この内職にはまだ工程が登録されていません。")
+                st.session_state["bee_selected_piecework_steps_text"] = ""
+        else:
+            st.session_state["bee_selected_piecework_steps_text"] = ""
+
+        # =========================
         # ①〜⑥ 入力値の取得
         # =========================
         memo_1 = str(st.session_state.get("memo_1", "")).strip()
@@ -10742,6 +10889,7 @@ def render_bee_journal_page():
             memo_6=memo_6,
             piecework_name=selected_piecework_name,
             piecework_quantity=piecework_quantity,
+            piecework_steps_text=st.session_state.get("bee_selected_piecework_steps_text", ""),
         )
 
         ai_memo = journal_input["memo"]
@@ -11325,15 +11473,266 @@ def render_bee_journal_page():
         with st.expander("入力内容確認（開発用）"):
             st.json(save_payload)
 
-def get_outside_workplaces_df():
-    df = load_db("outside_workplaces")
+def get_piecework_master_df():
+    df = load_db("piecework_master")
     if df is None or df.empty:
         return pd.DataFrame(columns=[
-            "workplace_id", "company_id", "workplace_name", "category",
-            "status", "created_at", "updated_at"
+            "id",
+            "company_id",
+            "work_mode",
+            "piecework_name",
+            "work_steps",
+            "quantity_min",
+            "quantity_max",
+            "unit",
+            "priority",
+            "is_active",
+            "memo",
+            "created_at",
+            "updated_at",
+        ])
+
+    return df.fillna("")
+
+def get_piecework_steps_df():
+    df = load_db("piecework_steps")
+    if df is None or df.empty:
+        return pd.DataFrame(columns=[
+            "id",
+            "company_id",
+            "piecework_master_id",
+            "step_no",
+            "step_name",
+            "step_detail",
+            "is_active",
+            "created_at",
+            "updated_at",
         ])
     return df.fillna("")
 
+def render_piecework_master_page():
+    st.title("🧩 内職マスター登録")
+    st.caption("内職名と工程を分けて登録します。日誌入力時に工程を選べるようにするためのマスターです。")
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+    if not company_id:
+        st.error("事業所が選択されていません。")
+        return
+
+    master_df = get_piecework_master_df().fillna("").copy()
+    steps_df = get_piecework_steps_df().fillna("").copy()
+
+    for col in [
+        "id", "company_id", "work_mode", "piecework_name",
+        "work_steps", "quantity_min", "quantity_max", "unit",
+        "priority", "is_active", "memo", "created_at", "updated_at"
+    ]:
+        if col not in master_df.columns:
+            master_df[col] = ""
+
+    for col in [
+        "id", "company_id", "piecework_master_id", "step_no",
+        "step_name", "step_detail", "is_active", "created_at", "updated_at"
+    ]:
+        if col not in steps_df.columns:
+            steps_df[col] = ""
+
+    active_master = master_df[
+        (master_df["company_id"].astype(str).str.strip() == company_id) &
+        (master_df["is_active"].astype(str).str.lower().isin(["true", "1", "yes", ""]))
+    ].copy()
+
+    active_steps = steps_df[
+        (steps_df["company_id"].astype(str).str.strip() == company_id) &
+        (steps_df["is_active"].astype(str).str.lower().isin(["true", "1", "yes", ""]))
+    ].copy()
+
+    st.subheader("① 内職本体を登録")
+
+    with st.form("piecework_master_create_form"):
+        work_mode_label = st.radio(
+            "内職種別",
+            ["在宅内職", "通所内職"],
+            horizontal=True,
+            key="piecework_work_mode_label"
+        )
+
+        piecework_name = st.text_input(
+            "内職内容",
+            placeholder="例：塗り絵、チラシ、スマホクリップスタンド"
+        )
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            quantity_min = st.number_input("数量下限", min_value=0, value=1, step=1)
+        with c2:
+            quantity_max = st.number_input("数量上限", min_value=0, value=3, step=1)
+        with c3:
+            unit = st.text_input("単位", value="個")
+        with c4:
+            priority = st.number_input("優先順位", min_value=1, value=1, step=1)
+
+        memo = st.text_area("メモ", height=80)
+        submitted = st.form_submit_button("内職本体を登録")
+
+        if submitted:
+            if not piecework_name.strip():
+                st.error("内職内容を入力してください。")
+            elif quantity_max < quantity_min:
+                st.error("数量上限は数量下限以上にしてください。")
+            else:
+                now_text = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+                work_mode = "home" if work_mode_label == "在宅内職" else "office"
+
+                new_row = {
+                    "id": str(uuid.uuid4()),
+                    "company_id": company_id,
+                    "work_mode": work_mode,
+                    "piecework_name": piecework_name.strip(),
+                    "work_steps": "",
+                    "quantity_min": int(quantity_min),
+                    "quantity_max": int(quantity_max),
+                    "unit": unit.strip(),
+                    "priority": int(priority),
+                    "is_active": True,
+                    "memo": memo.strip(),
+                    "created_at": now_text,
+                    "updated_at": now_text,
+                }
+
+                save_df = pd.concat([master_df, pd.DataFrame([new_row])], ignore_index=True)
+
+                master_cols = [
+                    "id",
+                    "company_id",
+                    "work_mode",
+                    "piecework_name",
+                    "work_steps",
+                    "quantity_min",
+                    "quantity_max",
+                    "unit",
+                    "priority",
+                    "is_active",
+                    "memo",
+                    "created_at",
+                    "updated_at",
+                    "arrival_date",
+                ]
+
+                for col in master_cols:
+                    if col not in save_df.columns:
+                        save_df[col] = ""
+
+                save_df = save_df[master_cols]
+
+                save_db(save_df, "piecework_master")
+                st.success("内職本体を登録しました。次に工程を登録してください。")
+                st.rerun()
+
+    st.divider()
+    st.subheader("② 工程を登録")
+
+    if active_master.empty:
+        st.info("先に内職本体を登録してください。")
+        return
+
+    active_master["表示名"] = active_master["work_mode"].replace({
+        "home": "在宅内職",
+        "office": "通所内職",
+    }) + "｜" + active_master["piecework_name"].astype(str)
+
+    master_options = {
+        row["表示名"]: row["id"]
+        for _, row in active_master.iterrows()
+    }
+
+    selected_master_label = st.selectbox("工程を登録する内職", list(master_options.keys()))
+    selected_master_id = master_options[selected_master_label]
+
+    with st.form("piecework_step_create_form"):
+        step_no = st.number_input("工程番号", min_value=1, value=1, step=1)
+        step_name = st.text_input(
+            "工程名",
+            placeholder="例：バネを取り付ける"
+        )
+        step_detail = st.text_area(
+            "工程詳細",
+            placeholder="必要があれば細かい注意点を入力",
+            height=80
+        )
+
+        step_submitted = st.form_submit_button("工程を追加")
+
+        if step_submitted:
+            if not step_name.strip():
+                st.error("工程名を入力してください。")
+            else:
+                now_text = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+
+                new_step = {
+                    "id": str(uuid.uuid4()),
+                    "company_id": company_id,
+                    "piecework_master_id": selected_master_id,
+                    "step_no": int(step_no),
+                    "step_name": step_name.strip(),
+                    "step_detail": step_detail.strip(),
+                    "is_active": True,
+                    "created_at": now_text,
+                    "updated_at": now_text,
+                }
+
+                save_steps_df = pd.concat([steps_df, pd.DataFrame([new_step])], ignore_index=True)
+                save_db(save_steps_df, "piecework_steps")
+                st.success("工程を追加しました。")
+                st.rerun()
+
+    st.divider()
+    st.subheader("③ 登録済み内職と工程")
+
+    for _, master in active_master.sort_values(["work_mode", "priority", "piecework_name"]).iterrows():
+        mid = str(master["id"]).strip()
+        mode_label = "在宅内職" if str(master["work_mode"]).strip() == "home" else "通所内職"
+
+        with st.expander(f'{mode_label}｜{master["piecework_name"]}'):
+            st.write(f'数量範囲：{master["quantity_min"]}〜{master["quantity_max"]}{master["unit"]}')
+            if str(master.get("memo", "")).strip():
+                st.caption(str(master.get("memo", "")).strip())
+
+            target_steps = active_steps[
+                active_steps["piecework_master_id"].astype(str).str.strip() == mid
+            ].copy()
+
+            if target_steps.empty:
+                st.warning("工程がまだ登録されていません。")
+            else:
+                target_steps["step_no_num"] = pd.to_numeric(target_steps["step_no"], errors="coerce").fillna(9999)
+                target_steps = target_steps.sort_values("step_no_num")
+
+                for _, step in target_steps.iterrows():
+                    c1, c2, c3 = st.columns([1, 7, 2])
+                    with c1:
+                        st.write(f'{int(float(step["step_no"]))}')
+                    with c2:
+                        st.write(str(step["step_name"]))
+                        if str(step.get("step_detail", "")).strip():
+                            st.caption(str(step.get("step_detail", "")).strip())
+                    with c3:
+                        if st.button("削除", key=f'delete_step_{step["id"]}'):
+                            mask = steps_df["id"].astype(str).str.strip() == str(step["id"]).strip()
+                            steps_df.loc[mask, "is_active"] = False
+                            steps_df.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+                            save_db(steps_df, "piecework_steps")
+                            st.rerun()
+
+            st.divider()
+
+            if st.button("この内職本体を削除", key=f'delete_master_{mid}'):
+                mask = master_df["id"].astype(str).str.strip() == mid
+                master_df.loc[mask, "is_active"] = False
+                master_df.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+                save_db(master_df, "piecework_master")
+                st.success("内職本体を削除しました。")
+                st.rerun()
 
 def get_outside_work_tasks_df():
     df = load_db("outside_work_tasks")
@@ -14483,6 +14882,19 @@ elif page == "⓪ 検索":
                 st.write(f"相談員: {consultant} / ケースワーカー: {caseworker}")
                 st.write(f"病院: {hospital} / 看護: {nurse} / 介護: {care}")
 
+def get_outside_workplaces_df():
+    df = load_db("outside_workplaces")
+    if df is None or df.empty:
+        return pd.DataFrame(columns=[
+            "id",
+            "company_id",
+            "workplace_name",
+            "memo",
+            "created_at",
+            "updated_at",
+        ])
+    return df.fillna("")
+
 def get_piecework_master_df(company_id=None):
     import pandas as pd
 
@@ -16901,3 +17313,8 @@ elif page == "施設外就労先登録":
         st.error("このページは管理者専用です。")
     else:
         run_page_debug("施設外就労先登録", render_outside_workplace_master_page)
+elif page == "内職マスター登録":
+    if not st.session_state.get("is_admin", False):
+        st.error("このページは管理者専用です。")
+    else:
+        run_page_debug("内職マスター登録", render_piecework_master_page)

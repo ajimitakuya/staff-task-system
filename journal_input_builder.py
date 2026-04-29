@@ -16,6 +16,7 @@ def build_journal_generation_input(
     memo_6: str = "",
     piecework_name: str = "",
     piecework_quantity: str = "",
+    piecework_steps_text: str = "",
 ) -> dict:
     """
     日誌入力画面の①〜⑥を、journal_rewrite.generate_journal_from_memo 用に整形する。
@@ -35,6 +36,7 @@ def build_journal_generation_input(
 
     piecework_name = _clean(piecework_name)
     piecework_quantity = _clean(piecework_quantity)
+    piecework_steps_text = _clean(piecework_steps_text)
 
     # サービス種別の補正
     mode_hint = service_type
@@ -95,6 +97,9 @@ def build_journal_generation_input(
 
     if piecework_quantity:
         parts.append(f"内職数量：{piecework_quantity}")
+
+    if piecework_steps_text:
+        parts.append(f"本日実施した工程：\n{piecework_steps_text}")   
 
     memo = "\n".join([p for p in parts if p]).strip()
 

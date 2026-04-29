@@ -3167,6 +3167,63 @@ def process_one_month(
             "message": str(e),
         }
 
+def _extract_piecework_steps_from_memo(memo: str) -> str:
+    memo = _normalize_text(memo)
+
+    marker = "本日実施した工程："
+    if marker not in memo:
+        return ""
+
+    after = memo.split(marker, 1)[1].strip()
+    lines = []
+
+    for line in after.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        # 次の入力項目っぽい行に入ったら止める
+        if line.startswith("①") or line.startswith("②") or line.startswith("③") or line.startswith("④") or line.startswith("⑤") or line.startswith("⑥"):
+            break
+
+        lines.append(line)
+
+    return "\n".join(lines).strip()
+
+
+def _build_piecework_step_sentence(piecework_name: str, steps_text: str) -> str:
+    piecework_name = _normalize_text(piecework_name)
+    steps_text = _normalize_text(steps_text)
+
+    if not steps_text:
+        return ""
+
+    step_names = []
+    for line in steps_text.splitlines():
+        line = line.strip(" ・\n\r\t")
+        if not line:
+            continue
+
+        # "1. クリップの組み立て（詳細）" → "クリップの組み立て"
+        if "." in line:
+            line = line.split(".", 1)[1].strip()
+
+        if "（" in line:
+            line = line.split("（", 1)[0].strip()
+
+        if line:
+            step_names.append(line)
+
+    if not step_names:
+        return ""
+
+    steps_joined = "、".join(step_names)
+
+    if piecework_name:
+        return f"本日は{piecework_name}の工程のうち、{steps_joined}に取り組まれた。"
+
+    return f"本日は{steps_joined}に取り組まれた。"
+
 def generate_journal_from_memo(memo: str, work_label: str, start_time: str = "", end_time: str = ""):
     """
     メモから日誌を生成する（最終整形ルート）
@@ -3174,8 +3231,14 @@ def generate_journal_from_memo(memo: str, work_label: str, start_time: str = "",
     """
     memo = _normalize_text(memo)
 
-    # 🔥 超重要：通所は作業＝memo優先
+    # 🔥 選択された内職工程だけを抽出
+    piecework_steps_text = _extract_piecework_steps_from_memo(memo)
+
+    # 🔥 超重要：作業名は work_label 優先
     work = _normalize_text(work_label) or memo
+
+    # 🔥 工程が選ばれている場合、作業名に全工程ではなく「選択工程だけ」を反映
+    piecework_step_sentence = _build_piecework_step_sentence(work, piecework_steps_text)
 
     mode = _detect_service_mode(
         row_text=memo,
@@ -3219,18 +3282,32 @@ def generate_journal_from_memo(memo: str, work_label: str, start_time: str = "",
 
                 # 作業系の行を検出して置き換え
                 if (not inserted) and ("作業" in line or "取り組" in line):
-                    new_lines.append(f"本日は{work}に取り組まれた。")
+                    new_lines.append(piecework_step_sentence or f"本日は{work}に取り組まれた。")
                     inserted = True
                 else:
                     new_lines.append(line + "。")
 
             # 作業文がなかった場合は追加
             if not inserted:
-                new_lines.insert(1, f"本日は{work}に取り組まれた。")
-
+                new_lines.insert(1, piecework_step_sentence or f"本日は{work}に取り組まれた。")
             user_state = "\n".join(new_lines)
 
         user_state, staff_note = _force_final_office_format(user_state, staff_note, memo, work)
+
+    # 🔥 在宅・通所どちらでも、選択工程がある場合は「選んだ工程だけ」を最終文に反映
+    if piecework_step_sentence and piecework_step_sentence not in user_state:
+        user_state = user_state.strip()
+        if user_state and not user_state.endswith("。"):
+            user_state += "。"
+        user_state += "\n" + piecework_step_sentence
+
+    if piecework_steps_text:
+        support_step_sentence = "登録された工程のうち、本日選択された工程に沿って作業内容を確認した。"
+        if support_step_sentence not in staff_note:
+            staff_note = staff_note.strip()
+            if staff_note and not staff_note.endswith("。"):
+                staff_note += "。"
+            staff_note += "\n" + support_step_sentence
 
     user_state = _final_cleanup_journal_text(user_state)
     staff_note = _final_cleanup_journal_text(staff_note)

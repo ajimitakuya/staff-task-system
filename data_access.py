@@ -37,7 +37,9 @@ SUPABASE_TABLES = {
     "saved_documents",
     "user_company_permissions",
     "outside_workplaces",
-    "outside_work_tasks",    
+    "outside_work_tasks",
+    "piecework_master",
+    "piecework_steps",
 }
 
 @st.cache_data(ttl=60)
