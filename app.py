@@ -10777,6 +10777,15 @@ def render_bee_journal_page():
             # is_active は boolean/text の両対応
             active_mask = steps_df["is_active"].astype(str).str.lower().isin(["true", "1", "yes", ""])
 
+            st.write("DEBUG selected_piecework_id_for_steps:", selected_piecework_id_for_steps)
+
+            st.write(
+                "DEBUG steps_df:",
+                steps_df[["id", "company_id", "piecework_master_id", "step_no", "step_name", "is_active"]]
+                if steps_df is not None and not steps_df.empty
+                else "steps_df empty"
+            )            
+
             target_steps = steps_df[
                 (steps_df["company_id"].astype(str).str.strip() == str(target_company_id).strip()) &
                 (steps_df["piecework_master_id"].astype(str).str.strip() == selected_piecework_id_for_steps) &

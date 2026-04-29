@@ -397,7 +397,7 @@ def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workp
             # 作業ラベル確定
             # 施設外のときだけ outside_workplace / 登録作業を使う
             # =========================
-            if mode == "施設外":
+            if mode == "施設外" and str(outside_workplace or "").strip() and str(outside_workplace or "").strip() != "未指定":
                 work_label = str(outside_workplace or "").strip() or base_work_label
 
                 registered_tasks_text = _pick_outside_registered_tasks(outside_workplace)
@@ -680,6 +680,28 @@ def _is_short_user_state(text: str) -> bool:
 
     return len(t) <= 12
 
+import re
+
+def _extract_quantity(text: str):
+    """
+    '200枚', '70個', '100本' などを抽出
+    """
+    if not text:
+        return ""
+
+    patterns = [
+        r'(\d+)\s*枚',
+        r'(\d+)\s*個',
+        r'(\d+)\s*本',
+        r'(\d+)\s*セット',
+    ]
+
+    for p in patterns:
+        m = re.search(p, text)
+        if m:
+            return m.group(0)
+
+    return ""
 
 def _rebuild_user_state_from_existing(before_user: str, before_staff: str, work_label: str) -> str:
     user_text = str(before_user or "").replace("\u3000", " ").strip()
@@ -2120,10 +2142,22 @@ def _detect_service_mode(row_text: str, work_text: str = "", user_text: str = ""
     staff_src = _normalize_text(staff_text)
     src = " ".join([row_src, work_src, user_src, staff_src])
 
-    # 1. 施設外は最優先
+    # 1. 通所の明確な根拠を最優先
+    has_tsuusho = "通所" in row_src
+    has_time_range = bool(re.search(r'\d{1,2}:\d{2}\s*〜\s*\d{1,2}:\d{2}', row_src))
+    has_meal = any(k in row_src for k in ["食事あり", "昼食あり", "昼食提供", "食事提供"])
+
+    if has_tsuusho and has_meal:
+        return "通所"
+
+    if has_tsuusho and has_time_range:
+        if has_meal:
+            return "通所"
+        return "在宅"
+
+    # 2. 施設外は「施設外」という明示があるときだけ
     outside_keywords = [
-        "施設外", "施設外就労", "施設外支援",
-        "居酒屋", "琴", "エバーグリーン"
+        "施設外", "施設外就労", "施設外支援"
     ]
     if any(k in src for k in outside_keywords):
         return "施設外"
@@ -2343,9 +2377,12 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
         staff_note = _normalize_text((content or {}).get("staff_note", ""))
 
         all_text = " ".join([work, raw_user, raw_staff])
-        is_outside_day = any(k in all_text for k in [
-            "施設外就労", "清掃", "居酒屋", "琴", "エバーグリーン"
-        ])
+        is_outside_day = (
+            mode == "施設外"
+            and any(k in all_text for k in [
+                "施設外就労", "清掃", "居酒屋", "琴", "エバーグリーン"
+            ])
+        )
 
         source_all = " ".join([user_state, staff_note, raw_user, raw_staff]).strip()
         allow_zero = _contains_explicit_no_work_reason(source_all)
@@ -2483,10 +2520,12 @@ def _postprocess_gemini_result(page_text: str, result_json: dict, year: int, mon
         rebuilt_user = _compose_user_state_from_raw(work, raw_user, raw_staff)
         rebuilt_staff = raw_staff
 
-        is_outside_day = any(k in all_text for k in [
-            "施設外就労", "清掃", "居酒屋", "琴", "エバーグリーン"
-        ])
-
+        is_outside_day = (
+            mode == "施設外"
+            and any(k in all_text for k in [
+                "施設外就労", "清掃", "居酒屋", "琴", "エバーグリーン"
+            ])
+        )
         if is_outside_day:
             rebuilt_user = rebuilt_user.replace("合同会社エバーグリーン", "")
             rebuilt_user = rebuilt_user.replace("居酒屋 琴", "")
@@ -2930,7 +2969,7 @@ def process_one_month(
 
                 registered_tasks_text = ""
 
-                if mode == "施設外":
+                if mode == "施設外" and str(outside_workplace or "").strip():
                     registered_tasks_text = _pick_outside_registered_tasks(outside_workplace)
                     if registered_tasks_text:
                         work_label = registered_tasks_text
@@ -3746,6 +3785,184 @@ def _infer_office_work_label(source: str, work: str) -> str:
 
     return "作業"
 
+def _extract_piecework_quantity(source: str) -> str:
+    """
+    元文から数量を抽出する。
+    時刻ではなく、枚・個・本・袋・点・膳・セットなどの作業数量だけ拾う。
+    """
+    src = _normalize_text(source)
+
+    m = re.search(r"([0-9０-９]+)\s*(枚|個|本|袋|点|膳|セット|部|件)", src)
+    if not m:
+        return ""
+
+    num = m.group(1).translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+    unit = m.group(2)
+
+    return f"{num}{unit}"
+
+
+def _load_registered_piecework(work_mode: str):
+    """
+    work_mode:
+      office = 通所内職
+      home   = 在宅内職
+    """
+    try:
+        master_df = load_db("piecework_master")
+        steps_df = load_db("piecework_steps")
+    except Exception as e:
+        print(f"[PIECEWORK] load error: {e}", flush=True)
+        return pd.DataFrame(), pd.DataFrame()
+
+    if master_df is None or master_df.empty:
+        master_df = pd.DataFrame()
+    else:
+        master_df = master_df.fillna("").copy()
+
+    if steps_df is None or steps_df.empty:
+        steps_df = pd.DataFrame()
+    else:
+        steps_df = steps_df.fillna("").copy()
+
+    for col in ["id", "company_id", "work_mode", "piecework_name", "is_active"]:
+        if col not in master_df.columns:
+            master_df[col] = ""
+
+    for col in ["id", "company_id", "piecework_master_id", "step_no", "step_name", "step_detail", "is_active"]:
+        if col not in steps_df.columns:
+            steps_df[col] = ""
+
+    company_id = str(st.session_state.get("company_id", "")).strip()
+
+    master_df = master_df[
+        (master_df["work_mode"].astype(str).str.strip() == str(work_mode).strip()) &
+        (master_df["is_active"].astype(str).str.lower().isin(["true", "1", "yes", ""]))
+    ].copy()
+
+    if company_id:
+        master_df = master_df[
+            master_df["company_id"].astype(str).str.strip() == company_id
+        ].copy()
+
+        steps_df = steps_df[
+            steps_df["company_id"].astype(str).str.strip() == company_id
+        ].copy()
+
+    steps_df = steps_df[
+        steps_df["is_active"].astype(str).str.lower().isin(["true", "1", "yes", ""])
+    ].copy()
+
+    return master_df, steps_df
+
+
+def _match_registered_piecework(source: str, work_mode: str) -> dict:
+    """
+    元文を登録済み内職・工程と照合する。
+    登録されていない作業名は採用しない。
+    """
+    src = _normalize_text(source)
+    if not src:
+        return {}
+
+    master_df, steps_df = _load_registered_piecework(work_mode)
+    if master_df.empty:
+        return {}
+
+    quantity = _extract_piecework_quantity(src)
+
+    # ① 内職名が元文にある場合
+    for _, row in master_df.iterrows():
+        master_id = str(row.get("id", "")).strip()
+        piecework_name = str(row.get("piecework_name", "")).strip()
+
+        if not piecework_name:
+            continue
+
+        if piecework_name in src:
+            step_text = ""
+
+            target_steps = steps_df[
+                steps_df["piecework_master_id"].astype(str).str.strip() == master_id
+            ].copy()
+
+            if not target_steps.empty:
+                target_steps["step_no_num"] = pd.to_numeric(
+                    target_steps["step_no"],
+                    errors="coerce"
+                ).fillna(9999)
+                target_steps = target_steps.sort_values("step_no_num")
+
+                # 元文に工程名が含まれていればそれを優先
+                for _, step in target_steps.iterrows():
+                    step_name = str(step.get("step_name", "")).strip()
+                    if step_name and step_name in src:
+                        step_text = step_name
+                        break
+
+                # 工程名が元文にない場合は、登録済みの先頭工程を使う
+                if not step_text:
+                    step_text = str(target_steps.iloc[0].get("step_name", "")).strip()
+
+            return {
+                "piecework_name": piecework_name,
+                "step_text": step_text,
+                "quantity": quantity,
+                "work_mode": work_mode,
+            }
+
+    # ② 工程名が元文にある場合
+    if not steps_df.empty:
+        for _, step in steps_df.iterrows():
+            step_name = str(step.get("step_name", "")).strip()
+            master_id = str(step.get("piecework_master_id", "")).strip()
+
+            if not step_name or step_name not in src:
+                continue
+
+            hit = master_df[
+                master_df["id"].astype(str).str.strip() == master_id
+            ]
+
+            if hit.empty:
+                continue
+
+            piecework_name = str(hit.iloc[0].get("piecework_name", "")).strip()
+
+            return {
+                "piecework_name": piecework_name,
+                "step_text": step_name,
+                "quantity": quantity,
+                "work_mode": work_mode,
+            }
+
+    return {}
+
+
+def _build_registered_piecework_work_line(match: dict) -> str:
+    """
+    登録内職照合結果から作業文を作る。
+    """
+    if not match:
+        return ""
+
+    piecework_name = str(match.get("piecework_name", "")).strip()
+    step_text = str(match.get("step_text", "")).strip()
+    quantity = str(match.get("quantity", "")).strip()
+
+    if step_text and quantity:
+        return f"{step_text}作業を{quantity}行った。"
+
+    if piecework_name and quantity:
+        return f"{piecework_name}を{quantity}行った。"
+
+    if step_text:
+        return f"{step_text}作業に取り組まれた。"
+
+    if piecework_name:
+        return f"{piecework_name}に取り組まれた。"
+
+    return ""
 
 def _force_final_office_format(user_state: str, staff_note: str, memo: str, work: str):
     """
@@ -3755,12 +3972,23 @@ def _force_final_office_format(user_state: str, staff_note: str, memo: str, work
     - 来所時確認 → 作業内容 → 作業中の様子 → 終了時確認 の流れに固定
     """
     source = _normalize_text("\n".join([user_state or "", staff_note or "", memo or ""]))
-    work_label = _infer_office_work_label(source, work)
+
+    matched_work = _match_registered_piecework(source, "office", target_company_id)
+
+    if matched_work:
+        work_label = matched_work
+    else:
+        work_label = _infer_office_work_label(source, work)
     qty_phrase = _extract_office_quantity(source)
+
+    # 念のため、数量抽出の保険
+    if not qty_phrase:
+        qty_phrase = _extract_quantity(source)
 
     # 本人発言
     first_quote = _extract_first_quote(source)
     bad_quote_words = ["この辺でやめ", "やめときます", "終わりにします", "休みます"]
+
     if not first_quote or any(k in first_quote for k in bad_quote_words):
         if any(k in source for k in ["良好", "普通", "いつも通り", "大丈夫", "安定"]):
             first_quote = "今日はいつも通りです"
@@ -3781,6 +4009,11 @@ def _force_final_office_format(user_state: str, staff_note: str, memo: str, work
         staff_1 = "来所時の体調に大きな変化はなく、落ち着いて作業に入ることができていた。"
         staff_3 = "今後も体調や作業の様子を確認しながら、安定して取り組めるよう支援していく。"
 
+    # 作業内容文：固定文は禁止。work_labelが具体的なときだけ使う
+    work_line = ""
+    if work_label and work_label not in ["作業", "内職", "通所", "施設外就労"]:
+        work_line = f"本日は{work_label}に取り組まれた。"
+
     # 作業中の様子
     if any(k in source for k in ["丁寧", "手元", "確認"]):
         work_status = "作業中は手元を確認しながら、丁寧に進められていた。"
@@ -3793,7 +4026,9 @@ def _force_final_office_format(user_state: str, staff_note: str, memo: str, work
         staff_2 = "作業中は落ち着いて取り組めており、その日の状態に合わせて進められていた。"
 
     # 終了文：数量は明示がある時だけ
-    if qty_phrase:
+    if qty_phrase and work_label and work_label not in ["作業", "内職", "通所", "施設外就労"]:
+        end_line = f"作業終了時には、{work_label}を{qty_phrase}仕上げたことを職員が確認した。"
+    elif qty_phrase:
         end_line = f"作業終了時には、{qty_phrase}仕上げたことを職員が確認した。"
     else:
         end_line = "作業終了時には、取り組み状況を職員が確認した。"
@@ -3803,7 +4038,7 @@ def _force_final_office_format(user_state: str, staff_note: str, memo: str, work
         f"本人より「{first_quote}」との話があった。",
         reply_line,
         "",
-        f"本日は通所にて{work_label}に取り組まれていた。",
+        work_line,
         work_status,
         end_line,
     ]
@@ -3814,14 +4049,40 @@ def _force_final_office_format(user_state: str, staff_note: str, memo: str, work
         staff_3,
     ]
 
-    user_result = "\n".join(user_lines).strip()
-    staff_result = "\n".join(staff_lines).strip()
+    user_result = "\n".join([line for line in user_lines if str(line).strip()]).strip()
+    staff_result = "\n".join([line for line in staff_lines if str(line).strip()]).strip()
 
     user_result = _final_cleanup_journal_text(user_result)
     staff_result = _final_cleanup_journal_text(staff_result)
 
     return user_result, staff_result
 
+def _match_registered_piecework(source: str, work_mode: str, company_id: str):
+    """
+    元文の中の単語を、登録済み内職と照合する
+    """
+    try:
+        df = load_db("piecework_master")
+        if df is None or df.empty:
+            return ""
+
+        df = df.fillna("").copy()
+
+        # モードでフィルタ
+        df = df[
+            (df["company_id"].astype(str) == str(company_id)) &
+            (df["work_mode"].astype(str) == work_mode)
+        ]
+
+        for _, row in df.iterrows():
+            name = str(row.get("piecework_name", "")).strip()
+            if name and name in source:
+                return name
+
+    except Exception as e:
+        print("piecework match error:", e)
+
+    return ""
 
 def _final_cleanup_journal_text(text: str) -> str:
     text = _normalize_text(text)
