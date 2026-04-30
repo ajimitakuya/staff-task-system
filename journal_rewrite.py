@@ -4032,32 +4032,25 @@ def _match_registered_piecework(source: str, work_mode: str) -> dict:
 
 def _build_registered_piecework_work_line(match: dict) -> str:
     """
-    登録内職照合結果から自然な日誌文を作る
+    登録内職照合結果から作業文を作る。
     """
+
     if not match:
         return ""
 
-    piecework_name = str(match.get("piecework_name", "")).strip()
-    step_text = str(match.get("step_text", "")).strip()
-    quantity = str(match.get("quantity", "")).strip()
+    piecework_name = str(match.get("piecework_name", "") or "").strip()
+    step_text = str(match.get("step_text", "") or "").strip()
+    quantity = str(match.get("quantity", "") or "").strip()
 
     work_text = step_text or piecework_name
 
     if not work_text:
         return ""
 
-    # 数量不要作業
-    no_quantity_words = ["観葉植物", "水やり", "清掃"]
-
-    if any(k in work_text for k in no_quantity_words):
-        return f"{work_text}を行った。"
-
-    # 数量あり（自然文）
     if quantity:
-        return f"{work_text}作業に取り組まれ、{quantity}仕上げられていた。"
+        return f"{work_text}を{quantity}行った。"
 
-    # 数量なし
-    return f"{work_text}作業に取り組まれていた。"
+    return f"{work_text}に取り組まれた。"
 
 def _force_final_office_format(user_state: str, staff_note: str, memo: str, work: str):
     """
@@ -4184,32 +4177,222 @@ def _force_final_office_format(user_state: str, staff_note: str, memo: str, work
 
     return user_result, staff_result
 
-def _match_registered_piecework(source: str, work_mode: str, company_id: str):
+def _match_registered_piecework(source: str, work_mode: str, company_id: str = ""):
     """
-    元文の中の単語を、登録済み内職と照合する
+    登録済み内職マスターを使って、元文・作業名・工程名を照合する。
+    - 通所/在宅を分ける
+    - company_id を見る
+    - 「観葉植物育成」登録でも「観葉植物」で拾う
+    - 登録数量範囲を超えた数量は上限に丸める
     """
+
+    src = _normalize_text(source)
+    mode = str(work_mode or "").strip()
+
+    if not company_id:
+        try:
+            company_id = str(st.session_state.get("company_id", "")).strip()
+        except Exception:
+            company_id = ""
+
     try:
-        df = load_db("piecework_master")
-        if df is None or df.empty:
-            return ""
-
-        df = df.fillna("").copy()
-
-        # モードでフィルタ
-        df = df[
-            (df["company_id"].astype(str) == str(company_id)) &
-            (df["work_mode"].astype(str) == work_mode)
-        ]
-
-        for _, row in df.iterrows():
-            name = str(row.get("piecework_name", "")).strip()
-            if name and name in source:
-                return name
-
+        master_df = load_db("piecework_master")
+        steps_df = load_db("piecework_steps")
     except Exception as e:
-        print("piecework match error:", e)
+        print("[PIECEWORK] load error:", e, flush=True)
+        return {}
 
-    return ""
+    if master_df is None or master_df.empty:
+        return {}
+
+    master_df = master_df.fillna("").copy()
+
+    if steps_df is None:
+        steps_df = pd.DataFrame()
+    else:
+        steps_df = steps_df.fillna("").copy()
+
+    for col in ["id", "company_id", "work_mode", "piecework_name", "quantity_min", "quantity_max", "unit", "priority", "is_active"]:
+        if col not in master_df.columns:
+            master_df[col] = ""
+
+    for col in ["id", "company_id", "piecework_master_id", "step_no", "step_name", "step_detail", "is_active"]:
+        if col not in steps_df.columns:
+            steps_df[col] = ""
+
+    # company / mode / active で絞る
+    if company_id:
+        master_df = master_df[
+            master_df["company_id"].astype(str).str.strip() == str(company_id).strip()
+        ].copy()
+        steps_df = steps_df[
+            steps_df["company_id"].astype(str).str.strip() == str(company_id).strip()
+        ].copy()
+
+    if mode:
+        master_df = master_df[
+            master_df["work_mode"].astype(str).str.strip() == mode
+        ].copy()
+
+    master_df = master_df[
+        master_df["is_active"].astype(str).str.strip().str.lower().isin(["true", "1", "yes"])
+    ].copy()
+
+    steps_df = steps_df[
+        steps_df["is_active"].astype(str).str.strip().str.lower().isin(["true", "1", "yes"])
+    ].copy()
+
+    if master_df.empty:
+        return {}
+
+    # 優先順位順
+    master_df["priority_num"] = pd.to_numeric(master_df["priority"], errors="coerce").fillna(9999)
+    master_df = master_df.sort_values(["priority_num", "piecework_name"])
+
+    # 元文の数量を抽出
+    raw_qty = _extract_quantity(src)
+
+    def _split_qty(q):
+        q = str(q or "").strip()
+        m = re.search(r"(\d+)\s*(枚|個|回|本|袋|点|膳|セット)?", q)
+        if not m:
+            return None, ""
+        return int(m.group(1)), str(m.group(2) or "").strip()
+
+    qty_num, qty_unit = _split_qty(raw_qty)
+
+    def _registered_qty(row):
+        qmin = pd.to_numeric(row.get("quantity_min", ""), errors="coerce")
+        qmax = pd.to_numeric(row.get("quantity_max", ""), errors="coerce")
+        unit = str(row.get("unit", "") or "").strip()
+
+        if pd.isna(qmin):
+            qmin = None
+        else:
+            qmin = int(qmin)
+
+        if pd.isna(qmax):
+            qmax = None
+        else:
+            qmax = int(qmax)
+
+        return qmin, qmax, unit
+
+    def _fix_quantity(row):
+        qmin, qmax, unit = _registered_qty(row)
+
+        # 原文に数量あり
+        if qty_num is not None:
+            n = qty_num
+
+            # 登録上限を超えたら上限に丸める
+            if qmax is not None and qmax > 0 and n > qmax:
+                n = qmax
+
+            # 登録下限より小さければ下限へ
+            if qmin is not None and qmin > 0 and n < qmin:
+                n = qmin
+
+            u = qty_unit or unit
+            return f"{n}{u}" if u else str(n)
+
+        # 原文に数量なしでも、1〜1 のような固定数量だけは登録値を使う
+        if qmin is not None and qmax is not None and qmin == qmax and qmin > 0:
+            return f"{qmin}{unit}" if unit else str(qmin)
+
+        return ""
+
+    def _steps_for_master(master_id: str):
+        mid = str(master_id or "").strip()
+        if not mid or steps_df.empty:
+            return pd.DataFrame()
+
+        target = steps_df[
+            steps_df["piecework_master_id"].astype(str).str.strip() == mid
+        ].copy()
+
+        if target.empty:
+            return target
+
+        target["step_no_num"] = pd.to_numeric(target["step_no"], errors="coerce").fillna(9999)
+        return target.sort_values(["step_no_num", "step_name"])
+
+    def _match_keys(name: str):
+        name = str(name or "").strip()
+        keys = [
+            name,
+            name.replace("育成", ""),
+            name.replace("作業", ""),
+            name.replace("内職", ""),
+        ]
+        return [k.strip() for k in keys if k.strip()]
+
+    def _build_result(row, step_text: str = "", reason: str = ""):
+        master_id = str(row.get("id", "")).strip()
+        piecework_name = str(row.get("piecework_name", "")).strip()
+        quantity = _fix_quantity(row)
+
+        target_steps = _steps_for_master(master_id)
+
+        # 元文に工程名があればそれを優先
+        if not step_text and not target_steps.empty:
+            for _, step in target_steps.iterrows():
+                sname = str(step.get("step_name", "")).strip()
+                if sname and sname in src:
+                    step_text = sname
+                    break
+
+        # 工程名が元文にない場合は、登録済みの先頭工程
+        if not step_text and not target_steps.empty:
+            step_text = str(target_steps.iloc[0].get("step_name", "")).strip()
+
+        return {
+            "piecework_id": master_id,
+            "piecework_name": piecework_name,
+            "step_text": step_text,
+            "quantity": quantity,
+            "work_mode": mode,
+            "match_reason": reason,
+        }
+
+    # 1. 内職名の部分一致
+    for _, row in master_df.iterrows():
+        name = str(row.get("piecework_name", "")).strip()
+        if not name:
+            continue
+
+        keys = _match_keys(name)
+        if any(k in src for k in keys):
+            return _build_result(row, reason="piecework_name_partial_match")
+
+    # 2. 工程名一致
+    if not steps_df.empty:
+        for _, step in steps_df.iterrows():
+            step_name = str(step.get("step_name", "")).strip()
+            master_id = str(step.get("piecework_master_id", "")).strip()
+
+            if not step_name or step_name not in src:
+                continue
+
+            hit = master_df[
+                master_df["id"].astype(str).str.strip() == master_id
+            ]
+
+            if hit.empty:
+                continue
+
+            return _build_result(hit.iloc[0], step_text=step_name, reason="step_name_match")
+
+    # 3. 作業文脈・数量だけある場合は、優先順位1位を採用
+    has_work_context = any(k in src for k in [
+        "内職", "作業", "仕上げ", "仕上げました", "できました",
+        "出来ました", "行いました", "実施", "取り組", "完成"
+    ])
+
+    if has_work_context or raw_qty:
+        return _build_result(master_df.iloc[0], reason="default_priority_match")
+
+    return {}
 
 def _final_cleanup_journal_text(text: str) -> str:
     text = _normalize_text(text)

@@ -11528,8 +11528,18 @@ def render_piecework_master_page():
         st.error("事業所が選択されていません。")
         return
 
-    master_df = get_piecework_master_df().fillna("").copy()
-    steps_df = get_piecework_steps_df().fillna("").copy()
+    # 注意：
+    # get_piecework_master_df は後ろで別用途の関数に上書きされているため使わない。
+    # ここでは Supabase の piecework_master を直接読む。
+    master_df = load_db("piecework_master")
+    if master_df is None or master_df.empty:
+        master_df = pd.DataFrame()
+    master_df = master_df.fillna("").copy()
+
+    steps_df = load_db("piecework_steps")
+    if steps_df is None or steps_df.empty:
+        steps_df = pd.DataFrame()
+    steps_df = steps_df.fillna("").copy()
 
     for col in [
         "id", "company_id", "work_mode", "piecework_name",
@@ -11547,16 +11557,20 @@ def render_piecework_master_page():
             steps_df[col] = ""
 
     def _is_active_series(s):
-        return s.astype(str).str.strip().str.lower().isin(["true", "1", "yes", ""])
+        x = s.fillna("").astype(str).str.strip().str.lower()
+        return x.isin(["true", "1", "yes"])
 
     active_master = master_df[
         (master_df["company_id"].astype(str).str.strip() == company_id) &
-        (_is_active_series(master_df["is_active"]))
+        (_is_active_series(master_df["is_active"])) &
+        (master_df["id"].astype(str).str.strip() != "")
     ].copy()
 
     active_steps = steps_df[
         (steps_df["company_id"].astype(str).str.strip() == company_id) &
-        (_is_active_series(steps_df["is_active"]))
+        (_is_active_series(steps_df["is_active"])) &
+        (steps_df["id"].astype(str).str.strip() != "") &
+        (steps_df["piecework_master_id"].astype(str).str.strip() != "")
     ].copy()
 
     active_master["id"] = active_master["id"].astype(str).str.strip()
@@ -11679,7 +11693,7 @@ def render_piecework_master_page():
             height=80
         )
 
-        step_submitted = st.form_submit_button("工程を追加")
+        step_submitted = st.form_submit_button("工程を登録・追加")
 
         if step_submitted:
             if not selected_master_id:
