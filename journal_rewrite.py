@@ -3973,7 +3973,7 @@ def _force_final_office_format(user_state: str, staff_note: str, memo: str, work
     """
     source = _normalize_text("\n".join([user_state or "", staff_note or "", memo or ""]))
 
-    matched_work = _match_registered_piecework(source, "office", target_company_id)
+    matched_work = _match_registered_piecework(source, "office")
 
     if matched_work:
         work_label = matched_work
