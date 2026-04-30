@@ -11546,15 +11546,30 @@ def render_piecework_master_page():
         if col not in steps_df.columns:
             steps_df[col] = ""
 
+    def _is_active_series(s):
+        return s.astype(str).str.strip().str.lower().isin(["true", "1", "yes", ""])
+
     active_master = master_df[
         (master_df["company_id"].astype(str).str.strip() == company_id) &
-        (master_df["is_active"].astype(str).str.lower().isin(["true", "1", "yes", ""]))
+        (_is_active_series(master_df["is_active"]))
     ].copy()
 
     active_steps = steps_df[
         (steps_df["company_id"].astype(str).str.strip() == company_id) &
-        (steps_df["is_active"].astype(str).str.lower().isin(["true", "1", "yes", ""]))
+        (_is_active_series(steps_df["is_active"]))
     ].copy()
+
+    active_master["id"] = active_master["id"].astype(str).str.strip()
+    active_steps["id"] = active_steps["id"].astype(str).str.strip()
+    active_steps["piecework_master_id"] = active_steps["piecework_master_id"].astype(str).str.strip()
+
+    active_master = active_master[active_master["id"] != ""].drop_duplicates(subset=["id"], keep="last").copy()
+    active_steps = active_steps[active_steps["id"] != ""].drop_duplicates(subset=["id"], keep="last").copy()
+
+    for col in ["quantity_min", "quantity_max", "priority"]:
+        active_master[col] = pd.to_numeric(active_master[col], errors="coerce").fillna(0).astype(int)
+
+    active_steps["step_no"] = pd.to_numeric(active_steps["step_no"], errors="coerce").fillna(0).astype(int)
 
     st.subheader("① 内職本体を登録")
 
@@ -11592,9 +11607,10 @@ def render_piecework_master_page():
             else:
                 now_text = now_jst().strftime("%Y-%m-%d %H:%M:%S")
                 work_mode = "home" if work_mode_label == "在宅内職" else "office"
+                new_master_id = str(uuid.uuid4())
 
                 new_row = {
-                    "id": str(uuid.uuid4()),
+                    "id": new_master_id,
                     "company_id": company_id,
                     "work_mode": work_mode,
                     "piecework_name": piecework_name.strip(),
@@ -11609,32 +11625,9 @@ def render_piecework_master_page():
                     "updated_at": now_text,
                 }
 
-                save_df = pd.concat([master_df, pd.DataFrame([new_row])], ignore_index=True)
-
-                master_cols = [
-                    "id",
-                    "company_id",
-                    "work_mode",
-                    "piecework_name",
-                    "work_steps",
-                    "quantity_min",
-                    "quantity_max",
-                    "unit",
-                    "priority",
-                    "is_active",
-                    "memo",
-                    "created_at",
-                    "updated_at",
-                    "arrival_date",
-                ]
-
-                for col in master_cols:
-                    if col not in save_df.columns:
-                        save_df[col] = ""
-
-                save_df = save_df[master_cols]
-
-                save_db(save_df, "piecework_master")
+                save_db(pd.DataFrame([new_row]), "piecework_master")
+                st.session_state["piecework_last_master_id"] = new_master_id
+                st.cache_data.clear()
                 st.success("内職本体を登録しました。次に工程を登録してください。")
                 st.rerun()
 
@@ -11650,13 +11643,29 @@ def render_piecework_master_page():
         "office": "通所内職",
     }) + "｜" + active_master["piecework_name"].astype(str)
 
-    master_options = {
-        row["表示名"]: row["id"]
-        for _, row in active_master.iterrows()
-    }
+    active_master = active_master.sort_values(["work_mode", "priority", "piecework_name"]).copy()
 
-    selected_master_label = st.selectbox("工程を登録する内職", list(master_options.keys()))
-    selected_master_id = master_options[selected_master_label]
+    master_labels = active_master["表示名"].tolist()
+    master_ids = active_master["id"].tolist()
+
+    last_master_id = str(st.session_state.get("piecework_last_master_id", "")).strip()
+    default_index = 0
+    if last_master_id and last_master_id in master_ids:
+        default_index = master_ids.index(last_master_id)
+
+    selected_master_label = st.selectbox(
+        "工程を登録する内職",
+        master_labels,
+        index=default_index,
+        key="piecework_step_target_master_label"
+    )
+
+    selected_rows = active_master[active_master["表示名"] == selected_master_label].copy()
+    if selected_rows.empty:
+        st.error("工程を登録する内職が取得できません。")
+        return
+
+    selected_master_id = str(selected_rows.iloc[0]["id"]).strip()
 
     with st.form("piecework_step_create_form"):
         step_no = st.number_input("工程番号", min_value=1, value=1, step=1)
@@ -11673,7 +11682,9 @@ def render_piecework_master_page():
         step_submitted = st.form_submit_button("工程を追加")
 
         if step_submitted:
-            if not step_name.strip():
+            if not selected_master_id:
+                st.error("工程を登録する内職本体が選択されていません。")
+            elif not step_name.strip():
                 st.error("工程名を入力してください。")
             else:
                 now_text = now_jst().strftime("%Y-%m-%d %H:%M:%S")
@@ -11690,15 +11701,16 @@ def render_piecework_master_page():
                     "updated_at": now_text,
                 }
 
-                save_steps_df = pd.concat([steps_df, pd.DataFrame([new_step])], ignore_index=True)
-                save_db(save_steps_df, "piecework_steps")
+                save_db(pd.DataFrame([new_step]), "piecework_steps")
+                st.session_state["piecework_last_master_id"] = selected_master_id
+                st.cache_data.clear()
                 st.success("工程を追加しました。")
                 st.rerun()
 
     st.divider()
     st.subheader("③ 登録済み内職と工程")
 
-    for _, master in active_master.sort_values(["work_mode", "priority", "piecework_name"]).iterrows():
+    for m_idx, master in active_master.iterrows():
         mid = str(master["id"]).strip()
         mode_label = "在宅内職" if str(master["work_mode"]).strip() == "home" else "通所内職"
 
@@ -11715,9 +11727,9 @@ def render_piecework_master_page():
                 st.warning("工程がまだ登録されていません。")
             else:
                 target_steps["step_no_num"] = pd.to_numeric(target_steps["step_no"], errors="coerce").fillna(9999)
-                target_steps = target_steps.sort_values("step_no_num")
+                target_steps = target_steps.sort_values(["step_no_num", "step_name"])
 
-                for _, step in target_steps.iterrows():
+                for idx, step in target_steps.iterrows():
                     c1, c2, c3 = st.columns([1, 7, 2])
                     with c1:
                         st.write(f'{int(float(step["step_no"]))}')
@@ -11726,20 +11738,26 @@ def render_piecework_master_page():
                         if str(step.get("step_detail", "")).strip():
                             st.caption(str(step.get("step_detail", "")).strip())
                     with c3:
-                        if st.button("削除", key=f'delete_step_{step["id"]}'):
-                            mask = steps_df["id"].astype(str).str.strip() == str(step["id"]).strip()
-                            steps_df.loc[mask, "is_active"] = False
-                            steps_df.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
-                            save_db(steps_df, "piecework_steps")
+                        if st.button("削除", key=f"delete_step_{mid}_{step['id']}_{idx}"):
+                            save_one = steps_df.copy()
+                            save_one["id"] = save_one["id"].astype(str).str.strip()
+                            mask = save_one["id"] == str(step["id"]).strip()
+                            save_one.loc[mask, "is_active"] = False
+                            save_one.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+                            save_db(save_one, "piecework_steps")
+                            st.cache_data.clear()
                             st.rerun()
 
             st.divider()
 
-            if st.button("この内職本体を削除", key=f'delete_master_{mid}'):
-                mask = master_df["id"].astype(str).str.strip() == mid
-                master_df.loc[mask, "is_active"] = False
-                master_df.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
-                save_db(master_df, "piecework_master")
+            if st.button("この内職本体を削除", key=f"delete_master_{mid}"):
+                save_master = master_df.copy()
+                save_master["id"] = save_master["id"].astype(str).str.strip()
+                mask = save_master["id"] == mid
+                save_master.loc[mask, "is_active"] = False
+                save_master.loc[mask, "updated_at"] = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+                save_db(save_master, "piecework_master")
+                st.cache_data.clear()
                 st.success("内職本体を削除しました。")
                 st.rerun()
 

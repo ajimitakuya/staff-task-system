@@ -948,6 +948,9 @@ def _rebuild_home_record_strict(raw_user: str, raw_staff: str, work_label: str, 
     # 終了文は「終了連絡 + 作業内容」を1文にまとめる
     combined_end_line = ""
 
+    # ←この行を追加する
+    work_result_line = _extract_home_work_result(raw_u, work, row)
+
     if work_result_line:
         work_core = work_result_line.rstrip("。")
         work_core = re.sub(r'^(作業終了時に連絡があり、|作業終了の連絡があり、)', '', work_core)
@@ -3385,28 +3388,47 @@ def _infer_home_work_label(source: str, fallback: str = "") -> str:
 
     return "作業"
 
-def _format_home_work_result_naturally(work_label: str) -> str:
+def _format_home_work_result_naturally(work_label: str, source: str = "") -> str:
+    """
+    在宅用：登録内職・工程・数量を優先して自然文を作る。
+    通所側と同じく、正式ルート
+    _match_registered_piecework → _build_registered_piecework_work_line
+    に統一する。
+    """
     w = _normalize_text(work_label)
+    src = _normalize_text(source)
 
-    parts = []
+    # 登録済み在宅内職を最優先
+    match = _match_registered_piecework(src or w, "home")
 
-    if "観葉植物" in w:
-        parts.append("観葉植物への水やり")
+    if match:
+        line = _build_registered_piecework_work_line(match)
+        if line:
+            return line.rstrip("。")
+
+    # 数量不要作業
+    if "観葉植物" in w or "水やり" in w:
+        return "観葉植物への水やりを行った"
+
+    if "清掃" in w:
+        return f"{w}を行った"
+
+    # 数量あり作業
+    qty = _extract_quantity(src)
 
     if "塗り絵" in w:
-        parts.append("塗り絵を1枚")
+        return f"塗り絵を{qty or '1枚'}行った"
+
+    if "内職" in w and qty:
+        return f"内職を{qty}行った"
 
     if "内職" in w:
-        parts.append("内職")
+        return "内職に取り組んだ"
 
-    if not parts:
-        return f"{w or '作業'}を行った"
+    if qty and w:
+        return f"{w}を{qty}行った"
 
-    if len(parts) == 1:
-        return f"{parts[0]}をした" if parts[0] == "内職" else f"{parts[0]}をした"
-
-    # 最後だけ「〜をした」にして自然にする
-    return "、".join(parts[:-1]) + f"、{parts[-1]}をした"
+    return f"{w or '作業'}を行った"
 
 def _extract_first_quote(source: str) -> str:
     src = _normalize_text(source)
@@ -3551,7 +3573,7 @@ def _force_final_home_format(user_state: str, staff_note: str, memo: str, work: 
     if not work_label or work_label in ["未指定", "-", "なし"]:
         work_label = "作業"
 
-    result_core = _format_home_work_result_naturally(work_label) + "との報告があった"
+    result_core = _format_home_work_result_naturally(work_label, source) + "との報告があった"
 
     # -------------------------
     # 利用者状態（改行構造）
@@ -3859,59 +3881,107 @@ def _load_registered_piecework(work_mode: str):
 def _match_registered_piecework(source: str, work_mode: str) -> dict:
     """
     元文を登録済み内職・工程と照合する。
-    登録されていない作業名は採用しない。
+
+    優先順位:
+    1. 元文に登録済み内職名が含まれる → その内職を採用
+    2. 元文に登録済み工程名が含まれる → その工程の親内職を採用
+    3. 元文に内職/作業/数量があるが名称不明 → そのモードの登録内職からデフォルト採用
+
+    work_mode:
+      office = 通所内職
+      home   = 在宅内職
     """
     src = _normalize_text(source)
     if not src:
         return {}
 
     master_df, steps_df = _load_registered_piecework(work_mode)
-    if master_df.empty:
+    if master_df is None or master_df.empty:
         return {}
 
-    quantity = _extract_piecework_quantity(src)
+    if steps_df is None:
+        steps_df = pd.DataFrame()
 
-    # ① 内職名が元文にある場合
-    for _, row in master_df.iterrows():
+    quantity = _extract_piecework_quantity(src) or _extract_quantity(src)
+
+    # -------------------------
+    # 安全用カラム補正
+    # -------------------------
+    for col in ["id", "company_id", "work_mode", "piecework_name", "priority", "is_active"]:
+        if col not in master_df.columns:
+            master_df[col] = ""
+
+    for col in ["id", "company_id", "piecework_master_id", "step_no", "step_name", "step_detail", "is_active"]:
+        if col not in steps_df.columns:
+            steps_df[col] = ""
+
+    master_df = master_df.fillna("").copy()
+    steps_df = steps_df.fillna("").copy()
+
+    # 優先順位順に並べる
+    master_df["priority_num"] = pd.to_numeric(
+        master_df["priority"],
+        errors="coerce"
+    ).fillna(9999)
+
+    master_df = master_df.sort_values(["priority_num", "piecework_name"])
+
+    def _steps_for_master(master_id: str):
+        target_steps = steps_df[
+            steps_df["piecework_master_id"].astype(str).str.strip() == str(master_id).strip()
+        ].copy()
+
+        if target_steps.empty:
+            return target_steps
+
+        target_steps["step_no_num"] = pd.to_numeric(
+            target_steps["step_no"],
+            errors="coerce"
+        ).fillna(9999)
+
+        return target_steps.sort_values(["step_no_num", "step_name"])
+
+    def _build_result(row, step_text: str = "", match_reason: str = ""):
         master_id = str(row.get("id", "")).strip()
         piecework_name = str(row.get("piecework_name", "")).strip()
 
+        target_steps = _steps_for_master(master_id)
+
+        # 工程未指定なら、元文に含まれる工程名を優先
+        if not step_text and not target_steps.empty:
+            for _, step in target_steps.iterrows():
+                candidate_step = str(step.get("step_name", "")).strip()
+                if candidate_step and candidate_step in src:
+                    step_text = candidate_step
+                    break
+
+        # それでも工程がなければ、登録済みの先頭工程を使う
+        if not step_text and not target_steps.empty:
+            step_text = str(target_steps.iloc[0].get("step_name", "")).strip()
+
+        return {
+            "piecework_id": master_id,
+            "piecework_name": piecework_name,
+            "step_text": step_text,
+            "quantity": quantity,
+            "work_mode": work_mode,
+            "match_reason": match_reason,
+        }
+
+    # -------------------------
+    # ① 内職名が元文にある場合
+    # -------------------------
+    for _, row in master_df.iterrows():
+        piecework_name = str(row.get("piecework_name", "")).strip()
         if not piecework_name:
             continue
 
         if piecework_name in src:
-            step_text = ""
+            return _build_result(row, match_reason="piecework_name_in_source")
 
-            target_steps = steps_df[
-                steps_df["piecework_master_id"].astype(str).str.strip() == master_id
-            ].copy()
-
-            if not target_steps.empty:
-                target_steps["step_no_num"] = pd.to_numeric(
-                    target_steps["step_no"],
-                    errors="coerce"
-                ).fillna(9999)
-                target_steps = target_steps.sort_values("step_no_num")
-
-                # 元文に工程名が含まれていればそれを優先
-                for _, step in target_steps.iterrows():
-                    step_name = str(step.get("step_name", "")).strip()
-                    if step_name and step_name in src:
-                        step_text = step_name
-                        break
-
-                # 工程名が元文にない場合は、登録済みの先頭工程を使う
-                if not step_text:
-                    step_text = str(target_steps.iloc[0].get("step_name", "")).strip()
-
-            return {
-                "piecework_name": piecework_name,
-                "step_text": step_text,
-                "quantity": quantity,
-                "work_mode": work_mode,
-            }
-
+    # -------------------------
     # ② 工程名が元文にある場合
+    # -------------------------
     if not steps_df.empty:
         for _, step in steps_df.iterrows():
             step_name = str(step.get("step_name", "")).strip()
@@ -3927,21 +3997,42 @@ def _match_registered_piecework(source: str, work_mode: str) -> dict:
             if hit.empty:
                 continue
 
-            piecework_name = str(hit.iloc[0].get("piecework_name", "")).strip()
+            return _build_result(
+                hit.iloc[0],
+                step_text=step_name,
+                match_reason="step_name_in_source"
+            )
 
-            return {
-                "piecework_name": piecework_name,
-                "step_text": step_name,
-                "quantity": quantity,
-                "work_mode": work_mode,
-            }
+    # -------------------------
+    # ③ 名称不明だが、内職/作業/数量がある場合はデフォルト採用
+    # -------------------------
+    has_work_context = any(k in src for k in [
+        "内職",
+        "作業",
+        "仕上げ",
+        "仕上げました",
+        "できました",
+        "出来ました",
+        "行いました",
+        "実施",
+        "取り組",
+    ])
+
+    has_quantity = bool(quantity)
+
+    if has_work_context or has_quantity:
+        # priority が一番小さい登録内職を採用
+        default_row = master_df.iloc[0]
+        return _build_result(
+            default_row,
+            match_reason="default_by_mode"
+        )
 
     return {}
 
-
 def _build_registered_piecework_work_line(match: dict) -> str:
     """
-    登録内職照合結果から作業文を作る。
+    登録内職照合結果から自然な日誌文を作る
     """
     if not match:
         return ""
@@ -3950,19 +4041,23 @@ def _build_registered_piecework_work_line(match: dict) -> str:
     step_text = str(match.get("step_text", "")).strip()
     quantity = str(match.get("quantity", "")).strip()
 
-    if step_text and quantity:
-        return f"{step_text}作業を{quantity}行った。"
+    work_text = step_text or piecework_name
 
-    if piecework_name and quantity:
-        return f"{piecework_name}を{quantity}行った。"
+    if not work_text:
+        return ""
 
-    if step_text:
-        return f"{step_text}作業に取り組まれた。"
+    # 数量不要作業
+    no_quantity_words = ["観葉植物", "水やり", "清掃"]
 
-    if piecework_name:
-        return f"{piecework_name}に取り組まれた。"
+    if any(k in work_text for k in no_quantity_words):
+        return f"{work_text}を行った。"
 
-    return ""
+    # 数量あり（自然文）
+    if quantity:
+        return f"{work_text}作業に取り組まれ、{quantity}仕上げられていた。"
+
+    # 数量なし
+    return f"{work_text}作業に取り組まれていた。"
 
 def _force_final_office_format(user_state: str, staff_note: str, memo: str, work: str):
     """
@@ -3973,17 +4068,44 @@ def _force_final_office_format(user_state: str, staff_note: str, memo: str, work
     """
     source = _normalize_text("\n".join([user_state or "", staff_note or "", memo or ""]))
 
-    matched_work = _match_registered_piecework(source, "office")
+    # =========================
+    # 登録済み内職・工程との照合（通所）
+    # =========================
+    matched_piecework = _match_registered_piecework(source, "office")
 
-    if matched_work:
-        work_label = matched_work
+    registered_work_line = ""
+    registered_end_line = ""
+
+    if matched_piecework:
+        piecework_name = str(matched_piecework.get("piecework_name", "")).strip()
+        step_text = str(matched_piecework.get("step_text", "")).strip()
+        matched_quantity = str(matched_piecework.get("quantity", "")).strip()
+
+        if matched_quantity:
+            qty_phrase = matched_quantity
+        else:
+            qty_phrase = _extract_office_quantity(source) or _extract_quantity(source)
+
+        if step_text and qty_phrase:
+            registered_work_line = f"本日は{step_text}作業に取り組まれた。"
+            registered_end_line = f"作業終了時には、{step_text}作業を{qty_phrase}行ったことを職員が確認した。"
+        elif piecework_name and qty_phrase:
+            registered_work_line = f"本日は{piecework_name}に取り組まれた。"
+            registered_end_line = f"作業終了時には、{piecework_name}を{qty_phrase}行ったことを職員が確認した。"
+        elif step_text:
+            registered_work_line = f"本日は{step_text}作業に取り組まれた。"
+        elif piecework_name:
+            registered_work_line = f"本日は{piecework_name}に取り組まれた。"
+
+        work_label = step_text or piecework_name or _infer_office_work_label(source, work)
+
     else:
         work_label = _infer_office_work_label(source, work)
-    qty_phrase = _extract_office_quantity(source)
+        qty_phrase = _extract_office_quantity(source)
 
-    # 念のため、数量抽出の保険
-    if not qty_phrase:
-        qty_phrase = _extract_quantity(source)
+        # 念のため、数量抽出の保険
+        if not qty_phrase:
+            qty_phrase = _extract_quantity(source)
 
     # 本人発言
     first_quote = _extract_first_quote(source)
@@ -4009,10 +4131,13 @@ def _force_final_office_format(user_state: str, staff_note: str, memo: str, work
         staff_1 = "来所時の体調に大きな変化はなく、落ち着いて作業に入ることができていた。"
         staff_3 = "今後も体調や作業の様子を確認しながら、安定して取り組めるよう支援していく。"
 
-    # 作業内容文：固定文は禁止。work_labelが具体的なときだけ使う
-    work_line = ""
-    if work_label and work_label not in ["作業", "内職", "通所", "施設外就労"]:
+    # 作業内容文：登録済み内職・工程があれば最優先
+    if registered_work_line:
+        work_line = registered_work_line
+    elif work_label and work_label not in ["作業", "内職", "通所", "施設外就労"]:
         work_line = f"本日は{work_label}に取り組まれた。"
+    else:
+        work_line = ""
 
     # 作業中の様子
     if any(k in source for k in ["丁寧", "手元", "確認"]):
@@ -4025,8 +4150,10 @@ def _force_final_office_format(user_state: str, staff_note: str, memo: str, work
         work_status = "作業中は落ち着いた様子で、無理のない範囲で取り組まれていた。"
         staff_2 = "作業中は落ち着いて取り組めており、その日の状態に合わせて進められていた。"
 
-    # 終了文：数量は明示がある時だけ
-    if qty_phrase and work_label and work_label not in ["作業", "内職", "通所", "施設外就労"]:
+    # 終了文：登録済み内職・工程＋数量があれば最優先
+    if registered_end_line:
+        end_line = registered_end_line
+    elif qty_phrase and work_label and work_label not in ["作業", "内職", "通所", "施設外就労"]:
         end_line = f"作業終了時には、{work_label}を{qty_phrase}仕上げたことを職員が確認した。"
     elif qty_phrase:
         end_line = f"作業終了時には、{qty_phrase}仕上げたことを職員が確認した。"
@@ -4460,6 +4587,86 @@ def render_journal_rewrite_page():
         index=outside_options.index(st.session_state["jr_outside_workplace"]) if st.session_state["jr_outside_workplace"] in outside_options else 0,
         key="jr_outside_workplace",
     )
+
+    # =========================
+    # 登録済み内職・工程の確認表示
+    # =========================
+    with st.expander("登録済み内職・工程を確認する", expanded=False):
+        try:
+            piecework_df = load_db("piecework_master")
+            steps_df = load_db("piecework_steps")
+        except Exception as e:
+            st.error(f"内職マスターの読み込みでエラー: {e}")
+            piecework_df = pd.DataFrame()
+            steps_df = pd.DataFrame()
+
+        if piecework_df is None or piecework_df.empty:
+            st.info("登録済み内職がありません。")
+        else:
+            piecework_df = piecework_df.fillna("").copy()
+
+            for col in ["id", "company_id", "work_mode", "piecework_name", "quantity_min", "quantity_max", "unit", "priority", "is_active"]:
+                if col not in piecework_df.columns:
+                    piecework_df[col] = ""
+
+            piecework_df = piecework_df[
+                (piecework_df["company_id"].astype(str).str.strip() == company_id) &
+                (piecework_df["is_active"].astype(str).str.lower().isin(["true", "1", "yes", ""]))
+            ].copy()
+
+            if steps_df is None or steps_df.empty:
+                steps_df = pd.DataFrame(columns=["id", "company_id", "piecework_master_id", "step_no", "step_name", "step_detail", "is_active"])
+            else:
+                steps_df = steps_df.fillna("").copy()
+
+            for col in ["id", "company_id", "piecework_master_id", "step_no", "step_name", "step_detail", "is_active"]:
+                if col not in steps_df.columns:
+                    steps_df[col] = ""
+
+            steps_df = steps_df[
+                (steps_df["company_id"].astype(str).str.strip() == company_id) &
+                (steps_df["is_active"].astype(str).str.lower().isin(["true", "1", "yes", ""]))
+            ].copy()
+
+            if piecework_df.empty:
+                st.info("この事業所に登録済み内職がありません。")
+            else:
+                view_master = piecework_df.copy()
+                view_master["内職種別"] = view_master["work_mode"].replace({
+                    "home": "在宅内職",
+                    "office": "通所内職",
+                })
+
+                st.markdown("#### 登録済み内職")
+                st.dataframe(
+                    view_master[["内職種別", "piecework_name", "quantity_min", "quantity_max", "unit", "priority"]],
+                    use_container_width=True
+                )
+
+                if not steps_df.empty:
+                    merged = steps_df.merge(
+                        piecework_df[["id", "work_mode", "piecework_name"]],
+                        left_on="piecework_master_id",
+                        right_on="id",
+                        how="left",
+                        suffixes=("", "_master")
+                    )
+
+                    merged["内職種別"] = merged["work_mode"].replace({
+                        "home": "在宅内職",
+                        "office": "通所内職",
+                    })
+
+                    merged["step_no_num"] = pd.to_numeric(merged["step_no"], errors="coerce").fillna(9999)
+                    merged = merged.sort_values(["work_mode", "piecework_name", "step_no_num"])
+
+                    st.markdown("#### 登録済み工程")
+                    st.dataframe(
+                        merged[["内職種別", "piecework_name", "step_no", "step_name", "step_detail"]],
+                        use_container_width=True
+                    )
+                else:
+                    st.info("登録済み工程がありません。")
 
     c1, c2 = st.columns(2)
     with c1:

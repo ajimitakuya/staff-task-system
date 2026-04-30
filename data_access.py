@@ -83,12 +83,43 @@ def save_db(df, file, retries=3, delay=1.0):
         df = pd.DataFrame()
 
     if file in SUPABASE_TABLES:
-        work = df.fillna("").copy()
+        work = df.copy()
 
-        if file == "attendance_logs" and "attendance_id" in work.columns:
-            work = work.drop_duplicates(subset=["attendance_id"], keep="last")
+        unique_keys = {
+            "attendance_logs": "attendance_id",
+            "piecework_master": "id",
+            "piecework_steps": "id",
+            "outside_workplaces": "workplace_id",
+            "outside_work_tasks": "task_id",
+            "users": "user_id",
+            "companies": "company_id",
+            "resident_master": "resident_id",
+            "resident_schedule": "id",
+            "record_status": "id",
+            "saved_documents": "id",
+            "user_company_permissions": "permission_id",
+            "task": "id",
+            "attendance_display_settings": "setting_id",
+        }
+
+        key_col = unique_keys.get(file)
+        if key_col and key_col in work.columns:
+            work[key_col] = work[key_col].astype(str).str.strip()
+            work = work[work[key_col] != ""].copy()
+            work = work.drop_duplicates(subset=[key_col], keep="last").copy()
+
+        work = work.where(pd.notnull(work), None)
 
         rows = work.to_dict(orient="records")
+
+        for r in rows:
+            for key in ["is_active", "can_use", "is_admin", "attendance_enabled"]:
+                if key in r and r[key] == "":
+                    r[key] = None
+
+            for key in ["quantity_min", "quantity_max", "priority", "priority_num", "step_no"]:
+                if key in r and r[key] == "":
+                    r[key] = None
 
         if rows:
             supabase.table(file).upsert(rows).execute()
@@ -96,7 +127,6 @@ def save_db(df, file, retries=3, delay=1.0):
         st.cache_data.clear()
         return
 
-    # 👇 Sheets fallback
     sheet_candidates = get_sheet_name_candidates(file)
     last_error = None
 
