@@ -374,22 +374,28 @@ def generate_json_with_gemini_one_day(day_key: str, day_text: str, outside_workp
             )
 
             # =========================
-            # 通所判定の強制補正
-            # ※来所・食事あり・通所があれば通所を最優先
+            # モード強制補正
+            # ※AI生成文の「来所時」は信用しない
+            # ※原文 day_text だけで判定する
             # =========================
-            raw_joined = "\n".join([raw_user_state, raw_staff_note, day_text])
+            raw_original = _normalize_text(day_text)
 
-            if any(k in raw_joined for k in [
-                "来所時",
-                "来所された",
-                "来所され",
-                "来所後",
+            if any(k in raw_original for k in [
+                "施設外",
+                "施設外就労",
+            ]):
+                mode = "施設外"
+
+            elif any(k in raw_original for k in [
                 "食事はあり",
                 "食事：あり",
+                "食事あり",
                 "食事\nあり",
-                "通所",
             ]):
                 mode = "通所"
+
+            else:
+                mode = "在宅"
 
             registered_tasks_text = ""
 
@@ -3390,45 +3396,42 @@ def _infer_home_work_label(source: str, fallback: str = "") -> str:
 
 def _format_home_work_result_naturally(work_label: str, source: str = "") -> str:
     """
-    在宅用：登録内職・工程・数量を優先して自然文を作る。
-    通所側と同じく、正式ルート
-    _match_registered_piecework → _build_registered_piecework_work_line
-    に統一する。
+    在宅用：作業内容＋数量を自然文にする。
+    例：
+    塗り絵をする + 1枚 → 塗り絵を1枚行った
+    観葉植物への水やり + 1回 → 観葉植物への水やりを1回行った
     """
+
     w = _normalize_text(work_label)
     src = _normalize_text(source)
 
-    # 登録済み在宅内職を最優先
-    match = _match_registered_piecework(src or w, "home")
+    # 登録内職を優先
+    matched = _match_registered_piecework(src, "home")
+    if matched:
+        step_text = str(matched.get("step_text", "") or "").strip()
+        piecework_name = str(matched.get("piecework_name", "") or "").strip()
+        quantity = str(matched.get("quantity", "") or "").strip()
 
-    if match:
-        line = _build_registered_piecework_work_line(match)
-        if line:
-            return line.rstrip("。")
+        work_text = step_text or piecework_name or w or "作業"
 
-    # 数量不要作業
-    if "観葉植物" in w or "水やり" in w:
-        return "観葉植物への水やりを行った"
+        # 「〜をする」「〜する」系を除去して二重助詞を防ぐ
+        work_text = re.sub(r"(を)?する$", "", work_text).strip()
 
-    if "清掃" in w:
-        return f"{w}を行った"
+        if quantity:
+            return f"{work_text}を{quantity}行った"
 
-    # 数量あり作業
+        return f"{work_text}を行った"
+
+    # フォールバック
     qty = _extract_quantity(src)
 
-    if "塗り絵" in w:
-        return f"塗り絵を{qty or '1枚'}行った"
+    work_text = w or "作業"
+    work_text = re.sub(r"(を)?する$", "", work_text).strip()
 
-    if "内職" in w and qty:
-        return f"内職を{qty}行った"
+    if qty:
+        return f"{work_text}を{qty}行った"
 
-    if "内職" in w:
-        return "内職に取り組んだ"
-
-    if qty and w:
-        return f"{w}を{qty}行った"
-
-    return f"{w or '作業'}を行った"
+    return f"{work_text}を行った"
 
 def _extract_first_quote(source: str) -> str:
     src = _normalize_text(source)
@@ -3539,69 +3542,139 @@ def _extract_home_context_line(source: str) -> str:
 
 def _force_final_home_format(user_state: str, staff_note: str, memo: str, work: str):
 
+    import re
+
     source = _normalize_text("\n".join([user_state or "", staff_note or "", memo or ""]))
+    original = _normalize_text(memo)
+
+    # -------------------------
+    # 💥 ゴミ除去（最重要）
+    # -------------------------
+    original = re.sub(
+        r"\d{1,2}日（.*?）\s*(通所|在宅|施設外).*?利用者状態",
+        "",
+        original
+    )
+    original = re.sub(r"職員考察.*", "", original)
+
     work_label = _infer_home_work_label(source, work)
 
-    # -------------------------
-    # 初期値
-    # -------------------------
     health_quote = "今日は無理のない範囲で進めます"
-    staff_start_reply = "無理のない範囲で進めてください"
-    staff_end_reply = "無理なく取り組めていますね"
-    after_line = "その後は無理のない範囲で過ごされるとのことだった。"
 
     # -------------------------
-    # 職員考察分岐（そのまま）
+    # 🔥 原文重要情報抽出（重複防止版）
     # -------------------------
-    if any(k in source for k in ["頭痛", "風邪", "体調不良", "しんど"]):
-        opinion_line = "体調面に配慮が必要な中でも、無理のない範囲で作業に取り組まれていた。"
-        eval_line = "体調の報告と作業終了の連絡があり、状況共有は適切に行われている。"
-        support_line = "今後も体調の変化を確認しながら、負担が大きくならないよう支援していく。"
+    def _context(src):
+        keep = [
+            "病院", "通院", "受診", "帰宅後", "予定", "遅くなる",
+            "痛", "膝", "足", "腰", "左手", "眠れ", "花粉"
+        ]
+
+        ng = [
+            "〜 作業", "作業 塗り絵", "利用者状態", "職員考察",
+            "通所", "職員より", "ありがとう", "お疲れさま",
+            "作業してくださり", "通院で大変な中",
+            "作業終了時", "作業量", "その後は",
+            "無理のない範囲", "支援していく"
+        ]
+
+        out = []
+
+        for s in _sentencize_jp(src):
+            s = str(s).strip()
+            if not s:
+                continue
+
+            if any(x in s for x in ng):
+                continue
+
+            if any(k in s for k in keep):
+
+                # 💥 ゴミヘッダー削除（ここが本体）
+                s = re.sub(r".*?利用者状態", "", s)
+                s = re.sub(r".*?作業\s*\S+\s*利用者状態", "", s)
+                s = re.sub(r"\d{1,2}日（.*?）", "", s)
+
+                # 💡 軽い整形
+                s = s.replace("本人より", "").strip()
+
+                if s and s not in out:
+                    out.append(s.rstrip("。") + "。")
+
+            if len(out) >= 2:
+                break
+
+        return " ".join(out)
+
+    context_line = _context(user_state)
+
+    # -------------------------
+    # 本人発言（安定版）
+    # -------------------------
+    first_quote = _extract_first_quote(source) or ""
+
+    bad_words = [
+        "お疲れさま", "ありがとう", "ありがとうございました",
+        "無理しない", "気をつけて", "進めてください",
+        "通院で大変な中", "作業してくださり", "下さいね"
+    ]
+
+    if (not first_quote) or any(k in first_quote for k in bad_words):
+        if any(k in source for k in ["良い","良好","変わりない","いつも通り"]):
+            first_quote = "体調に大きな変わりはありません"
+        elif any(k in source for k in ["痛","しんど","眠れ","不調","疲"]):
+            first_quote = "少し体調面で気になるところがあります"
+        else:
+            first_quote = health_quote
+
+    # -------------------------
+    # 🔥 内職優先（絶対）
+    # -------------------------
+    match = _match_registered_piecework(source, "home")
+
+    if match:
+        work_label = match.get("piecework_name", work_label)
+        qty = match.get("quantity", "")
     else:
-        opinion_line = "その日の状態に合わせて、無理のない範囲で作業に取り組まれていた。"
-        eval_line = "作業終了の報告も行えており、状況共有は適切に行われている。"
-        support_line = "今後も本人の状態を確認しながら、無理なく続けられるよう支援していく。"
+        qty = _extract_quantity(source)
 
-    # -------------------------
-    # 本人発言
-    # -------------------------
-    first_quote = _extract_first_quote(source) or health_quote
-
-    # -------------------------
-    # 作業内容
-    # -------------------------
-    if not work_label or work_label in ["未指定", "-", "なし"]:
+    if not work_label:
         work_label = "作業"
 
-    result_core = _format_home_work_result_naturally(work_label, source) + "との報告があった"
+    work_text = re.sub(r"(を)?する$", "", str(work_label)).strip()
+
+    if qty:
+        end_line = f"作業終了時に連絡があり、{work_text}を{qty}行ったとの報告があった。"
+    else:
+        end_line = f"作業終了時に連絡があり、{work_text}を行ったとの報告があった。"
 
     # -------------------------
-    # 利用者状態（改行構造）
+    # 利用者状態（確定）
     # -------------------------
     user_lines = [
         "作業開始前に連絡があり、体調について確認を行った。",
         f"本人より「{first_quote}」との話があった。",
-        f"職員より「{staff_start_reply}」と伝えた。",
-        "",
-        f"作業終了時に連絡があり、{result_core}。",
-        f"職員より「{staff_end_reply}」と声をかけた。",
-        after_line,
+        "職員より「無理のない範囲で進めてください」と伝えた。",
+        "在宅での作業のため、本人からの報告にて確認した。",
+        context_line,
+        end_line,
+        "職員より「無理なく取り組めていますね」と声をかけた。",
+        "その後は無理のない範囲で過ごされるとのことだった。"
     ]
 
+    user_lines = [x for x in user_lines if x]
+
     # -------------------------
-    # 職員考察（改行構造）
+    # 職員考察（固定）
     # -------------------------
     staff_lines = [
-        opinion_line,
-        eval_line,
-        support_line,
+        "その日の状態に合わせて、無理のない範囲で作業に取り組まれていた。",
+        "作業終了の報告も行えており、状況共有は適切に行われている。",
+        "今後も本人の状態を確認しながら、無理なく続けられるよう支援していく。"
     ]
 
-    user_result = "\n".join(user_lines).strip()
-    staff_result = "\n".join(staff_lines).strip()
-
-    user_result = _final_cleanup_journal_text(user_result)
-    staff_result = _final_cleanup_journal_text(staff_result)
+    user_result = _final_cleanup_journal_text("\n".join(user_lines))
+    staff_result = _final_cleanup_journal_text("\n".join(staff_lines))
 
     return user_result, staff_result
 
@@ -3878,155 +3951,63 @@ def _load_registered_piecework(work_mode: str):
     return master_df, steps_df
 
 
-def _match_registered_piecework(source: str, work_mode: str) -> dict:
-    """
-    元文を登録済み内職・工程と照合する。
+def _match_registered_piecework(source: str, work_mode: str, company_id: str = "") -> dict:
 
-    優先順位:
-    1. 元文に登録済み内職名が含まれる → その内職を採用
-    2. 元文に登録済み工程名が含まれる → その工程の親内職を採用
-    3. 元文に内職/作業/数量があるが名称不明 → そのモードの登録内職からデフォルト採用
-
-    work_mode:
-      office = 通所内職
-      home   = 在宅内職
-    """
     src = _normalize_text(source)
+
     if not src:
         return {}
 
-    master_df, steps_df = _load_registered_piecework(work_mode)
+    try:
+        company_id = company_id or str(st.session_state.get("company_id", "")).strip()
+    except:
+        company_id = ""
+
+    try:
+        master_df = load_db("piecework_master")
+        steps_df = load_db("piecework_steps")
+    except:
+        return {}
+
     if master_df is None or master_df.empty:
         return {}
 
-    if steps_df is None:
-        steps_df = pd.DataFrame()
-
-    quantity = _extract_piecework_quantity(src) or _extract_quantity(src)
-
-    # -------------------------
-    # 安全用カラム補正
-    # -------------------------
-    for col in ["id", "company_id", "work_mode", "piecework_name", "priority", "is_active"]:
-        if col not in master_df.columns:
-            master_df[col] = ""
-
-    for col in ["id", "company_id", "piecework_master_id", "step_no", "step_name", "step_detail", "is_active"]:
-        if col not in steps_df.columns:
-            steps_df[col] = ""
-
     master_df = master_df.fillna("").copy()
-    steps_df = steps_df.fillna("").copy()
+    steps_df = pd.DataFrame() if steps_df is None else steps_df.fillna("").copy()
 
-    # 優先順位順に並べる
-    master_df["priority_num"] = pd.to_numeric(
-        master_df["priority"],
-        errors="coerce"
-    ).fillna(9999)
+    # フィルタ
+    if company_id:
+        master_df = master_df[
+            master_df["company_id"].astype(str).str.strip() == company_id
+        ]
 
-    master_df = master_df.sort_values(["priority_num", "piecework_name"])
+    master_df = master_df[
+        master_df["work_mode"].astype(str).str.strip() == work_mode
+    ]
 
-    def _steps_for_master(master_id: str):
-        target_steps = steps_df[
-            steps_df["piecework_master_id"].astype(str).str.strip() == str(master_id).strip()
-        ].copy()
+    if master_df.empty:
+        return {}
 
-        if target_steps.empty:
-            return target_steps
+    raw_qty = _extract_quantity(src)
 
-        target_steps["step_no_num"] = pd.to_numeric(
-            target_steps["step_no"],
-            errors="coerce"
-        ).fillna(9999)
+    def _keys(name):
+        name = str(name).strip()
+        return [
+            name,
+            name.replace("育成", ""),
+            name.replace("作業", ""),
+            name.replace("内職", "")
+        ]
 
-        return target_steps.sort_values(["step_no_num", "step_name"])
-
-    def _build_result(row, step_text: str = "", match_reason: str = ""):
-        master_id = str(row.get("id", "")).strip()
-        piecework_name = str(row.get("piecework_name", "")).strip()
-
-        target_steps = _steps_for_master(master_id)
-
-        # 工程未指定なら、元文に含まれる工程名を優先
-        if not step_text and not target_steps.empty:
-            for _, step in target_steps.iterrows():
-                candidate_step = str(step.get("step_name", "")).strip()
-                if candidate_step and candidate_step in src:
-                    step_text = candidate_step
-                    break
-
-        # それでも工程がなければ、登録済みの先頭工程を使う
-        if not step_text and not target_steps.empty:
-            step_text = str(target_steps.iloc[0].get("step_name", "")).strip()
-
-        return {
-            "piecework_id": master_id,
-            "piecework_name": piecework_name,
-            "step_text": step_text,
-            "quantity": quantity,
-            "work_mode": work_mode,
-            "match_reason": match_reason,
-        }
-
-    # -------------------------
-    # ① 内職名が元文にある場合
-    # -------------------------
+    # 一致したときだけ返す
     for _, row in master_df.iterrows():
-        piecework_name = str(row.get("piecework_name", "")).strip()
-        if not piecework_name:
-            continue
+        name = str(row.get("piecework_name", "")).strip()
 
-        if piecework_name in src:
-            return _build_result(row, match_reason="piecework_name_in_source")
-
-    # -------------------------
-    # ② 工程名が元文にある場合
-    # -------------------------
-    if not steps_df.empty:
-        for _, step in steps_df.iterrows():
-            step_name = str(step.get("step_name", "")).strip()
-            master_id = str(step.get("piecework_master_id", "")).strip()
-
-            if not step_name or step_name not in src:
-                continue
-
-            hit = master_df[
-                master_df["id"].astype(str).str.strip() == master_id
-            ]
-
-            if hit.empty:
-                continue
-
-            return _build_result(
-                hit.iloc[0],
-                step_text=step_name,
-                match_reason="step_name_in_source"
-            )
-
-    # -------------------------
-    # ③ 名称不明だが、内職/作業/数量がある場合はデフォルト採用
-    # -------------------------
-    has_work_context = any(k in src for k in [
-        "内職",
-        "作業",
-        "仕上げ",
-        "仕上げました",
-        "できました",
-        "出来ました",
-        "行いました",
-        "実施",
-        "取り組",
-    ])
-
-    has_quantity = bool(quantity)
-
-    if has_work_context or has_quantity:
-        # priority が一番小さい登録内職を採用
-        default_row = master_df.iloc[0]
-        return _build_result(
-            default_row,
-            match_reason="default_by_mode"
-        )
+        if any(k and k in src for k in _keys(name)):
+            return {
+                "piecework_name": name,
+                "quantity": raw_qty
+            }
 
     return {}
 
