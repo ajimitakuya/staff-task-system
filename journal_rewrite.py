@@ -3585,16 +3585,19 @@ def _force_final_home_format(user_state: str, staff_note: str, memo: str, work: 
             if not s:
                 continue
 
+            # 💥 ゴミヘッダー削除（先にやる）
+            s = re.sub(r".*?利用者状態", "", s)
+            s = re.sub(r".*?作業\s*\S+\s*利用者状態", "", s)
+            s = re.sub(r"\d{1,2}日（.*?）", "", s)
+            s = s.strip()
+
+            if not s:
+                continue
+
             if any(x in s for x in ng):
                 continue
 
             if any(k in s for k in keep):
-
-                # 💥 ゴミヘッダー削除（ここが本体）
-                s = re.sub(r".*?利用者状態", "", s)
-                s = re.sub(r".*?作業\s*\S+\s*利用者状態", "", s)
-                s = re.sub(r"\d{1,2}日（.*?）", "", s)
-
                 # 💡 軽い整形
                 s = s.replace("本人より", "").strip()
 
