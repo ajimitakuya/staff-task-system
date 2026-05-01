@@ -3658,8 +3658,10 @@ def _force_final_home_format(user_state: str, staff_note: str, memo: str, work: 
         "作業開始前に連絡があり、体調について確認を行った。",
         f"本人より「{first_quote}」との話があった。",
         "職員より「無理のない範囲で進めてください」と伝えた。",
-        "在宅での作業のため、本人からの報告にて確認した。",
         context_line,
+
+        "",  # ← 💥 これが1段空ける本体
+
         end_line,
         "職員より「無理なく取り組めていますね」と声をかけた。",
         "その後は無理のない範囲で過ごされるとのことだった。"
@@ -3668,16 +3670,11 @@ def _force_final_home_format(user_state: str, staff_note: str, memo: str, work: 
     user_lines = [x for x in user_lines if x]
 
     # -------------------------
-    # 職員考察（固定）
+    # 職員考察（GPT生成を活かして3文整形）
     # -------------------------
-    staff_lines = [
-        "その日の状態に合わせて、無理のない範囲で作業に取り組まれていた。",
-        "作業終了の報告も行えており、状況共有は適切に行われている。",
-        "今後も本人の状態を確認しながら、無理なく続けられるよう支援していく。"
-    ]
-
     user_result = _final_cleanup_journal_text("\n".join(user_lines))
-    staff_result = _final_cleanup_journal_text("\n".join(staff_lines))
+    staff_result = _force_staff_note_three_lines(staff_note, user_result, mode="在宅")
+    staff_result = _final_cleanup_journal_text(staff_result)
 
     return user_result, staff_result
 
@@ -3830,6 +3827,9 @@ def _force_final_outside_format(user_state: str, staff_note: str, memo: str, wor
     staff_result = "\n".join(staff_lines).strip()
 
     user_result = _final_cleanup_journal_text(user_result)
+    staff_result = _final_cleanup_journal_text(staff_result)
+
+    staff_result = _force_staff_note_three_lines(staff_note, user_result, mode="施設外")
     staff_result = _final_cleanup_journal_text(staff_result)
 
     return user_result, staff_result
@@ -4159,6 +4159,9 @@ def _force_final_office_format(user_state: str, staff_note: str, memo: str, work
     user_result = _final_cleanup_journal_text(user_result)
     staff_result = _final_cleanup_journal_text(staff_result)
 
+    staff_result = _force_staff_note_three_lines(staff_note, user_result, mode="通所")
+    staff_result = _final_cleanup_journal_text(staff_result)
+
     return user_result, staff_result
 
 def _match_registered_piecework(source: str, work_mode: str, company_id: str = ""):
@@ -4407,6 +4410,66 @@ def _final_cleanup_journal_text(text: str) -> str:
             lines.append(sentence)
 
     return "\n".join(lines).strip()
+
+def _force_staff_note_three_lines(staff_note: str, user_state: str = "", mode: str = "在宅") -> str:
+    """
+    GPTが作った職員考察を活かしつつ、
+    ①体調や気分の見立て
+    ②作業・報告状況の評価
+    ③今後の支援
+    の3文構成に寄せる。
+    """
+    src = _normalize_text(staff_note)
+    user_src = _normalize_text(user_state)
+    merged = _normalize_text("\n".join([src, user_src]))
+
+    ng_words = [
+        "利用者状態", "職員考察", "本人より",
+        "作業開始前に連絡", "作業終了時に連絡",
+    ]
+
+    sentences = []
+    for s in _sentencize_jp(src):
+        s = str(s).strip()
+        if not s:
+            continue
+        if any(x in s for x in ng_words):
+            continue
+        if s not in sentences:
+            sentences.append(s.rstrip("。") + "。")
+
+    # すでにGPTが3文以上まともに出しているなら、最初の3文を活かす
+    if len(sentences) >= 3:
+        return "\n".join(sentences[:3])
+
+    # 足りない分だけ補完
+    if any(k in merged for k in ["痛", "しんど", "不調", "疲", "眠れ", "ボー", "ぼー", "膝", "足", "腰", "左手"]):
+        line1 = "体調面に気になる点があるため、作業時の負担に配慮が必要と考える。"
+    elif any(k in merged for k in ["良い", "良好", "変わりない", "いつも通り", "安定"]):
+        line1 = "体調面に大きな変化はなく、落ち着いて作業に向かえていたと考える。"
+    else:
+        line1 = "その日の状態を確認しながら、無理のない範囲で作業に取り組めていたと考える。"
+
+    if any(k in merged for k in ["報告", "連絡", "共有"]):
+        line2 = "開始時や終了時の連絡を通して、作業状況の共有は行えていた。"
+    else:
+        line2 = "作業の進め方を確認しながら、本人のペースで取り組めていた。"
+
+    if mode == "施設外":
+        line3 = "今後も体調と作業状況を確認しながら、安全に取り組めるよう支援していく。"
+    elif mode == "通所":
+        line3 = "今後も来所時の様子を確認しながら、無理なく作業を継続できるよう支援していく。"
+    else:
+        line3 = "今後も本人の状態を確認しながら、無理なく作業を続けられるよう支援していく。"
+
+    base = sentences[:]
+    for line in [line1, line2, line3]:
+        if len(base) >= 3:
+            break
+        if line not in base:
+            base.append(line)
+
+    return "\n".join(base[:3])
 
 def _jr_fmt_seconds(sec):
     try:
