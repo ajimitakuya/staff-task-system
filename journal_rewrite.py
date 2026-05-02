@@ -3631,15 +3631,20 @@ def _force_final_home_format(user_state: str, staff_note: str, memo: str, work: 
             first_quote = health_quote
 
     # -------------------------
-    # 🔥 内職優先（絶対）
+    # 🔥 原文優先ロジック
     # -------------------------
-    match = _match_registered_piecework(source, "home")
+    raw_qty = _extract_quantity(source)
 
-    if match:
-        work_label = match.get("piecework_name", work_label)
-        qty = match.get("quantity", "")
+    # 原文に数量がある場合は絶対優先
+    if raw_qty:
+        qty = raw_qty
     else:
-        qty = _extract_quantity(source)
+        match = _match_registered_piecework(source, "home")
+        if match:
+            work_label = match.get("piecework_name", work_label)
+            qty = match.get("quantity", "")
+        else:
+            qty = ""
 
     if not work_label:
         work_label = "作業"
@@ -3672,7 +3677,8 @@ def _force_final_home_format(user_state: str, staff_note: str, memo: str, work: 
     # -------------------------
     # 職員考察（GPT生成を活かして3文整形）
     # -------------------------
-    user_result = _final_cleanup_journal_text("\n".join(user_lines))
+    user_result = _final_cleanup_journal_text("\n\n".join(user_lines))
+
     staff_result = _force_staff_note_three_lines(staff_note, user_result, mode="在宅")
     staff_result = _final_cleanup_journal_text(staff_result)
 
@@ -4039,125 +4045,138 @@ def _build_registered_piecework_work_line(match: dict) -> str:
 def _force_final_office_format(user_state: str, staff_note: str, memo: str, work: str):
     """
     通所用：型固定版
-    - 数量は明示があるときだけ入れる
-    - 通所では「本人判断で作業をやめた」表現は禁止
-    - 来所時確認 → 作業内容 → 作業中の様子 → 終了時確認 の流れに固定
+    - 作業名をコードに固定しない
+    - 原文に作業内容・数量がある場合は最優先
+    - 登録内職は、内職名または工程名が本文に一致した場合だけ使う
     """
     source = _normalize_text("\n".join([user_state or "", staff_note or "", memo or ""]))
 
-    # =========================
-    # 登録済み内職・工程との照合（通所）
-    # =========================
-    matched_piecework = _match_registered_piecework(source, "office")
+    def _extract_office_work_plan(src: str, fallback_work: str = "") -> str:
+        for s in _sentencize_jp(src):
+            s = str(s).strip()
+            if not s:
+                continue
 
-    registered_work_line = ""
-    registered_end_line = ""
+            if any(k in s for k in ["本日は", "予定", "取り組"]):
+                if any(ng in s for ng in ["作業終了", "職員考察", "今後も"]):
+                    continue
+                return s.rstrip("。") + "。"
 
-    if matched_piecework:
-        piecework_name = str(matched_piecework.get("piecework_name", "")).strip()
-        step_text = str(matched_piecework.get("step_text", "")).strip()
-        matched_quantity = str(matched_piecework.get("quantity", "")).strip()
+        fw = _normalize_text(fallback_work)
+        if fw and fw not in ["作業", "未指定", "-", "なし"]:
+            return f"本日は{fw}に取り組まれた。"
 
-        if matched_quantity:
-            qty_phrase = matched_quantity
-        else:
-            qty_phrase = _extract_office_quantity(source) or _extract_quantity(source)
+        return "本日は作業に取り組まれた。"
 
-        if step_text and qty_phrase:
-            registered_work_line = f"本日は{step_text}作業に取り組まれた。"
-            registered_end_line = f"作業終了時には、{step_text}作業を{qty_phrase}行ったことを職員が確認した。"
-        elif piecework_name and qty_phrase:
-            registered_work_line = f"本日は{piecework_name}に取り組まれた。"
-            registered_end_line = f"作業終了時には、{piecework_name}を{qty_phrase}行ったことを職員が確認した。"
-        elif step_text:
-            registered_work_line = f"本日は{step_text}作業に取り組まれた。"
-        elif piecework_name:
-            registered_work_line = f"本日は{piecework_name}に取り組まれた。"
+    def _extract_office_work_result(src: str) -> str:
+        # 例：作業量は箸20膳、コースター10枚とのことだった。
+        for s in _sentencize_jp(src):
+            s = str(s).strip()
+            if not s:
+                continue
 
-        work_label = step_text or piecework_name or _infer_office_work_label(source, work)
+            if "作業量" in s and re.search(r"\d+\s*(枚|個|本|膳|袋|点|セット)", s):
+                s = re.sub(r"^作業量は", "", s)
+                s = re.sub(r"とのことだった。?$", "", s)
+                s = re.sub(r"との報告があった。?$", "", s)
+                return s.strip(" 。")
 
-    else:
-        work_label = _infer_office_work_label(source, work)
-        qty_phrase = _extract_office_quantity(source)
+        # 例：「箸を20膳とコースター10枚できました」
+        for s in _sentencize_jp(src):
+            s = str(s).strip()
+            if not s:
+                continue
 
-        # 念のため、数量抽出の保険
-        if not qty_phrase:
-            qty_phrase = _extract_quantity(source)
+            if re.search(r"\d+\s*(枚|個|本|膳|袋|点|セット)", s):
+                if any(ng in s for ng in ["体調", "時", "日", "月", "年"]):
+                    continue
 
+                s = re.sub(r"作業終了時に連絡があり、", "", s)
+                s = re.sub(r"報告があった。?$", "", s)
+                s = re.sub(r"とのことだった。?$", "", s)
+                s = s.replace("「", "").replace("」", "")
+                return s.strip(" 。")
+
+        return ""
+
+    # -------------------------
     # 本人発言
-    first_quote = _extract_first_quote(source)
-    bad_quote_words = ["この辺でやめ", "やめときます", "終わりにします", "休みます"]
+    # -------------------------
+    first_quote = _extract_first_quote(source) or ""
 
-    if not first_quote or any(k in first_quote for k in bad_quote_words):
-        if any(k in source for k in ["良好", "普通", "いつも通り", "大丈夫", "安定"]):
-            first_quote = "今日はいつも通りです"
-        elif any(k in source for k in ["しんど", "不調", "疲", "痛", "眠"]):
-            first_quote = "今日は少し体調が優れないです"
+    bad_words = [
+        "お疲れさま", "ありがとう", "ありがとうございました",
+        "無理しない", "気をつけて", "進めてください",
+        "下さいね", "無理のない範囲"
+    ]
+
+    if (not first_quote) or any(k in first_quote for k in bad_words):
+        if any(k in source for k in ["良い", "良好", "問題ありません", "変わりない", "いつも通り"]):
+            first_quote = "体調に大きな問題はありません"
+        elif any(k in source for k in ["痛", "しんど", "不調", "疲", "眠れ", "寒暖差"]):
+            first_quote = "少し体調面で気になるところがあります"
         else:
             first_quote = "無理のない範囲で取り組みます"
 
-    # 体調・声かけ
-    if any(k in source for k in ["しんど", "不調", "疲", "痛", "眠"]):
-        health_line = "来所時に体調確認を行うと、やや不調があるとの報告があった。"
-        reply_line = "職員より「無理のない範囲で進めてください」と声をかけた。"
-        staff_1 = "来所時に体調面への配慮が必要な様子が見られた。"
-        staff_3 = "今後も体調の変化を確認しながら、無理のない範囲で作業に取り組めるよう支援していく。"
+    # -------------------------
+    # 体調文
+    # -------------------------
+    if any(k in source for k in ["痛", "しんど", "不調", "疲", "眠れ", "寒暖差"]):
+        health_line = "来所時に体調確認を行うと、体調面に配慮が必要な様子があった。"
+    elif any(k in source for k in ["良い", "良好", "問題ありません", "変わりない", "いつも通り"]):
+        health_line = "来所時に体調確認を行うと、大きな不調の訴えはなかった。"
     else:
-        health_line = "来所時に体調確認を行うと、体調は大きく変わりないとの報告があった。"
-        reply_line = "職員より「この調子で無理なく進めてください」と声をかけた。"
-        staff_1 = "来所時の体調に大きな変化はなく、落ち着いて作業に入ることができていた。"
-        staff_3 = "今後も体調や作業の様子を確認しながら、安定して取り組めるよう支援していく。"
+        health_line = "来所時に体調確認を行った。"
 
-    # 作業内容文：登録済み内職・工程があれば最優先
-    if registered_work_line:
-        work_line = registered_work_line
-    elif work_label and work_label not in ["作業", "内職", "通所", "施設外就労"]:
-        work_line = f"本日は{work_label}に取り組まれた。"
-    else:
-        work_line = ""
+    reply_line = "職員より「無理のない範囲で進めてください」と声をかけた。"
 
+    # -------------------------
+    # 作業内容：原文優先 → 登録一致時のみ補助
+    # -------------------------
+    work_line = _extract_office_work_plan(source, work)
+    result_phrase = _extract_office_work_result(source)
+
+    if not result_phrase:
+        matched_piecework = _match_registered_piecework(source, "office")
+        if matched_piecework:
+            registered_line = _build_registered_piecework_work_line(matched_piecework)
+            if registered_line:
+                result_phrase = registered_line.rstrip("。")
+                piecework_name = str(matched_piecework.get("piecework_name", "") or "").strip()
+                step_text = str(matched_piecework.get("step_text", "") or "").strip()
+                work_text = step_text or piecework_name
+                if work_text:
+                    work_line = f"本日は{work_text}に取り組まれた。"
+
+    # -------------------------
     # 作業中の様子
+    # -------------------------
     if any(k in source for k in ["丁寧", "手元", "確認"]):
         work_status = "作業中は手元を確認しながら、丁寧に進められていた。"
-        staff_2 = "作業中は手順を確認しながら進められており、丁寧に取り組む姿勢が見られた。"
-    elif any(k in source for k in ["集中", "一定", "リズム", "ペース"]):
-        work_status = "作業中は一定のペースを保ちながら、集中して取り組まれていた。"
-        staff_2 = "作業中は一定のペースで取り組めており、継続して作業する姿勢が見られた。"
+    elif any(k in source for k in ["集中", "落ち着", "ペース"]):
+        work_status = "作業中は落ち着いた様子で、集中して取り組まれていた。"
     else:
-        work_status = "作業中は落ち着いた様子で、無理のない範囲で取り組まれていた。"
-        staff_2 = "作業中は落ち着いて取り組めており、その日の状態に合わせて進められていた。"
+        work_status = "作業中は無理のない範囲で取り組まれていた。"
 
-    # 終了文：登録済み内職・工程＋数量があれば最優先
-    if registered_end_line:
-        end_line = registered_end_line
-    elif qty_phrase and work_label and work_label not in ["作業", "内職", "通所", "施設外就労"]:
-        end_line = f"作業終了時には、{work_label}を{qty_phrase}仕上げたことを職員が確認した。"
-    elif qty_phrase:
-        end_line = f"作業終了時には、{qty_phrase}仕上げたことを職員が確認した。"
+    # -------------------------
+    # 終了文
+    # -------------------------
+    if result_phrase:
+        end_line = f"作業終了時には、{result_phrase}との報告があった。"
     else:
-        end_line = "作業終了時には、取り組み状況を職員が確認した。"
+        end_line = "作業終了時には、作業の取り組みについて報告があった。"
 
     user_lines = [
         health_line,
         f"本人より「{first_quote}」との話があった。",
         reply_line,
-        "",
         work_line,
         work_status,
         end_line,
     ]
 
-    staff_lines = [
-        staff_1,
-        staff_2,
-        staff_3,
-    ]
-
     user_result = "\n".join([line for line in user_lines if str(line).strip()]).strip()
-    staff_result = "\n".join([line for line in staff_lines if str(line).strip()]).strip()
-
     user_result = _final_cleanup_journal_text(user_result)
-    staff_result = _final_cleanup_journal_text(staff_result)
 
     staff_result = _force_staff_note_three_lines(staff_note, user_result, mode="通所")
     staff_result = _final_cleanup_journal_text(staff_result)
@@ -4369,15 +4388,6 @@ def _match_registered_piecework(source: str, work_mode: str, company_id: str = "
                 continue
 
             return _build_result(hit.iloc[0], step_text=step_name, reason="step_name_match")
-
-    # 3. 作業文脈・数量だけある場合は、優先順位1位を採用
-    has_work_context = any(k in src for k in [
-        "内職", "作業", "仕上げ", "仕上げました", "できました",
-        "出来ました", "行いました", "実施", "取り組", "完成"
-    ])
-
-    if has_work_context or raw_qty:
-        return _build_result(master_df.iloc[0], reason="default_priority_match")
 
     return {}
 
