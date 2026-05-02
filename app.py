@@ -1,5 +1,5 @@
 from common import now_jst, mask_secret_text, safe_text, heart_label, parse_time_range, _to_minutes, _normalize_weekday_label, is_time_overlap, get_saturday_dates_for_month, get_sheet_name_candidates, get_sheet_name, get_next_numeric_id, normalize_company_scoped_df, filter_by_company_id
-from data_access import load_db, save_db, get_companies_df, get_users_df, get_user_company_permissions_df, get_task_required_cols, get_tasks_df, get_urgent_tasks_df, get_resident_master_df, get_resident_schedule_df, get_resident_notes_df, get_attendance_logs_df, get_attendance_logs_df, get_attendance_display_settings_df
+from data_access import load_db, save_db, supabase, get_companies_df, get_users_df, get_user_company_permissions_df, get_task_required_cols, get_tasks_df, get_urgent_tasks_df, get_resident_master_df, get_resident_schedule_df, get_resident_notes_df, get_attendance_logs_df, get_attendance_logs_df, get_attendance_display_settings_df
 from journal_input_builder import build_journal_generation_input
 from journal_rewrite import render_journal_rewrite_page
 import streamlit as st
@@ -4277,6 +4277,82 @@ def get_saved_documents_df():
                 df[col] = ""
     return df.fillna("")
 
+
+DOCUMENT_FORM_RECORD_COLS = [
+    "record_id",
+    "company_id",
+    "resident_id",
+    "resident_name",
+    "doc_type",
+    "created_at",
+    "updated_at",
+    "created_by",
+    "updated_by",
+    "form_json",
+    "cell_json",
+    "status",
+    "note",
+]
+
+
+def get_document_form_records_df(table_name: str):
+    df = load_db(table_name)
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=DOCUMENT_FORM_RECORD_COLS)
+    else:
+        for col in DOCUMENT_FORM_RECORD_COLS:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def save_document_form_record(table_name: str, doc_type: str, company_id: str, resident_id: str, resident_name: str, form_data: dict, cell_data: dict):
+    now_str = now_jst().strftime("%Y-%m-%d %H:%M:%S")
+    current_user_id = str(st.session_state.get("user_id", "")).strip()
+    record_id = str(uuid.uuid4())
+
+    row = {
+        "record_id": record_id,
+        "company_id": str(company_id or "").strip(),
+        "resident_id": str(resident_id or "").strip(),
+        "resident_name": str(resident_name or "").strip(),
+        "doc_type": str(doc_type or "").strip(),
+        "created_at": now_str,
+        "updated_at": now_str,
+        "created_by": current_user_id,
+        "updated_by": current_user_id,
+        "form_json": json.dumps(form_data or {}, ensure_ascii=False, default=str),
+        "cell_json": json.dumps(cell_data or {}, ensure_ascii=False, default=str),
+        "status": "active",
+        "note": "",
+    }
+
+    supabase.table(table_name).insert(row).execute()
+    st.cache_data.clear()
+    return record_id
+
+
+def render_document_form_bottom_save(table_name: str, doc_type: str, company_id: str, resident_id: str, resident_name: str, form_data: dict, cell_data: dict):
+    st.divider()
+    st.markdown("### Supabase保存")
+    if st.button("この内容を保存", key=f"{doc_type}_bottom_supabase_save", type="primary", use_container_width=True):
+        if not str(resident_id or "").strip():
+            st.warning("利用者IDが取得できないため保存できません。")
+            return
+        try:
+            record_id = save_document_form_record(
+                table_name=table_name,
+                doc_type=doc_type,
+                company_id=company_id,
+                resident_id=resident_id,
+                resident_name=resident_name,
+                form_data=form_data,
+                cell_data=cell_data,
+            )
+            st.success(f"Supabaseに保存しました。record_id = {record_id}")
+        except Exception as e:
+            st.error(f"Supabase保存エラー: {e}")
+
 @st.cache_data(ttl=60)
 def get_diary_input_rules_df_cached():
     df = load_db("diary_input_rules")
@@ -6279,6 +6355,7 @@ def render_plan_form_page(doc_title: str):
     )
 
     selected_row = resident_map[selected_label]
+    resident_id = str(selected_row.get("resident_id", "")).strip()
     resident_name = str(selected_row.get("resident_name", "")).strip()
 
     basic_cols = st.columns([7, 2, 2, 2])
@@ -6537,6 +6614,7 @@ def render_meeting_form_page(doc_title: str):
     )
 
     selected_row = resident_map[selected_label]
+    resident_id = str(selected_row.get("resident_id", "")).strip()
     resident_name = str(selected_row.get("resident_name", "")).strip()
 
     # -----------------------------
@@ -6783,6 +6861,7 @@ def render_monitoring_form_page(doc_title: str):
     )
 
     selected_row = resident_map[selected_label]
+    resident_id = str(selected_row.get("resident_id", "")).strip()
     resident_name = str(selected_row.get("resident_name", "")).strip()
 
     base_cols = st.columns([6, 2, 2, 2])
@@ -7164,6 +7243,7 @@ def render_assessment_form_page(doc_title: str):
     )
 
     selected_row = resident_map[selected_label]
+    resident_id = str(selected_row.get("resident_id", "")).strip()
     resident_name = str(selected_row.get("resident_name", "")).strip()
 
     # ★追加：pending読み込みをwidget生成前に適用
@@ -7890,6 +7970,16 @@ def render_assessment_form_page(doc_title: str):
         cell_data=cell_data
     )
 
+    render_document_form_bottom_save(
+        table_name="assessment_sheet_records",
+        doc_type=doc_title,
+        company_id=company_id,
+        resident_id=resident_id,
+        resident_name=resident_name,
+        form_data=form_data,
+        cell_data=cell_data,
+    )
+
 def render_basic_sheet_form_page(doc_title: str):
     st.title("📋 基本シート")
     st.caption("基本シート入力ページです。入力と保存とExcel出力までつなぐです。")
@@ -8154,6 +8244,16 @@ def render_basic_sheet_form_page(doc_title: str):
         file_name=file_name,
         template_name=template_name,
         cell_data=cell_data
+    )
+
+    render_document_form_bottom_save(
+        table_name="basic_sheet_records",
+        doc_type=doc_title,
+        company_id=company_id,
+        resident_id=resident_id,
+        resident_name=resident_name,
+        form_data=form_data,
+        cell_data=cell_data,
     )
 
 def render_work_sheet_form_page(doc_title: str):
@@ -8778,6 +8878,16 @@ def render_work_sheet_form_page(doc_title: str):
         file_name=file_name,
         template_name=template_name,
         cell_data=cell_data
+    )
+
+    render_document_form_bottom_save(
+        table_name="work_field_sheet_records",
+        doc_type=doc_title,
+        company_id=company_id,
+        resident_id=resident_id,
+        resident_name=resident_name,
+        form_data=form_data,
+        cell_data=cell_data,
     )
 
 
