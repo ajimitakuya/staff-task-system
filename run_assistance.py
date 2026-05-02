@@ -1911,17 +1911,32 @@ def run_support_record_kind_export(
 # 入力：強制クリア＆JS注入
 # =========================
 def _js_set_value_and_fire(driver, el, value: str):
+    value = "" if value is None else str(value)
+    value = value.replace("\r\n", "\n").replace("\r", "\n")
     driver.execute_script("""
         const el = arguments[0];
         const v  = arguments[1];
 
         el.focus();
-        const proto = Object.getPrototypeOf(el);
+        const proto = el instanceof HTMLTextAreaElement
+            ? window.HTMLTextAreaElement.prototype
+            : window.HTMLInputElement.prototype;
         const desc = Object.getOwnPropertyDescriptor(proto, 'value');
         if (desc && desc.set) desc.set.call(el, v);
         else el.value = v;
 
-        el.dispatchEvent(new Event('input',  {bubbles:true}));
+        if (el._valueTracker) {
+            el._valueTracker.setValue('');
+        }
+
+        const inputEvent = (typeof InputEvent === 'function')
+            ? new InputEvent('input', {
+                bubbles: true,
+                inputType: 'insertText',
+                data: v
+            })
+            : new Event('input', {bubbles:true});
+        el.dispatchEvent(inputEvent);
         el.dispatchEvent(new Event('change', {bubbles:true}));
         el.dispatchEvent(new Event('blur',   {bubbles:true}));
     """, el, value)
@@ -4821,6 +4836,7 @@ def send_one_record_from_app(
             raise RuntimeError(f"[FATAL] 日々の記録 行発見失敗ある: {it.name}")
 
         work_label = _daily_record_work_label(it)
+        journal_work_label = str(getattr(it, "work_memo", "") or "").strip() or work_label
 
         # ③ 作業欄
         if not _set_daily_work_for_row(driver, row, work_label):
@@ -4830,7 +4846,7 @@ def send_one_record_from_app(
         # ③.5 日誌生成ルール適用
         result = generate_journal_from_memo(
             memo=generated_status,
-            work_label=work_label,
+            work_label=journal_work_label,
             start_time=start_time,
             end_time=end_time,
         )

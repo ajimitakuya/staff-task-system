@@ -31,6 +31,10 @@ SUPABASE_TABLES = {
     "task",
     "attendance_logs",
     "attendance_display_settings",
+    "ic_reader_bridge",
+    "ic_card_users",
+    "ic_attendance_logs",
+    "ic_attendance_daily",
     "resident_master",
     "resident_schedule",
     "record_status",
@@ -50,6 +54,10 @@ def load_db(file, retries=3, delay=0.8):
 
         if file == "attendance_logs":
             query = query.order("timestamp", desc=True)
+        elif file == "ic_attendance_logs":
+            query = query.order("timestamp", desc=True)
+        elif file == "ic_attendance_daily":
+            query = query.order("date", desc=True)
 
         res = query.execute()
         return pd.DataFrame(res.data)
@@ -87,6 +95,9 @@ def save_db(df, file, retries=3, delay=1.0):
 
         unique_keys = {
             "attendance_logs": "attendance_id",
+            "ic_reader_bridge": "bridge_id",
+            "ic_card_users": "card_id",
+            "ic_attendance_logs": "log_id",
             "piecework_master": "id",
             "piecework_steps": "id",
             "outside_workplaces": "workplace_id",
@@ -418,3 +429,79 @@ def get_attendance_display_settings_df_cached():
 
 def get_attendance_display_settings_df():
     return get_attendance_display_settings_df_cached()
+
+
+@st.cache_data(ttl=3)
+def get_ic_reader_bridge_df_cached():
+    df = load_db("ic_reader_bridge")
+    cols = ["bridge_id", "device_name", "card_id", "touched_at", "status"]
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=cols)
+    else:
+        for col in cols:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_ic_reader_bridge_df():
+    return get_ic_reader_bridge_df_cached()
+
+
+@st.cache_data(ttl=15)
+def get_ic_card_users_df_cached():
+    df = load_db("ic_card_users")
+    cols = ["card_id", "user_id", "user_name", "company_id", "is_active", "note"]
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=cols)
+    else:
+        for col in cols:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_ic_card_users_df():
+    return get_ic_card_users_df_cached()
+
+
+@st.cache_data(ttl=15)
+def get_ic_attendance_logs_df_cached():
+    df = load_db("ic_attendance_logs")
+    cols = [
+        "log_id", "date", "user_id", "user_name", "company_id",
+        "action", "action_label", "timestamp", "device_name",
+        "card_id", "source", "memo",
+    ]
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=cols)
+    else:
+        for col in cols:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_ic_attendance_logs_df():
+    return get_ic_attendance_logs_df_cached()
+
+
+@st.cache_data(ttl=15)
+def get_ic_attendance_daily_df_cached():
+    df = load_db("ic_attendance_daily")
+    cols = [
+        "date", "user_id", "user_name", "company_id",
+        "clock_in", "break_start", "break_end", "clock_out",
+        "break_minutes", "work_minutes", "status", "note",
+    ]
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=cols)
+    else:
+        for col in cols:
+            if col not in df.columns:
+                df[col] = ""
+    return df.fillna("")
+
+
+def get_ic_attendance_daily_df():
+    return get_ic_attendance_daily_df_cached()

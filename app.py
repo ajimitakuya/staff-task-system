@@ -27,7 +27,21 @@ from run_assistance import (
     run_support_record_kind_export,
     fetch_support_record_kind_rows_for_range,
 )
-from attendance import render_attendance_page, flush_attendance_before_page_change
+try:
+    from attendance import render_attendance_page, flush_attendance_before_page_change
+except KeyError:
+    import importlib.util as _importlib_util
+    from pathlib import Path as _Path
+
+    _attendance_path = _Path(__file__).with_name("attendance.py")
+    _attendance_spec = _importlib_util.spec_from_file_location(
+        "_rlh_attendance_fallback",
+        _attendance_path,
+    )
+    _attendance_module = _importlib_util.module_from_spec(_attendance_spec)
+    _attendance_spec.loader.exec_module(_attendance_module)
+    render_attendance_page = _attendance_module.render_attendance_page
+    flush_attendance_before_page_change = _attendance_module.flush_attendance_before_page_change
 from knowbe_home_flag import render_knowbe_home_flag_page
 import uuid
 
@@ -10629,6 +10643,13 @@ def render_bee_journal_page():
 
         piecework_name_map = {"": ""}
         piecework_id_map = {"": ""}
+        piecework_mode_filter = ""
+        if str(service_type).strip() == "在宅":
+            piecework_mode_filter = "home"
+        elif str(service_type).strip() == "通所":
+            piecework_mode_filter = "office"
+        elif str(service_type).strip() == "施設外就労":
+            piecework_mode_filter = "outside"
 
         if piecework_df is not None and not piecework_df.empty:
             piecework_df = piecework_df.fillna("").copy()
@@ -10651,6 +10672,14 @@ def render_bee_journal_page():
                 (piecework_df["company_id"].astype(str).str.strip() == str(target_company_id).strip()) &
                 (piecework_df["is_active"].astype(str).str.lower().isin(["true", "1", "yes", ""]))
             ].copy()
+
+            if piecework_mode_filter:
+                if piecework_mode_filter in ["home", "office"]:
+                    piecework_df = piecework_df[
+                        piecework_df["work_mode"].astype(str).str.strip() == piecework_mode_filter
+                    ].copy()
+                else:
+                    piecework_df = piecework_df.iloc[0:0].copy()
 
             piecework_df["priority_num"] = pd.to_numeric(
                 piecework_df["priority"],

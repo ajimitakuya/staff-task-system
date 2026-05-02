@@ -1,69 +1,100 @@
-﻿import time
+import os
+import re
+import time
 from datetime import datetime
+from pathlib import Path
 
-import gspread
-from google.oauth2.service_account import Credentials
 from smartcard.System import readers
+from supabase import create_client
 
 
 # ===== 設定ここだけ =====
-SPREADSHEET_ID = "1UZ0O6Rtfu127YCIAYrAoU3us8aneudnO-gFVkjndtaQ"
-SERVICE_ACCOUNT_FILE = r"Y:\作業管理\service_account.json"
-SHEET_NAME = "ic_reader_bridge"
 BRIDGE_ID = "main_reader"
 DEVICE_NAME = "front_desk"
+TABLE_NAME = "ic_reader_bridge"
 
-POLL_INTERVAL_SEC = 0.8
-DUPLICATE_GUARD_SEC = 10.0          # 同じカードは10秒以内なら再送しない
-READY_HOLD_SEC = 10.0               # 読み取り後、readyを最低これだけ維持
-IDLE_WRITE_INTERVAL_SEC = 5.0       # idleを書き直すのは最短5秒ごと
+POLL_INTERVAL_SEC = 0.1
+DUPLICATE_GUARD_SEC = 10.0
+READY_HOLD_SEC = 10.0
+IDLE_WRITE_INTERVAL_SEC = 5.0
 # ======================
+
+
+BASE_DIR = Path(__file__).resolve().parent
 
 
 def now_str():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def get_gc():
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
+def _parse_key_value_text(path: Path):
+    if not path.exists():
+        return {}
+
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    out = {}
+
+    for key in ["SUPABASE_URL", "SUPABASE_KEY"]:
+        m = re.search(rf"{key}\s*[:=]\s*[\"']?([^\"'\r\n]+)", text)
+        if m:
+            out[key] = m.group(1).strip()
+
+    return out
+
+
+def load_supabase_config():
+    url = os.getenv("SUPABASE_URL", "").strip()
+    key = os.getenv("SUPABASE_KEY", "").strip()
+
+    if url and key:
+        return url, key
+
+    candidates = [
+        BASE_DIR / "supabase.txt",
+        BASE_DIR / ".streamlit" / "secrets.toml",
+        Path.home() / ".streamlit" / "secrets.toml",
     ]
-    creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=scopes)
-    return gspread.authorize(creds)
+
+    for path in candidates:
+        vals = _parse_key_value_text(path)
+        url = url or vals.get("SUPABASE_URL", "")
+        key = key or vals.get("SUPABASE_KEY", "")
+        if url and key:
+            return url, key
+
+    raise RuntimeError("SUPABASE_URL / SUPABASE_KEY が見つかりません")
 
 
-def get_ws(gc):
-    sh = gc.open_by_key(SPREADSHEET_ID)
-    return sh.worksheet(SHEET_NAME)
+def get_supabase():
+    url, key = load_supabase_config()
+    return create_client(url, key)
 
 
-def ensure_bridge_row(ws):
-    records = ws.get_all_records()
-    for idx, row in enumerate(records, start=2):
-        if str(row.get("bridge_id", "")).strip() == BRIDGE_ID:
-            return idx
+def write_status(sb, card_id="", status="idle"):
+    row = {
+        "bridge_id": BRIDGE_ID,
+        "device_name": DEVICE_NAME,
+        "card_id": str(card_id or "").strip().upper(),
+        "touched_at": now_str(),
+        "status": status,
+    }
 
-    ws.append_row([BRIDGE_ID, DEVICE_NAME, "", "", "idle"])
-    records = ws.get_all_records()
-    for idx, row in enumerate(records, start=2):
-        if str(row.get("bridge_id", "")).strip() == BRIDGE_ID:
-            return idx
+    try:
+        updated = (
+            sb.table(TABLE_NAME)
+            .update(row)
+            .eq("bridge_id", BRIDGE_ID)
+            .execute()
+        )
+        if getattr(updated, "data", None):
+            return
+    except Exception:
+        pass
 
-    raise RuntimeError("ic_reader_bridge の bridge row が作れませんでした")
-
-
-def write_status(ws, row_no, card_id="", status="idle"):
-    ws.update(
-        values=[[
-            BRIDGE_ID,
-            DEVICE_NAME,
-            str(card_id).strip().upper(),
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            status
-        ]],
-        range_name=f"A{row_no}:E{row_no}"
-    )
+    try:
+        sb.table(TABLE_NAME).insert(row).execute()
+    except Exception:
+        sb.table(TABLE_NAME).upsert(row).execute()
 
 
 def get_uid_from_first_reader():
@@ -71,11 +102,10 @@ def get_uid_from_first_reader():
     if not rlist:
         raise RuntimeError("カードリーダーが見つかりません")
 
-    r = rlist[0]
-    conn = r.createConnection()
+    reader = rlist[0]
+    conn = reader.createConnection()
     conn.connect()
 
-    # UID取得 APDU
     cmd = [0xFF, 0xCA, 0x00, 0x00, 0x00]
     data, sw1, sw2 = conn.transmit(cmd)
 
@@ -86,11 +116,9 @@ def get_uid_from_first_reader():
 
 
 def main():
-    gc = get_gc()
-    ws = get_ws(gc)
-    row_no = ensure_bridge_row(ws)
+    sb = get_supabase()
 
-    print("ICブリッジ開始")
+    print("ICブリッジ開始（Supabase）")
     print(f"bridge_id={BRIDGE_ID} device={DEVICE_NAME}")
 
     last_card_id = ""
@@ -98,8 +126,7 @@ def main():
     last_idle_write_ts = 0.0
     ready_until_ts = 0.0
 
-    # 起動時だけ初期 idle
-    write_status(ws, row_no, "", "idle")
+    write_status(sb, "", "idle")
     last_idle_write_ts = time.time()
 
     while True:
@@ -109,9 +136,7 @@ def main():
             card_id = get_uid_from_first_reader()
             card_id = str(card_id).strip().upper()
 
-            # 同じカードは10秒以内なら再送しない
             if card_id == last_card_id and (now_ts - last_card_sent_ts) < DUPLICATE_GUARD_SEC:
-                # ready維持時間中は何もしない
                 time.sleep(POLL_INTERVAL_SEC)
                 continue
 
@@ -120,24 +145,19 @@ def main():
             ready_until_ts = now_ts + READY_HOLD_SEC
 
             print(f"[{now_str()}] card_id={card_id}")
-            write_status(ws, row_no, card_id, "ready")
+            write_status(sb, card_id, "ready")
 
             time.sleep(POLL_INTERVAL_SEC)
             continue
 
         except Exception:
-            # カード未タッチや一時失敗時
-            # ただし、ready維持時間中は last_card_id を消さず、readyのまま保持
             if now_ts < ready_until_ts:
                 time.sleep(POLL_INTERVAL_SEC)
                 continue
 
-            # idleは頻繁に書きすぎない
             if (now_ts - last_idle_write_ts) >= IDLE_WRITE_INTERVAL_SEC:
                 try:
-                    # ここが重要:
-                    # card_id は空に戻さず、最後に読んだカードを残す
-                    write_status(ws, row_no, last_card_id, "idle")
+                    write_status(sb, last_card_id, "idle")
                     last_idle_write_ts = now_ts
                 except Exception:
                     pass
